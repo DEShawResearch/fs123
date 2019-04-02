@@ -1,0 +1,22 @@
+#!/bin/bash
+
+# readdir is a bit tricky - especially with 'special' files like
+# .fs123_statistics.  Exercising it in non-trivial ways is also tricky
+# - shell and python aren't really up to it - so we wrote
+# ut_seektelldir in C++.
+
+trap "1>&2 echo $0: exiting on ERR trap at line: $LINENO; exit 1" ERR
+
+ut_seektelldir $MTPT
+me=$(basename $0)
+d=$(cd $EXPORT_ROOT && mktemp -d --tmpdir=. $me.XXXXXX)
+chmod a+rx $EXPORT_ROOT/$d
+i=0
+n=100
+if [ x"${FS123_TEST_WITH_VALGRIND}" = xyes ]; then
+    n=20 # 100 takes a long time with valgrind...
+fi
+while [ $((i++)) -lt $n ]; do
+   touch $EXPORT_ROOT/$d/$i
+done
+ut_seektelldir $MTPT/$d

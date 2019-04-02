@@ -1,0 +1,20 @@
+Testing is tricky.
+
+- We need a precheckin script that we can use for gating checkins.
+  See ../precheckin
+
+- We need a script that we can run in a devel tree that doesn't
+  necessarily "clean" everything in sight before running the way
+  ../precheckin does.  See ./runtests.
+
+  runtests starts an fs123p7exportd server and a mount.fs123p7 client.
+
+- We need the actual tests.  See ./t-*
+
+The t-* tests can and should assume that some environment variables
+have been set (all of which are stored in c/runenv):
+
+EXPORT_ROOT
+MTPT
+SERVPORT
+

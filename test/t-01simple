@@ -1,0 +1,24 @@
+#!/bin/bash
+
+# See README for assumptions made by all the t-* tests
+# in this directory.
+
+die(){
+    1>&2 echo "$@"
+    exit 1
+}
+trap 'echo 1>&2 $0: Exiting on ERR trap, line: $LINENO; exit 1' ERR
+
+me=$(basename $0)
+value=hello
+f=$(cd $EXPORT_ROOT && mktemp --tmpdir=. $me.XXXXXX)
+chmod a+rx $EXPORT_ROOT/$f
+printf "%s" "$value" > $EXPORT_ROOT/$f
+[ "$(cat $MTPT/$f)" = "$value" ] || die "mismatch in $me for $f for $MTPT/$f vs $EXPORT_ROOT/$f"
+
+# Let's make sure that ls works too...
+d=$(cd $EXPORT_ROOT && mktemp --directory --tmpdir=. $me.XXXXXX)
+chmod a+rx $EXPORT_ROOT/$d
+(cd $EXPORT_ROOT/$d; touch a b c)
+[ "$(ls $MTPT/$d | sort )" = "$(printf "a\nb\nc")" ] || die "output of ls doesn't look right"
+

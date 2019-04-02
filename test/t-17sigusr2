@@ -1,0 +1,15 @@
+#!/bin/sh
+
+set -e
+trap 'echo 1>&2 $0: Exiting on ERR trap, line: $LINENO; exit 1' EXIT
+set -x
+
+clientpid=$(awk '/pid:/{print $2}' $MTPT/.fs123_config)
+echo s > $MTroot/cmdpipe.$clientpid
+# look in the log file?  MTroot/fs123.err
+
+# make sure we're still running...
+ls -l $MTPT
+
+trap - EXIT
+exit 0

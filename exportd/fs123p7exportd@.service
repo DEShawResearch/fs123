@@ -1,0 +1,21 @@
+# This is a template unit file which can be enabled by
+#    systemctl enable fs123p7exportd@foobar
+#    systemctl start fs123p7exportd@foobar
+# where foobar is a fs123p7exportd flags file at
+# /etc/fs123p7exportd/foobar.gflags
+[Unit]
+Description=fs123p7exportd %i
+After=network.target network-online.target
+Requires=network.target network-online.target
+
+[Service]
+User=root
+Type=simple
+Restart=on-failure
+WorkingDirectory=/
+ExecStart=/usr/sbin/fs123p7exportd --flagfile /etc/fs123p7exportd/%i.gflags
+LimitNOFILE=65536
+LimitCORE=16G
+
+[Install]
+WantedBy=multi-user.target

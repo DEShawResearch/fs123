@@ -1,0 +1,6 @@
+STATISTIC(inval_entry_successes)
+STATISTIC(inval_entry_noents)
+STATISTIC(inval_entry_fails)
+STATISTIC(inval_inode_successes)
+STATISTIC(inval_inode_noents)
+STATISTIC(inval_inode_fails)

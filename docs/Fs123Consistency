@@ -1,0 +1,317 @@
+Fs123 offers neither "close-to-open" consistency (like NFS) nor
+"write-to-read" consistency (like POSIX).  So what does it offer?
+
+A "consistency model" defines the precise conditions under which the
+contents of the filesystem "looks the same" from different locations.
+Fs123 is a read-only filesystem, so, from the client-side only six
+system-calls are interesting: three path-operations: open, stat and
+readlink, and three file-descriptor operations: fstat, read and
+getdents.  Server-side processes can, of course, change the filesystem
+using system calls including open and write, but also mkdir, unlink,
+symlink, link, rename, chown, chmod, utime, etc.  The Fs123 consistency
+model defines the conditions under which such server-side
+modifications are visible to clients.  A client-side system call is
+"consistent" if it returns results (including failures and error
+conditions) that are identical to those that would be returned by an
+analogous system call on the server.
+
+Every server-side modification to the filesystem has an associated
+"settled time", i.e., a wallclock time after which all clients are
+guaranteed to see the results of the change.  Note that the settled
+time is a function of the wall-clock time, the path, and the history
+of details of the server's cache-control configuration (see
+Fs123CacheControl for details of the current implementation).  Two
+paths may (and often do) have very different settled times.  See below
+for the precise definition of a path's settled time.
+
+If a path to a symlink is readlinked or if any path is opened or
+stat-ed on the client after the settled time of the last modification
+of the path, then the data returned by readlink or stat will be
+consistent with the server.
+
+If a path to a regular file or a directory is opened on the client
+after the settled time of the last modification of the path, then all
+reads and getdents performed with that file descriptor until
+the server next modifies the path will be consistent with server.
+
+However, fstats *may be inconsistent with the server*.  Fstat on an
+fs123 file descriptor is exactly equivalent to stat of the path that
+was opened to obtain the file descriptor.  In certain cases involving
+unlink and rename, Unix semantics on the server require different
+results for stat and fstat.  In such cases, the fs123 fstat will be
+inconsistent with an analogous call on the server.
+
+If the above conditions are not met, then the data returned by
+a client-side system call *MAY* be inconsistent with an analogous
+system call made on the server.  The possible inconsistencies are
+limited as follows:
+
+If the next path-modifying server-side change following a settled
+client-side fd=open(path) is either unlink(path) or rename(..., path),
+then if the path was a directory, all subsequent getdents using fd
+will be consistent.  If the path was a regular file, all subsequent
+reads using fd will either be consistent or they will fail with
+errno=ESTALE.  They will never successfully return inconsistent data.
+Note that the consistency guarantee holds even if the server goes on
+to make modifications to a new object with the same path.  Such
+modifications would not be visible to server-side reads or getdents, and
+they will not be visible to client-side reads or getdents.  On the
+other hand, unpredictable and potentially inconsistent client-side
+behavior will result if the next server-side change is something other
+than unlink or rename, e.g., if the server does a write or a chmod
+or a mkdir while the client holds an open file descriptor.
+
+These rules are quite strong.  In some ways, they're stronger than the
+NFS close-to-open consistency rules - fs123 does not require the
+server to 'close' the file before changes are visible to clients.
+Just as with NFS, server-side writes that occur after a client-side
+open may result in inconsistencies.  And just as with NFS, there are
+subtle issues regarding ESTALE.  Consider this sequence, which is
+assumed to begin after the last modification of "foo" has settled:
+
+Server:                  Client:
+
+                           rfd=open("foo")
+unlink("foo");
+wfd=open("foo", O_WRONLY)
+write(wfd,...)
+                           read(rfd, ...)
+
+The unlink on the server modified the path "foo", and according to the
+rules above, consistency is not guaranteed for any client-side read
+after the unlink.  This may come as a great surprise to programs that
+expect Unix filesystem semantics.  In Unix (and Linux), the open call
+on the client associates the file descriptor, rfd, with the inode
+associated with the name "foo".  A subsequent rename or unlink of the
+name "foo" has no effect on the inode previously associated with foo
+and now associated with rfd.  A Unix client's open file descriptor
+would be oblivious to changes made to the new file named "foo", e.g.,
+the server-side write(wfd).  It would only sees changes made to the
+original "foo"'s inode.
+
+The Fs123 unlink/rename ESTALE guarantee is very similar to NFS.  It
+doesn't eliminate the surprise, but it mitigates the impact.
+Client-side programs may get ESTALE from system calls that would not
+fail under normal Unix semantics, but they will never see successful
+system calls return data that is inconsistent with normal Unix
+semantics.  In the example, the client-side read(rfd) is guaranteed to
+either return data consistent with an analogous server-side system
+call, or to fail with ESTALE.
+
+Settled time
+------------
+
+Here is the formal definition of a path's "settled time":
+
+At any instant in time, t, the server-side cache-control database defines:
+
+   max_age(path, t)
+and
+   stale_while_revalidate(path, t)
+
+for every possible path (existant or not).  (See Fs123CacheControl for
+details of how max_age and stale_while_revalidate are determined in
+the current implementation.)
+
+For any instant in time, t, define the "expiration time" of a path
+(existant or not) as:
+
+  expiration(path, t) = t + max_age(path, t) + stale_while_revalidate(path, t)
+
+Note that the http protocol allows caches to serve 'stale' data when
+objects are older than 'Cache-control:max-age', but not more than
+'Cache-control::stale-while-revalidate' seconds older.  For the purposes
+of consistency the oldest possible data is what matters, so the
+expiration time includes the sum of max_age and stale_while_revalidate.
+
+The 'settled time' of a path is defined as:
+
+  settled(path, t) = max_{t' < t} expiration(path, t')
+
+Notice that t1>t2 implies settled(path, t1) >= settled(path, t2).
+
+Now consider a client-side, path-oriented system call, i.e., open, stat
+or readlink, at time: t_path.
+
+Let t_mod be the time of the last server-side modification prior to
+t_path.  If the path was never modified prior to t_path, then t_mod is
+undefined.
+
+The fs123 consistency guarantee for stat, open and readlink is:
+
+if undefined(t_mod) || t_path > settled(path, t_mod)
+
+then the open, stat or readlink is consistent with an analogous system
+call on the server.  Note that consistency applies to failed as well
+as successful operations.  For example, if an operation on the server
+would fail with errno=ENOENT, then a consistent operation on the
+client must do the same.
+
+As mentioned above, fstat may be inconsistent.  For other operations
+on open file descriptors, i.e., read and getdents, consistency depends
+on both t_open, the time that open returned the file descriptor and
+t_read, the time of the read (or getdents) system call.  Consistency
+also depends on the time, t_next of the next server-side modification
+of the file after t_open.  If there is no subsequent modification,
+then t_next = infinity.
+
+The fs123 consistency guarantee for read and getdents on open file
+descriptors is:
+
+if ((undefined(t_mod) || t_open > settled(path, t_mod))
+   &&
+   t_read < t_next
+
+
+then the read/getdents is consistent.  I.e., the data returned by
+the read/getdents is identical to what would be returned by an
+equivalent read/getdents on the server at the same time.
+
+Conversely, if either of the conditions fails, i.e., if the path was
+"unsettled" at t_open, or if the read occurs after the next
+modification to the path, the data returned by read/getdents may not
+be identical to that returned by an analogous read/getdents on the
+server.
+
+However, if path is a "regular file" (not a directory or symlink) and
+the modification at t_next is either unlink(path) or rename(...,
+path), then the only possible inconsistency is for the client-side
+read (or ...) to return ESTALE.  In this specific case, the
+client-side read or getdents will never successfully return inconsistent
+data.
+
+
+locks
+-----
+
+By default, all attempts to lock files on fs123 fail with errno=ENOLCK.
+This is safe and correct.
+
+Unfortunately, this "breaks" applications, including sqlite.  Sqlite3
+can't access a database on an fs123 filesystem.  Even for read-only
+operations it insists on holding a shared lock.
+
+The command line option -oFs123LocalLocks=1 allows fcntl and flock
+locks to "work" on fs123.  BUT THEY ARE LOCAL TO ONE MACHINE!  Two
+processes on the same machine that attempt to flock a file on
+fs123 will behave correctly.  But they WILL BE OBLIVIOUS TO LOCKS
+HELD ON THE SERVER OR ON OTHER CLIENTS.  This allows sqlite
+to "work", at the risk of seeing corrupted data if the file
+is changed on the server.
+
+Note that use of sqlite is strongly discouraged on NFS and other
+networked filesytems.  All such caveats and warnings about using
+sqlite with NFS apply equally to any use of sqlite with fs123 and
+-oFs123LocalLocks=1.
+
+
+Implementation
+--------------
+
+The key to the consistency model is that the server sends, along with
+data and metadata an "X-Fs123-ESTALE-Cookie" header containing a
+64-bit integer with semantics similar to the NFS "generation number".
+I.e., it must be the case that the ESTALE-Cookie for a /full/path
+changes if and only if the underlying inode associated with that path
+on the remote filesystem changes.  The ESTALE-Cookie for a /full/path
+may not be reused.  How the server generates ESTALE-Cookies is
+discussed below.  Here, we simply assume that the server has a way to
+generate suitable cookies.
+
+Client-side inos are a collision-resistant (but not cryptographic)
+hash of the full path and the ESTALE-cookie.  Client-side kernel
+caching is done based on the client-side ino.  Thus, the kernel's page
+cache can't possibly be confused by changing estale-cookies.  If a
+page was associated with a /full/path, then that page can't be
+corrupted by, nor can it interfere with any other pages associated
+with different generations of the same /full/path because those other
+pages are cached with a different ino.  This means that we can set
+keep_cache=1 and direct_io=0 in the open callback, and we can always
+benefit from kernel page caches.
+
+The client callbacks, however must be prepared to deal with changing
+values of estale-cookie.  Fs123 protocol requests data and metadata
+for a /full/path from the backend.  The server can only reply with the
+data and metadata for the current file.  Proxy caches, however, may
+respond with data and metadata from files as old as the settle time.
+The estale cookie that was present at lookup() time is implicitly
+contained in the ino argument to the getattr, open, read, opendir and
+readdir callbacks.  When any of those callbacks get data from the
+"backend", they can compare the cookie in the backend data with that
+in their ino argument.  If they differ, they can retry the backend
+request with a 'no-cache' header, obtaining up-to-date data and an
+up-to-date cookie from the origin server.  If they still differ, the
+client knows that estale-cookie on the origin server differs from the
+estale-cookie that was cached when lookup was called.  The callbacks
+act on this discrepancy in specific ways.
+
+First, note that the "settled time" requirement for open, opendir,
+stat and fstat means that the open, opendir or fstat- or
+stat-initiated getattr callbacks need not check for cookie
+discrepancies or return ESTALE.  The client is permitted to ignore any
+server-side replacement of the /full/path in that time window.  The
+resulting behavior is "inconsistent", but that's no different from any
+other server-side modification within that time window.
+
+The getattr callback is also called when the kernel checks EOF on
+behalf of reads and lseeks.  In such cases, the fi argument is
+non-NULL, and when it is non-NULL, the estale cookie is checked.  If
+there's a mismatch, ESTALE is returned.
+
+Similarly, in the read callback the estale cookie is checked, and if
+there's a mismatch, then ESTALE is returned.
+
+Finally, readdir does not check the estale cookie.  It's not necessary
+because the entire directory contents is retrieved once and for all in
+opendir.  The values returned by getdents are always exactly the same
+as those that would be returned on the server.
+
+
+ESTALE consistency
+------------------
+
+The consistency model "guarantees" that clients will return ESTALE
+rather than mixing data from different inodes.  In order to meet that
+guarantee, the server-side exporter must provide a fs123-estalecookie
+containing a string that has the property that if it is unchanged
+between two requests for the same file, then the data in the reply
+came from the same inode.
+
+There are several plausible ways to set fs123-estalecookie:
+ - ioctl(..., FS_IOC_GETVERSION, ...).  When it works, this
+   has exactly the right semantics.  It exists to
+   provide 'generation' numbers to NFS servers and that's
+   pretty much what we're doing.  Unfortunately, it has
+   some down-sides:
+    o it only works on some filesystems (extN and XFS, but
+      not NFS.  Others??)
+    o it isn't propagated by rsync.  So it's hard to have
+      redundant servers using this technique.  It might
+      not be *that* hard to patch rsync to propagate it,
+      though.  There is an ioctl(..., FS_IOC_SETVERSION,...)
+      that works on extN (but not on XFS, even though
+      GETVERSION works on XFS) so we *might* be able to
+      keep it synced if the destination fs is extN.
+- fgetxattr(fd, "user.fs123.estalecookie", ...)
+    This relies on someone else to set the value.  "Someone
+    else" might be the file's creator, or a cron job that
+    walks the EXPORT_ROOT on the server from time to time.
+    The "setter" could reasonably set the value to gettimeofday
+    The advantage is that 'rsync -X' can propagate it,
+    keeping it sync'ed among multiple redundant origin servers.
+    "Someone else" could even be the fs123 process itself,
+    if it finds the value unset.  If rsync -X is also being
+    used, then only exporters on the source of the rsyncs may
+    use fsetxattr.
+
+- sb.st_ino This is what we used through 1.2.  It almost works but it
+    falls short of satisfying our requirements because filesystems
+    (ext4, at least) are perfectly happy to reuse inodes!  This is not
+    just a theoretical concern.  Interleave a few unlinks and creats,
+    and there's good chance that you'll see some st_inos get reused.
+    In general, it cannot be synchronized between redundant or cloned
+    servers.
+
+- 0 - The special value 0 means:  "relax.  Don't check for ESTALE".
+    This can be useful as a fallback when fgetxattr fails, but the
+    server expects "someone else" to (eventually?) set the attribute.

@@ -1,0 +1,53 @@
+#!/bin/bash
+
+echo 1>&2 $0:  FIXME - This test does not currently work with the libevent server.
+exit 1
+
+trap "1>&2 echo $0: exiting on ERR trap at line: \$LINENO; exit 1" ERR
+
+set -x
+
+me=$(basename $0)
+value=hello
+f=$(cd $EXPORT_ROOT && mktemp --tmpdir=. $me.XXXXXX)
+chmod a+rx $EXPORT_ROOT/$f
+printf "%s" "$value" > $EXPORT_ROOT/$f
+printf "%s" "$value.1" > $EXPORT_ROOT/$f.1
+printf "%s" "$value.2" > $EXPORT_ROOT/$f.2
+
+
+# request something
+curl -f --head http://localhost:$SERVPORT/t2/fs123/7/f/$f\?128\;0
+# and then request from the // url, which has trigger=1.
+# This fails if our server process doesn't properly keep track of the trigger
+# value keyed by --export_root
+curl -f --head http://localhost:$SERVPORT/t1/fs123/7/f/$f\?128\;0
+
+# Now things get very fiddly.  Prior to 1.2, the fcgi server was
+# unaware that FS123_CACHE_CONTROL might change from one request
+# to the next, and it therefore made incorrect assumptions about
+# how to look for changes.  It wasn't necessarily wrong, but it
+# did a lot more rescans than it had to.  Testing it is tricky
+# because the only indication that something "wrong" is happening
+# is in the chatter sent to FCGI_stderr.
+#
+# At this point, each of cachecontrol.crf1 and cachecontrol.crf2 have
+# been scanned.
+$(grep -c "$cache_control has changed" $diag_file)
+
+# Let's make a few more requests
+curl -f --head http://localhost:$SERVPORT/t1/fs123/7/r/$f\?128\;0
+curl -f --head http://localhost:$SERVPORT/t1/fs123/7/r/$f.1\?128\;0
+curl -f --head http://localhost:$SERVPORT/t1/fs123/7/r/$f.2\?128\;0
+
+# we shouldn't have rescanned the cache-control files, so:
+$(grep -c "$cache_control has changed" $diag_file)
+
+# Now touch cache_control
+sleep 1
+touch $cache_control
+curl -f --head http://localhost:$SERVPORT/t1/fs123/7/r/$f\?128\;0
+$(grep -c "$cache_control has changed" $diag_file)
+
+curl -f --head http://localhost:$SERVPORT/t2/fs123/7/r/$f\?128\;0
+$(grep -c "$cache_control has changed" $diag_file)

@@ -1,0 +1,124 @@
+#!/bin/bash
+#
+# fs123p7exportd - filesystem export daemon for the fs123 protocol=7 clients
+#
+# chkconfig:   - 90 10
+# description: start fs123p7exportd for one exportroot.
+
+# Borrowed heavily from:  http://fedoraproject.org/wiki/EPEL:SysVInitScript
+# And modified to use LSB init-functions for more portability
+
+### BEGIN INIT INFO
+# Provides:
+# Required-Start:
+# Required-Stop:
+# Should-Start:
+# Should-Stop:
+# Default-Start:
+# Default-Stop:
+# Short-Description:  start fs123p7exportd for one exportroot
+# Description: start fs123p7exportd for one exportroot
+### END INIT INFO
+
+# Source function library.
+. ${LSB_INIT_FUNCTIONS-/lib/lsb/init-functions}
+
+prog="fs123p7exportd"
+# N.B.  Add RCroot in front of generic paths.  This is definitely not
+# standard practice.  But it allows us to reuse this script as
+# non-root, somewhere other than /etc.  E.g., in the
+# test/server-side/run script
+: ${RCroot=}
+exec="$RCroot/sbin/$prog"
+
+# N.B. - the fs123p7exportd daemon is one-process/one-export-root/one-configuration.
+# If you want to export more than one directory, then do the following:
+#  copy this file to /etc/init.d/SomethingElse (no editing required)
+#  cd  /etc/fs123p7exportd
+#  cp fs123p7exportd.gflags SomethingElse.gflags
+#  edit SomethingElse.gflags appropriately
+rcname=${0##*/} # e.g., fs123p7exportd (or SomethingElse)
+
+#  edit the copy to set config on the next line
+config="$RCroot/etc/sysconfig/$rcname"
+
+[ -e $config ] && . $config
+
+lockfile=$RCroot/var/lock/subsys/$rcname
+pidfile=$RCroot/var/run/$rcname
+
+flagfile=$RCroot/etc/$prog/${rcname}.gflags
+
+start() {
+    [ -x $exec ] || exit 5
+    #[ -f $config ] || exit 6
+    [ -f $flagfile ] || exit 6
+    echo -n $"Starting $rcname: "
+    # if not running, start it up here, usually something like "daemon $exec"
+    start_daemon -p $pidfile $exec --daemonize --pidfile=$pidfile --flagfile "$flagfile" >/dev/null 2>&1
+    retval=$?
+    if [ $retval -eq 0 ]; then
+	touch $lockfile
+	log_success_msg ""
+    else
+	log_failure_msg "exit status $retval"
+    fi
+    return $retval
+}
+
+stop() {
+    echo -n $"Stopping $rcname: "
+    # stop it here, often "killproc $prog"
+    killproc -p $pidfile $rcname
+    retval=$?
+    if [ $retval -eq 0 ]; then
+	log_success_msg ""
+	rm -f $lockfile
+    else
+        log_failure_msg "exit status $retval"
+    fi
+    return $retval
+}
+
+restart() {
+    stop
+    start
+}
+
+status() {
+    # run checks to determine if the service is running or use generic status
+    status=0
+    pidofproc -p $pidfile $rcname > /dev/null || status="$?"
+    case "$status"  in
+    0) log_success_msg "$rcname is running";;
+    4) log_failure_msg "could not access pidfile for $rcname";;
+    *) log_failure_msg "$rcname is not running";;
+    esac
+    return $status
+}
+
+status_q() {
+    status >/dev/null 2>&1
+}
+
+
+case "$1" in
+    start|stop|status|restart)
+        $1
+        ;;
+    reload|force-reload)
+	restart
+        ;;
+    condrestart|try-restart)
+	# only restart if running, else leave alone.
+        status_q || exit 0
+        restart
+        ;;
+    pid)# useful for testing
+	pidofproc -p $pidfile $rcname
+	;;
+    *)
+        echo $"Usage: $0 {start|stop|status|restart|condrestart|try-restart|reload|force-reload|pid}"
+        exit 2
+esac
+exit $?

@@ -1,0 +1,7 @@
+obj/
+obj-*/
+*.core
+vgcore.*
+*~
+*.tar.gz
+*.pyc

@@ -1,0 +1,119 @@
+// stats_builder: lightweight, thread-safe, fine-grained
+// statistics-gathering
+//
+// NOTE - this file is very weird.  It must be #include-ed
+// in a very specific way:
+//
+// #include <core123/stats.hpp>
+// ...
+// #define STATS_INCLUDE_FILENAME "myStatistics"
+// #define STATS_STRUCT_TYPENAME my_stats_t
+// #include <core123/stats_struct_builder>  // this file
+//
+// This file defines a struct of type 'some_type_t'
+// *in the scope at which the #include is written*.
+//
+// To use this weirdness, create a file (e.g. MyStatistics) in which
+// each line is an invocation of the STATISTIC, STATISTIC_NANOTIMER, or 
+// STATISTIC_COUNTED_NANOTIMER macros, all take one argument which is
+// the name of the member used for that statistic.
+// e.g.
+//  STATISTIC(nrecs)
+//  STATISTIC(nbytes)
+//  STATISTIC_NANOTIMER(calctime)
+//  STATISTIC_COUNTED_NANOTIMER(functime)
+// will define two ordinary counters (which will be atomic long long)
+// called nrecs and nbytes respectively, an atomic scoped nanotimer called calctime
+// and a pair of counter, nanotimer called functime_cnt and functime_sec.
+// 
+// Then, in any file where you have code that will update these statistics,
+// include <core123/stats.hpp> normally amongst your headers,
+// and in an anon namespace, include the the statistics file as follows:
+//
+//   #include <core123/stats.hpp>
+
+//   #define STATS_INCLUDE_FILENAME "MyStatistics"
+//   #define STATS_STRUCT_TYPENAME mystats_t
+//   #include <core123/stats_builder>
+//
+// declare an instance of mystats_t, e.g. (you'll need a definition somewhere,
+// e.g., in main),
+//
+//   extern mystats_t stats;
+//
+// Now you can use the elements in stats as accumulators (or other forms) e.g.
+// stats.nrecs++;
+// stats.nbytes += n;
+// {
+//   atomic_scoped_nanotimer _t(&stats.calctime);
+//   ...
+// }
+// {
+//   STATS_COUNTED_NANOTIMER(stats, functime);
+//   ...
+// }
+//
+// Finally, you can "print" the stats with operator<<:
+//
+// os << stats;  // report the stats to an ostream
+//
+// In your build infrastructure, make sure that
+// -iquote <directory containing MyStatisics>
+// is in CPPFLAGS.
+//   
+// 
+// The formatted ostream output of stats will be something like:
+//  nrecs: 19
+//  nbytes: 1234
+//  calctime:  0.003276542
+//  functime_cnt:  77
+//  functime_sec: 0.135726897
+//
+// The functime line means that about 3.27 msec was spent in scopes
+// that contained atomic_scoped_nanotimers that recorded to stats.calctime.
+// The last two lines mean that scopes that invoked 
+// STATS_COUNTED_NANOTIMER(stats, functime) were entered
+// 77 times, and about 135msec of elapsed time was spent in them.
+//
+// Notes:
+//
+//  - thread-safe!  individual statistics are atomic<long long>,
+//    so it's safe to increment them in multiple threads, and
+//    they're unlikely to overflow.
+#ifndef STATS_INCLUDE_FILENAME
+#error "STATS_INCLUDE_FILENAME must be defined before include-ing stats_struct_builder"
+#endif
+#ifndef STATS_STRUCT_TYPENAME
+#error "STATS_STRUCT_TYPENAME must be defined before include-ing stats_struct_builder"
+#endif
+
+struct STATS_STRUCT_TYPENAME : public core123::stats_t {
+#define STATISTIC(name) std::atomic<long long> name{0};
+#define STATISTIC_NANOTIMER(name) STATISTIC(name)
+#define STATISTIC_COUNTED_NANOTIMER(name) STATISTIC(name##_cnt) STATISTIC_NANOTIMER(name##_sec)
+#include STATS_INCLUDE_FILENAME
+#undef STATISTIC
+#undef STATISTIC_NANOTIMER
+
+    std::ostream& osput(std::ostream& os) const override {
+#define STATISTIC(name)                          \
+        os << #name <<  ": " << name << std::endl;
+#define STATISTIC_NANOTIMER(name)                                       \
+        os << #name << ": " << core123::nanos(name) << std::endl;
+#include STATS_INCLUDE_FILENAME
+#undef STATISTIC
+#undef STATISTIC_NANOTIMER
+#undef STATISTIC_COUNTED_NANOTIMER
+
+        return os;
+    }
+};    
+
+// A helper macro that increments a counter and instantiates a scoped-nano-timer.
+#ifndef STATS_COUNTED_NANOTIMER
+# define STATS_COUNTED_NANOTIMER(st, name) core123::atomic_scoped_nanotimer _##name##_asnt(&st.name##_sec); st.name##_cnt++
+#endif // STATS_COUNTED_NANOTIMER
+
+// clean up before "exit"ing
+#undef STATS_STRUCT_TYPENAME
+#undef STATS_INCLUDE_FILENAME

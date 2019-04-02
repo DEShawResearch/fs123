@@ -1,0 +1,5 @@
+STATISTIC(cc_rules_successful_opens)
+STATISTIC(cc_rules_enoents)
+STATISTIC(cc_rules_enotdirs)
+STATISTIC_NANOTIMER(cc_rules_json_parse_sec)
+STATISTIC_NANOTIMER(cc_rules_get_cc_sec)

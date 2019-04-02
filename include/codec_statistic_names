@@ -1,0 +1,8 @@
+STATISTIC(secretbox_blocks_decrypted)
+STATISTIC(secretbox_bytes_decrypted)
+STATISTIC_NANOTIMER(secretbox_decrypt_sec)
+STATISTIC(secretbox_auth_failures)
+STATISTIC(secretbox_blocks_encrypted)
+STATISTIC(secretbox_bytes_encrypted)
+STATISTIC_NANOTIMER(secretbox_encrypt_sec)
+STATISTIC(secretbox_disappearing_secrets)

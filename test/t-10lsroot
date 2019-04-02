@@ -1,0 +1,44 @@
+#!/bin/bash
+
+die(){
+    1>&2 echo "$@"
+    exit 1
+}
+trap 'echo 1>&2 $0: Exiting on ERR trap, line: $LINENO; exit 1' ERR
+
+# In 7.8 we fixed a bug that caused ls in the root
+# directory to hang if there were just the right number
+# of files in the directory.  It was a botched counter
+# on the '.fs123_xxx' files, so it only affected the
+# root.
+
+# DANGER -- when the bug is present, this script just hangs
+# somewhere between ls-ing 110 and 130 files
+
+Lo=110
+Hi=115
+i=0
+echo WARNING -- when the bug is present, this script just hangs
+while [ $i -lt $Lo ]; do
+    touch $EXPORT_ROOT/$i
+    : $((i++))
+done
+echo touched $Lo files.  
+set -x
+while [ $i -lt $Hi ]; do
+    touch $EXPORT_ROOT/$i
+    : $((i++))
+    sleep 7
+    ls $MTPT | wc -l
+done
+        
+echo Cleaning up...
+
+i=0
+while [ $i -lt $Hi  ]; do
+    rm $EXPORT_ROOT/$i
+    : $((i++))
+done
+sleep 7
+echo This should be what we started with...
+ls $MTPT

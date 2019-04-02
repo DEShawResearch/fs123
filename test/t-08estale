@@ -1,0 +1,72 @@
+#!/usr/bin/python
+# Try to generate some estales using carefully
+# choreographed calls to python os-level functions.
+#
+# Assumptions:
+# - MTPT and EXPORT_ROOT set properly in environment
+# - Fs123ChunkSize = 131072
+# - we're running the client with a diskcache
+
+import os,sys
+import tempfile
+import errno
+
+EXPORT_ROOT = os.getenv('EXPORT_ROOT')
+MTPT = os.getenv('MTPT')
+
+# First, fill a file on the server-side (basefname) with 150k 'x' 
+sfd,fname = tempfile.mkstemp(dir=EXPORT_ROOT, text=True)
+os.chmod(fname, 0o644)
+basefname = os.path.basename(fname)
+os.write(sfd, 'x' * 150000)
+
+# Open the file on client side
+cfd = os.open(os.path.join(MTPT, basefname), os.O_RDONLY)
+xbytes = os.read(cfd, 4096)
+# Check that the first few bytes are as expected
+assert xbytes == 'x' * 4096
+
+# Now replace the server-side file with a completely new ino
+#  containing 160k letter y.
+sfd2,fname2 = tempfile.mkstemp(dir=EXPORT_ROOT, text=True)
+os.write(sfd2, 'y'* 160000)
+os.close(sfd2)
+os.rename(fname2, fname)
+
+# read again from client-side.  In the vast majority of cases, we
+# should still see the original xxx contents.
+
+# N.B.  If we get an ESTALE here, it's *NOT* an error.  Fs123 is
+# permitted to give us an ESTALE here. But it is surprising enough
+# that we should investigate before deciding to let it pass...
+try:
+    xbytes = os.read(cfd, 4096)
+    assert xbytes == 'x' * 4096
+
+    # Read some bytes from just short of the chunk boundary.
+    # They should still be in disk-cache.
+    os.lseek(cfd, 131072 - 10, os.SEEK_SET)
+    xbytes = os.read(cfd, 10)
+    assert xbytes == 'x' * 10
+except OSError as e:
+    if e.errno != errno.ESTALE:
+        raise
+    print >>sys.stderr, "caught an early ESTALE while still in the first block"
+    exit(0);
+
+# Now try to read the next chunk.  Expect an
+# estale.  Note that it would be perfectly legal
+# for fs123 to give us more 'xxx'.  But that too
+# is unexpected, so we call it an error until we
+# actually see it in practice.
+caught = False
+try:
+    os.read(cfd, 1)
+except OSError as e: # python 2.6 and above
+    print "expecting an ESTALE.  Got: ", e
+    assert e.errno == errno.ESTALE
+    caught = True
+
+assert caught
+
+exit(0)

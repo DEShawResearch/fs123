@@ -1,0 +1,116 @@
+#!/usr/bin/python2
+
+#### This test is most reliable if the client is run under valgrind.
+#### See comments near drh.close(rfd1) around line 96.
+#### FIXME - we really need a way to run the client under valgrind
+#### as part of our regression testing!!
+
+import os, sys
+import tempfile
+import errno
+import time
+import dualroot
+# Try to test "write-to-read" semantics.  This
+# entails modifying files on the server and
+# verifying that the modifications show up in
+# a timely manner on the client.
+#
+EXPORT_ROOT = os.getenv('EXPORT_ROOT')
+MTPT = os.getenv('MTPT')
+
+opj = os.path.join
+wdname = tempfile.mkdtemp(prefix='t-09w2r', dir=EXPORT_ROOT)
+os.chmod(wdname, 0O755)
+basedname = os.path.basename(wdname)
+drh = dualroot.Hndl(opj(MTPT,basedname), opj(EXPORT_ROOT,basedname))
+
+# create '0001' on the server
+wfname = opj(wdname, '0001')
+wfname2 = opj(wdname, '0002')
+wfname3 = opj(wdname, '0003')
+wfd = os.open(wfname, os.O_RDWR|os.O_CREAT, 0O644)
+os.write(wfd, '0001')
+
+wfd2 = os.open(wfname2, os.O_RDWR|os.O_CREAT, 0O644)
+os.write(wfd2, '0002')
+os.close(wfd2)
+
+wfd3 = os.open(wfname3, os.O_RDWR|os.O_CREAT, 0O644)
+os.write(wfd3, '0003')
+os.close(wfd3)
+
+rfd1 = drh.open('0001', 0)
+txt1 = drh.read(rfd1, 4)
+print >>sys.stderr, "first read ok"
+
+# Modify the server-side
+os.lseek(wfd, 0, 0)
+os.write(wfd, '0002')
+
+print >>sys.stderr, "modified server side.  wait for settle time"
+# Wait till it settles
+time.sleep(7) # stale_while_revalidate_short is 5
+# rewind and read
+drh.lseek(rfd1, 0, 0)
+txt2 = drh.read(rfd1, 4)
+print >>sys.stderr, "modified contents retrieved"
+
+# Modify again on the server side
+os.lseek(wfd, 0, 0)
+os.write(wfd, '0003')
+
+# More client-side checks:
+# open before it settles
+rfd2 = drh.open('0001', 0)
+print >>sys.stderr, "contents modified again.  wait for settle time"
+time.sleep(7)
+# read after settled
+txt3 = drh.read(rfd2, 2)
+txt4 = drh.read(rfd2, 4)
+print txt3
+print txt4
+print >>sys.stderr, "retrieved correctly from fd2"
+
+# rewind/reread rfd1, which has been open the whole  time
+drh.lseek(rfd1, 0, 0)
+txt5 = drh.read(rfd1, 4)
+print txt5
+print >> sys.stderr, "retrieved correctly from fd1"
+
+# Now unlink the file on the server.  Trying to read
+# should give us an ESTALE.  Closing it should *not*
+# segfault the fuse daemon!
+time.sleep(1)
+os.rename(wfname2, wfname)
+time.sleep(5)
+drh.lseek(rfd1, 0, 0)
+try:
+    txt6 = drh.read(rfd1, 4)  # expect ESTALE
+    print "Expected to see ESTALE:  ", txt6
+except dualroot.MismatchException as e:
+    print "Ignored expected MismatchException (second result should be ESTALE): ", e
+    
+# Before we fixed the buggy ofpq.erase, closing
+# the fd would make an illegal access.  SEGV was
+# possible but not guaranteed.  Valgrind noticed
+# it, so the best way to run this test is with
+# the client run under valgrind.
+drh.close(rfd1) # this crashed a buggy client
+# if the bug is fixed, we should be able to
+# open another file:
+rfd1 = drh.open('0003', 0)
+txt7 = drh.read(rfd1, 4)
+drh.close(rfd1)
+print """This test is only really convincing under valgrind.  The bug that
+was fixed was an illegal memory reference, which might not exhibit any
+misbehavior at all unless one watches very carefully"""
+
+# Try to stat/unlink/open.  Before a bug was fixed, this caused the
+# client to reply twice to the same request which resulted in a libfuse SEGV.
+drh.stat('0003')
+os.unlink(wfname3)
+time.sleep(7) # assume max-age-short=3, s-w-r-short=3 on server side
+rfd3 = drh.open('0003', 0) # should fail ENOENT
+
+exit(0)
+

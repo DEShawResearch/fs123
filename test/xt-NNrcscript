@@ -1,0 +1,81 @@
+#!/bin/bash
+
+###  FIXME - this used to be in the top-level runtests.  But
+### it doesn't belong there.  It's just another subsystem test...
+
+pid=$($rc pid || true)
+case "$pid" in 
+'') echo "good, no pid before tests start";;
+*) echo "ERROR got pid $pid from rc before start!" >&2; exit 1;;
+esac
+
+echo "expect FAILED from trying to stop non-existent server before start" >&2
+$rc stop || true
+pid=$($rc pid || true)
+case "$pid" in 
+'') echo "good, still no pid before tests start";;
+*) echo "ERROR got pid $pid from rc on stop before start!" >&2; exit 1;;
+esac
+
+# should not restart since not yet running!
+$rc condrestart
+pid=$($rc pid || true)
+case "$pid" in 
+'') echo "good, no pid from initial condrestart, should have seen FAILED status";;
+*) echo "ERROR got pid $pid from rc after condstart!" >&2; exit 1;;
+esac
+
+echo "Expect FAILED status before server is started"
+$rc start
+
+# sleep?  The fact that we need it probably indicates a conceptual
+# error.  We need it because the backgrounded job allows this
+# shell to progress long before the server has actually started.
+sleep 1
+
+n=0
+while ! $rc status; do
+	echo "hmm, got a FAILED waiting for server to start, will retry..."
+	if [ $n -ge 20 ]; then
+		echo "$0: giving up on server start after $n tries at $(date +'%Y%m%d %H:%M:%S')" >&2
+		exit 1
+	fi
+	sleep 5
+done
+
+pid=$($rc pid)
+case "$pid" in 
+'') echo "ERROR got no pid from rc after start!" >&2; exit 1;;
+*) echo "server pid is $pid";;
+esac
+
+# should not restart, should stay running with same pid
+$rc start
+
+npid=$($rc pid)
+case "$npid" in 
+'') echo "ERROR got no pid from rc after second start attempt!" >&2; exit 1;;
+$pid) echo "good, second start kept pid $pid the same (npid $npid)";;
+*) echo "ERROR got npid $npid and old pid $pid from rc after second start attempt!" >&2; exit 1;;
+esac
+
+# check that all the darn spellings of restart produce new pid!
+for op in restart condrestart try-restart reload force-reload;
+do
+	$rc $op
+	npid=$($rc pid)
+	case "$npid" in 
+	'') echo "ERROR got no pid from rc after $op!" >&2; exit 1;;
+	$pid) echo "ERROR got same pid $npid = $pid from rc after $op" >&2; exit 1;;
+	*) echo "good, $op got new pid $npid != original pid $pid";;
+	esac
+	sleep 1
+done
+
+$rc status
+
+echo Done with rc tests at $(date +'%Y%m%d %H:%M:%S')
+
+# Now let's do a clean start, with a fresh diag file...
+$rc stop
+

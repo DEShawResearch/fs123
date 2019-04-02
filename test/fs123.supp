@@ -1,0 +1,204 @@
+# Usage:  valgrind --tool=??? --suppressions=<this_file> mount.fs123 
+#  suppresses complaints that we're pretty sure aren't actually
+#  errors, or aren't under our control.
+{
+   emergency_exception_handler
+   # May eventually be fixed in gcc7.  See:
+   #  https://gcc.gnu.org/bugzilla/show_bug.cgi?id=65434#c9
+   #  https://gcc.gnu.org/ml/gcc-patches/2016-12/msg01158.html
+   Memcheck:Leak
+   fun:malloc
+   fun:_GLOBAL__sub_I_eh_alloc.cc
+   fun:__libc_csu_init
+   fun:(below main)
+}
+
+{
+   gperftools-2.4-tcmallocguard
+   Memcheck:Free
+   fun:_ZdaPv
+   fun:_ZN13TCMallocGuardC1Ev
+...
+   fun:_GLOBAL__sub_I___malloc_hook
+   fun:__libc_csu_init
+   fun:(below main)
+}
+
+# Icc generates *lots* of complaints.  There may well be something
+# wrong.  Even if we suppress these, we get lots of "conditional jump
+# or mmove depends on uninitialized values", which suggests that Intel
+# has done something too-clever-by-half.
+#{
+#  icc_problem_in_strlen
+#   Memcheck:Addr8
+#   fun:__intel_sse2_strlen
+#}
+#
+#{
+#  icc_problem_strlen_2
+#   Memcheck:Cond
+#   fun:__intel_sse2_strlen
+#}
+
+{
+   vsyslog-not-my-problem
+   # helgrind reports a data race between various things in libfuse
+   # and __vsyslog_chk.  But the stack trace we can match suppression
+   # against is the one in fuse, which can be in several locations,
+   # and not the one in vsyslog.   This may be too-big a hammer...
+   Helgrind:Race
+   obj:/lib64/libfuse.so.2.8.3
+   ...
+}
+
+{
+   Curl_getaddrinfo-not-my-problem
+   Helgrind:Race
+   ...
+   fun:Curl_getaddrinfo_ex
+   ...
+}
+
+{
+   Curl_getaddrinfo-not-my-problem-drd
+   drd:ConflictingAccess
+   ...
+   fun:Curl_getaddrinfo_ex
+   ...
+}
+
+{
+   libunwind-surely-this-is-ok
+   Helgrind:Race
+   ...
+   fun:_Unwind_RaiseException
+   fun:__cxa_throw
+   ...
+}
+
+{
+   libunwind-surely-this-is-ok2
+   Helgrind:Race
+   ...
+   fun:_Unwind_Resume
+   ...
+}
+
+{
+   libunwind-surely-this-is-ok3
+   Helgrind:Race
+   fun:_Unwind_SetGR
+   fun:__gxx_personality_v0
+   ...
+}
+{
+   Cxx11_future_get_1
+   Helgrind:Race
+   fun:_ZNKSt10unique_ptrINSt13__future_base12_Result_baseENS1_8_DeleterEE3getEv
+   fun:_ZNKSt10unique_ptrINSt13__future_base12_Result_baseENS1_8_DeleterEEdeEv
+   fun:_ZNSt13__future_base13_State_baseV24waitEv
+   fun:_ZNKSt14__basic_futureIiE13_M_get_resultEv
+   fun:_ZNSt6futureIiE3getEv
+   fun:main
+}
+{
+   Cxx11_future_get_2
+   Helgrind:Race
+   fun:_ZNSt6futureIiE3getEv
+   fun:main
+}
+
+{
+   tcmalloc_race_1
+   Helgrind:Race
+   fun:_ZN8tcmalloc15CentralFreeList11RemoveRangeEPPvS2_i
+   fun:_ZN8tcmalloc11ThreadCache21FetchFromCentralCacheEmm
+   ...
+#   fun:_ZN123_GLOBAL__N__ZN61FLAG__namespace_do_not_use_directly_use_DECLARE_int64_instead43FLAGS_tcmalloc_large_alloc_report_thresholdE9cpp_allocEmb
+#   fun:_Znwm
+#   fun:_ZNSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EE19_M_emplace_back_auxIIRKS5_EEEvDpOT_
+#   fun:_ZNK9diskcache7do_scanEj
+#   fun:_ZN9diskcache10evict_loopEmmmfffNSt6chrono8durationIlSt5ratioILl1ELl1000EEEE
+#   fun:_ZNSt6thread5_ImplISt12_Bind_simpleIFSt7_Mem_fnIM9diskcacheFvmmmfffNSt6chrono8durationIlSt5ratioILl1ELl1000EEEEEEPS3_mmifffNS5_IlS6_ILl60ELl1EEEEEEE6_M_runEv
+#   fun:execute_native_thread_routine
+#   fun:mythread_wrapper
+#   fun:start_thread
+#   fun:clone
+}
+
+{
+   tcmalloc_race_2
+   Helgrind:Race
+   fun:_ZN8tcmalloc15CentralFreeList14FetchFromSpansEv
+   fun:_ZN8tcmalloc15CentralFreeList18FetchFromSpansSafeEv
+   fun:_ZN8tcmalloc15CentralFreeList11RemoveRangeEPPvS2_i
+   ...
+   fun:_ZN8tcmalloc11ThreadCache21FetchFromCentralCacheEmm
+#   fun:_ZN123_GLOBAL__N__ZN61FLAG__namespace_do_not_use_directly_use_DECLARE_int64_instead43FLAGS_tcmalloc_large_alloc_report_thresholdE9cpp_allocEmb
+#   fun:_Znwm
+#   fun:_ZNSt6vectorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESaIS5_EE19_M_emplace_back_auxIIRKS5_EEEvDpOT_
+#   fun:_ZNK9diskcache7do_scanEj
+#   fun:_ZN9diskcache10evict_loopEmmmfffNSt6chrono8durationIlSt5ratioILl1ELl1000EEEE
+#   fun:_ZNSt6thread5_ImplISt12_Bind_simpleIFSt7_Mem_fnIM9diskcacheFvmmmfffNSt6chrono8durationIlSt5ratioILl1ELl1000EEEEEEPS3_mmifffNS5_IlS6_ILl60ELl1EEEEEEE6_M_runEv
+#   fun:execute_native_thread_routine
+#   fun:mythread_wrapper
+}
+{
+   helgrind_doesnt_grok_futures_1
+   Helgrind:Race
+   ...
+   fun:_ZN12_GLOBAL__N_113fs123_readdirEP8fuse_reqmmlP14fuse_file_info
+   ...
+}
+{
+   helgrind_doesnt_grok_futures_2
+   Helgrind:Race
+   ...
+   fun:_ZNSt17_Function_handlerIFSt10unique_ptrINSt13__future_base12_Result_baseENS2_8_DeleterEEvENS1_12_Task_setterIS0_INS1_7_ResultIvEES3_ESt12_Bind_simpleIFSt17reference_wrapperISt8functionIFvvEEEvEEvEEE9_M_invokeERKSt9_Any_data
+   ...
+}
+
+{
+   helgrind_doesnt_grok_futures_3
+   Helgrind:Race
+   fun:_ZNSt23_Sp_counted_ptr_inplaceINSt13__future_base11_Task_stateISt8functionIFSt4pairImjEvEESaIiES5_EES7_LN9__gnu_cxx12_Lock_policyE2EE10_M_disposeEv
+   ...
+}
+{
+   helgrind_doesnt_grok_futures_4
+   Helgrind:Race
+   fun:__cxa_thread_atexit
+   ...
+}
+
+{
+   libfuse_shutdown_may_not_be_clean_1
+   Helgrind:UnlockUnlocked
+   fun:pthread_mutex_unlock
+   fun:fuse_session_loop_mt
+   fun:_Z12fuse_main_llP9fuse_argsRK17fuse_lowlevel_opsPKcib
+   fun:main
+}
+
+{
+   libfuse_shutdown_may_not_be_clean_2
+   Helgrind:PthAPIerror
+   fun:pthread_mutex_destroy
+   fun:fuse_session_loop_mt
+   fun:_Z12fuse_main_llP9fuse_argsRK17fuse_lowlevel_opsPKcib
+   fun:main
+}
+
+# For now (Jan 2018), it's easier to suppress the libc-freeres with a
+# supp than to run valgrind with --run-libc-freeres=yes and deal with
+# the spurious leaks.  Future mileage may vary :-(.
+{
+   could_also_be_handled_with_--run-libc-freeres=yes
+   Memcheck:Free
+   fun:free
+   fun:__libc_freeres
+   fun:_vgnU_freeres
+   fun:__run_exit_handlers
+   fun:exit
+   fun:(below main)
+}

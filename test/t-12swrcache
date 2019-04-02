@@ -1,0 +1,34 @@
+#!/bin/bash
+
+# See README for assumptions made by all the t-* tests
+# in this directory.
+
+die(){
+    1>&2 echo "$@"
+    exit 1
+}
+
+trap 'echo 1>&2 $0: Exiting on ERR trap, line: $LINENO; exit 1' ERR
+
+set -x
+
+me=$(basename $0)
+value=hello
+newvalue=bye
+f=$(cd $EXPORT_ROOT && mktemp --tmpdir=. $me.XXXXXX)
+chmod a+rx $EXPORT_ROOT/$f
+printf "%s" "$value" > $EXPORT_ROOT/$f
+sleep 1
+
+[ "$(cat $MTPT/$f)" = "$value" ] || die "mismatch in $me for $MTPT/$f vs $EXPORT_ROOT/$f"
+
+# now change server contents
+printf "%s" "$newvalue" > $EXPORT_ROOT/$f
+
+[ "$(cat $MTPT/$f)" = "$value" ] || die "should still see old value immedately after changing $EXPORT_ROOT/$f"
+
+sleep 6 # between max-age=3 and max-age+swr=6
+
+[ "$(cat $MTPT/$f)" = "$newvalue" ] || die "should see new value after changed  $EXPORT_ROOT/$f has settled"
+
+exit 0

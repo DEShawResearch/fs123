@@ -1,0 +1,50 @@
+#!/bin/bash
+
+# See README for assumptions made by all the t-* tests
+# in this directory.
+
+die(){
+    1>&2 echo "$@"
+    exit 1
+}
+trap 'echo 1>&2 $0: Exiting on ERR trap, line: $LINENO; exit 1' ERR
+
+me=$(basename $0)
+f=$(cd $EXPORT_ROOT && mktemp --tmpdir=. $me.XXXXXX)
+chmod a+rx $EXPORT_ROOT/$f
+
+setfattr -n user.testing -v ok || {
+    echo Skipping $me because extended attributes do not appear to work in $EXPORT_ROOT
+    exit 0
+}
+
+# if cookie_src was setxattr, then any attempt to access $MTPT/$f will set an xattr, so we check $EXPORT_ROOT/$f directly
+[ "$(getfattr -d --absolute -m 'user.fs123.*' $EXPORT_ROOT/$f )" = "" ] || die "initial getfattr in $me did not get empty xattrs from $EXPORT_ROOT/$f"
+
+# explicitly set the user.fs123.estalecookie xattr (generally, on Linux tests, cookie_src=ioc_getversion)
+$RCroot/sbin/fs123p7 setxattr $EXPORT_ROOT/$f
+sleep 3
+
+v=$(getfattr -d --absolute -m 'user.fs123.*' $MTPT/$f | tee /dev/stderr | egrep -c 'user.fs123.estalecookie="[1-9][0-9]+"')
+[ "$v" = 1 ] || die "getfattr in $me got $v rather than 1 from $MTPT/$f aka $EXPORT_ROOT/$f"
+
+setfattr -n user.fs123.'test;semicolon and stuff+%20in xattr name!' -v "a new world somewhere" $EXPORT_ROOT/$f
+sync
+# it takes a few seconds (max_age_short is 5) for the setxattr on the server to be visible on the client
+# so we loop a bit, waiting for it.
+n=0
+ret=1
+while [ $n -le 10 ];
+do
+	v=$(getfattr -d --absolute -m 'user.fs123.*' $MTPT/$f | tee /dev/stderr | egrep -c 'user.fs123.(estalecookie="[1-9][0-9]+"|test.*="a new world somewhere")')
+	if [ "$v" = 2 ]; then
+		echo "ok, finally see 2"
+		ret=0
+		break
+	elif [ "$v" != 1 ]; then
+		die "error, getfattr in $me is $v rather than 1 or 2 from $MTPT/$f aka $EXPORT_ROOT/$f"
+	fi
+	sleep 2
+	n=$((n+1))
+done
+[ "$ret" = 0 ] || die "getfattr in $me never hit 2 from $MTPT/$f aka $EXPORT_ROOT/$f"

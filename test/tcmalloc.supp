@@ -1,0 +1,21 @@
+# When linking with the full libtcmalloc (not tcmalloc_minimal)
+# valgrind complains about __msync_nocancel.  If you say:
+#   --suppressions=tcmalloc.supp (this file) on the
+# valgrind command line, the complaints are suppressed.
+{
+   tcmalloc_msync_nocancel
+   Memcheck:Param
+   msync(start)
+   fun:__msync_nocancel
+   fun:msync_validate
+   fun:validate_mem
+   fun:access_mem
+   fun:dwarf_get
+   fun:apply_reg_state
+   fun:_ULx86_64_dwarf_find_save_locs
+   fun:_ULx86_64_dwarf_step
+   fun:_ULx86_64_step
+   fun:_Z13GetStackTracePPvii
+   fun:_ZN8tcmalloc8PageHeap8GrowHeapEm
+   fun:_ZN8tcmalloc8PageHeap3NewEm
+}

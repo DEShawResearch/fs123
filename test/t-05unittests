@@ -1,0 +1,25 @@
+#!/bin/bash
+
+# We bothered to create unit tests.  We might as well run them.
+
+trap 'echo 1>&2 $0: Exiting on ERR trap, line: $LINENO; exit 1' ERR
+
+cd "$RCroot" 
+me=$(basename $0)
+d=$(mktemp -d --tmpdir=. $me.XXXXXX)
+for f in ut_*; do
+    case $f in
+        # some of them require more machinery than just calling
+        # them on the command line.
+        *ut_diskcache) $f $d/diskcache.tst;;
+        *ut_seektelldir) echo Running $f .; $f . ;;
+        *ut_namecache)
+            names="http://example.com http://example.com:80 http://example.com:80/x/fs123/7/2/a http://example.com:90/a/b/c https://example.com/ https://example.com:99"
+            echo Running  $f $names
+            echo $names | tr " " "\n" | $f $names ;;
+        *) if [ -x $f -a -f $f ]
+           then echo Running $f; $f
+           fi
+           ;;
+    esac
+done 

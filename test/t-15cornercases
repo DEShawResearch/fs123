@@ -1,0 +1,69 @@
+#!/bin/bash
+
+# Test coverage isn't great.  This script tries to improve it by
+# exercising "corner cases" that didn't come up in other tests.
+
+die(){
+    1>&2 echo "$@"
+    exit 1
+}
+trap 'echo 1>&2 $0: Exiting on ERR trap, line: $LINENO; exit 1' ERR
+
+me=$(basename $0)
+value=hello
+f=$(cd $EXPORT_ROOT && mktemp --tmpdir=. $me.XXXXXX)
+chmod a+rx $EXPORT_ROOT/$f
+printf "%s" "$value" > $EXPORT_ROOT/$f
+[ "$(cat $MTPT/$f)" = "$value" ] || die "mismatch in $me for $f for $MTPT/$f vs $EXPORT_ROOT/$f"
+
+# Let's make sure that ls works too...
+d=$(cd $EXPORT_ROOT && mktemp --directory --tmpdir=. $me.XXXXXX)
+chmod a+rx $EXPORT_ROOT/$d
+(cd $EXPORT_ROOT/$d; touch a b c; ln -s a a.symlink; echo this is a > a)
+
+[ "$(ls $MTPT/$d | sort )" = "$(printf "a\na.symlink\nb\nc")" ] || die "output of ls doesn't look right"
+[ "$(cat $MTPT/$d/a)" = "this is a" ] || die "contents of a doesn't look right"
+[ "$(cat $MTPT/$d/a.symlink)" = "this is a" ] || die  "contents of a.symlink doesn't look right" 
+[ "$(cat $MTPT/$d/a.symlink)" = "this is a" ] || die  "contents of a.symlink doesn't look right" 
+sleep 5  # let it expire from the linkcache
+[ "$(cat $MTPT/$d/a.symlink)" = "this is a" ] || die  "contents of a.symlink doesn't look right" 
+
+# Exercise the lookup-returns ENOENT code
+if errmsg=$(cat $MTPT/$d/doesnotexist 2>&1); then
+    die "expected cat doesnotexist to fail"
+fi
+case "$errmsg" in
+    *No\ such\ file\ or\ directory);;
+    *) die "expected ENOENT error message" ;;
+esac
+
+# Exercise the code for special files:
+
+cat $MTPT/.fs123_config
+cat $MTPT/.fs123_statistics
+cat $MTPT/.fs123_server_statistics
+
+# df will exercise statvfs
+df $MTPT
+
+# Exercise the retry codepath.  Maybe this belongs in its own test?
+set -x
+serverpid=$(cat $RCroot/pidfile)
+kill -STOP $serverpid;
+timeout 30 cat $MTPT/still-does-not-exist || true
+kill -CONT  $serverpid
+
+# the client might still be deferring connections to the
+# primary.  Let's sleep for (hopefully) long enough for
+# the primary to come back.  (This depends on the Fs123ConnectTimeout
+# and the Fs123TransferTimeout, which are both 5).
+sleep 12
+
+# Let's try to exceed the syslog error rate.
+fs123p7 ctl $MTPT LogMaxHourlyRate 10
+touch $EXPORT_ROOT/$d/unreadable
+chmod 0000 $EXPORT_ROOT/$d/unreadable
+for i in 1 2 3 4 5 6 7 8 9 10; do
+    cat $MTPT/$d/unreadable|| true
+done
+fs123p7 ctl $MTPT LogMaxHourlyRate 3600

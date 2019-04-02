@@ -1,0 +1,77 @@
+# This is a 'gflags' flagfile.  Each non-blank/non-comment line
+# is equivalent to a command-line --option.
+#
+# Blank lines and lines starting with # are ignored.  Whitespace at
+# the beginning of lines is ignored.  Hash (#) does NOT start a
+# comment in the middle of a line!
+
+# Only one option is required:
+#--port=8082
+
+# All others take reasonable defaults, shown below in comments.  Look
+# in ...rpmnew or call fs123p7export --help to get an up-to-date list
+# of flags and default values.
+
+#--chroot=/exports123
+# export_root and cache_control_file are opened *post-chroot*.
+# I.e., even if they start with a /, they're relative to the --chroot
+# argument.
+#--export_root=/
+#--cache_control_file=
+#--estale_cookie_src=ioc_getversion
+#--nofake_ino_in_dirent
+#--mtim_granularity_ns=4000000
+
+# N.B. --daemonize and --pidfile will typically be set by
+#  /etc/init.d/fs123p7exportd
+#--nodaemonize
+# N.B.  the pidfile is opened *before* chroot.
+#--pidfile=
+#--heartbeat=60
+#--notcp_nodelay
+#--nprocs=4
+# N.B. use --bindaddr=0.0.0.0 to listen on all interfaces
+#--bindaddr=127.0.0.1
+#--diag_names=
+# diag_destination is opened *before* chroot.  Special values: %stdout,
+# %stderr and %syslog are understood.  If unspecified, diagnostics go
+# to stdout, which is redirected to /dev/null by
+# /etc/init.d/fs123p7exportd.
+#--diag_destination=
+
+#--log_destination=%stderr
+#--log_max_hourly_rate=3600.
+#--log_rate_window=3600.
+#--nosyslog_perror
+#--accesslog_destination=%none
+
+#--max_age_short=60
+#--max_age_long=86400
+#--stale_while_revalidate_short=30
+#--stale_while_revalidate_long=43200
+# N.B. the default value of 'public' is deprecated
+#--cache_control_directives=public
+
+#--nodecentralized_cache_control
+#--dcc_cache_size=1000000
+
+# If sharedkeydir is non-empty, then replies will be encoded 
+# with Content-encoding: fs123-secretbox which provides
+# strong confidentiality and authentication as long as the
+# secrets are not compromised.
+#--sharedkeydir=
+#--sharedkeydir_refresh=30
+
+# If sharedkeydir is non-empty, the default is to reject (with 406 Not
+# Acceptable) any request that lacks the header:
+#   Accept-encoding: fs123-secretbox
+# But with --allow_unencrypted_replies, the reply will be sent
+# unencrypted.  WARNING - THIS COMPLETELY DEFEATS ANY PROTECTION
+# OFFERED BY THE fs123-secretbox ENCRYPTION/ENCODING!.  USE ONLY FOR
+# TESTING AND TRANSITIONING CLIENTS.
+#--noallow_unencrypted_replies
+
+#--max_single_write=8388608
+#--max_http_body_size=500
+#--max_http_headers_size=2000
+#--max_http_timeout=2

@@ -1,0 +1,20 @@
+#!/bin/bash
+
+# Test coverage isn't great.  This script tries to improve it by
+# exercising "corner cases" that didn't come up in other tests.
+
+die(){
+    1>&2 echo "$@"
+    exit 1
+}
+trap 'echo 1>&2 $0: Exiting on ERR trap, line: $LINENO; exit 1' ERR
+
+cat $MTPT/.fs123_server_statistics
+mv $RCroot/accesslog $RCroot/accesslog.1
+mv $RCroot/errorlog $RCroot/errorlog.1
+kill -s SIGUSR1 $(cat $RCroot/pidfile)
+
+cat $MTPT/.fs123_server_statistics
+cat $RCroot/accesslog
+
+

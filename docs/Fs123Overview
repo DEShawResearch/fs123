@@ -1,0 +1,182 @@
+Overview of the Fs123 Filesystem
+
+======================================
+
+mount.fs123 is an executable fuse filesystem that allows only the
+following access operations:
+
+  lookup
+  forget
+  getattr
+  readlink
+  opendir
+  readdir
+  releasedir
+  open
+  read
+  release
+
+It may be called directly from the command line, e.g.,
+
+mount.fs123 -o Fs123LogDestination=%syslog%LOG_LOCAL6 -o ro -o noatime $proxyargs http://HOST:PORT/PA/TH /scratch/gcache
+
+Or with an appropriate line in /etc/fstab, e.g.,
+
+http://HOST:PORT/PA/TH /scratch/gcache fs123 ro,allow_other
+
+it can interoperate with mount(1).  It follows the usual mount/fuse conventions
+for command line options:
+
+mount.fs123 [[-o option[,option]] ...] SERVERURL MOUNTPOINT
+
+It is a FUSE shim between an origin server (typically a CGI script)
+and the local kernel.  The protocol for communicating filesystem data
+and metadata from origin server to fuse client is described in the
+file ./Fs123Protocol.
+
+The local mount point is, more-or-less an exact copy of the directory
+exported by the origin server.  The contents and metadata (ctime,
+mtime, atime, uid, gid, etc.) of regular files, symlinks and
+directories should be identical.  Other types of files show up in
+directory listings, and can be 'stat'-ed, but any attempt to open them
+results in an error (EIO).
+
+The communication over HTTP is designed to interoperate with and
+benefit from proxy caches like squid and varnish.  See the file
+./Fs123Protocol for details.  An server that implements the
+server side of the protocol is in exportd/ and a client is
+in client/.
+
+The requests made to the http server more-or-less exactly correspond
+to fuse lowlevel callbacks made to the fuse layer (in mount.fs123.cpp).
+Replies contain both data and metadata.  In addition to the "usual"
+metadata (i.e., ownership, size, etc.), the replies also contain
+metadata specifying timeouts.  These timeouts are transmitted through
+the Cache-control: max-age header, so they are accessible to
+intermediate proxy caches as well.
+
+Experience shows that when the fuse layer (mount.fs123.cpp) attaches
+(very) long timeouts to entries and attributes, the kernel reliably
+retains such entries and attributes for a (very) long time.  The vast
+majority of subsequent filesystem requests are intercepted by the
+kernel and never even reach the fuse layer to be revalidated.
+Furthermore, experience shows that there's little value in trying to
+"remember" or "cache" our answers to replay them later.  Usually, the
+kernel retains the data for just as long as we could.  So whenever the
+kernel does ask us about something we might have remembered, we
+wouldn't be able to use any remembered data any way.
+
+There are important exceptions to the above.  This ChangeLog entry
+in the redhat kernel rpm:
+
+    * Mon Dec 08 2014 Rafael Aquini <aquini@redhat.com> [2.6.32-516.el6]
+    ...
+    - [fs] fuse: prevent null nd panic on dentry revalidate (Brian Foster) [1162782]
+
+introduced some gratuitous 'revalidations' in their kernel-side fuse
+code.  As a result, the fuse layer receives a lookup callback every
+time a process opens a file.  Each of these lookups translates into a
+network roundtrip.
+
+Symlinks are another important exception to the above...  The kernel
+seems not to keep the contents of symlinks in its buffers.  It always
+invokes the callback whenever a process calls readlink, regardless of
+the attr timeout.  
+
+It would be correct and reasonably performant to forward both
+of these classes of revalidation to the http backend.  A local proxy
+would return a cache hit in ~1msec.  This would result in ~1sec
+extra startup time for processes like ipython+pylab+analysislib
+that do O(1000) opens.
+
+We can do better by caching some results internally in the mount.fs123
+process.  There are two internal caches: the "attribute cache" and the
+"link cache".  They use the same timeout semantics as an http proxy
+cache, and they randomly evict entries to stay below a maximum number
+of entries.  The maximum sizes are specified in environment variables:
+Fs123AttrCacheSize and Fs123LinkCacheSize, with defaults 100000 and
+10000 respectively.  These caches significantly improve the startup
+time for very demanding python scripts.
+
+It's worth noting that the argument above about the ineffectiveness of
+caching applies only to *private* caches -- not to shared caches.
+Even though it's of little value for a single daemon to cache results
+for later callbacks, it can be of tremendous value for a shared cache
+to mediate requests from many clients.  A geographically distributed
+network will benefit greatly from a well-provisioned cache (e.g.,
+squid or varnish) in each geographic location.  Client machines can be
+directed to the nearby cache rather than the distant origin server.
+Once one client in a geographic location retrieves a file, it will be
+in a nearby cache ready to be served quickly to any other clients that
+need it in the same geographic location.  
+
+Caching infrastructure can be expanded to serve large, diverse and
+very high performance clients.  The Fs123Protocol should be compatible
+with well-established techniques for provisioning redundant, layered,
+peered caches, deploying CDNs, etc.  Such techniques should allow
+remote read-only filesystems to work at "web scale".
+
+Error Logging is through syslog.  The facility defaults to
+  LOG_LOCAL6, but can be changed by an environment variable
+  (Fs123LogDestination).  The verbosity is controlled by a
+  call to setlogmask(LOG_UPTO($Fs123LogMinLevel)), which defaults
+  to LOG_INFO.
+
+Other issues
+------------
+
+The ino-to-name map is in the fuse client.  We thought about moving
+this, but if it goes on the server, it has extremely demanding
+persistence requirements.  If it's in the fuse client, then when the
+client crashes, the local kernel forgets everything, and we can safely
+and cleanly start all over with a new client.  If the mapping were on
+the server, the server would be required to remember the ino-to-name
+map for as long as *ANY* client remained alive.  And the server
+doesn't even know who its clients are!  Basically, it would be
+required to keep the map forever, with system-wide dire consequences
+for forgetting.  We'd be forced to use something like LevelDB rather
+than an <unordered_map>.
+
+The name-to-ino map is on the client and is guaranteed to be stable
+for the lifetime of the filesystem.  In fact, the ino is just a
+collision-avoiding hash of the name.  The same name will always map to
+the same ino.  This allows us to set an extremely long 'entry_timeout'
+in lookup replies, and it allows the kernel to keep and use the
+directory hierarchy in its buffers without revalidating with fuse.  We
+contemplated using the ino from the server, but it's not quite stable
+enough.  Corner cases such as:
+
+    - what if the origin server's mount point was dump/restored?
+    - what if there was more than one origin server, e.g., for
+      redundancy or performance?
+    - what if the origin server reuses inos, e.g., on remount.
+
+argue in favor of an absolutely stable, client-side name-to-ino
+mapping.
+
+There are a couple of subtle consequences that follow from the
+name-to-ino map being a pure, stateless function on the client:
+
+- even though the value of the server-side 'st_ino' is sent in the
+  X-Fs123-Attrs header, and in the contents of a directory request, it
+  is mostly ignored by the fuse client.  The exception is that in the
+  read callback, we check that the server-side st_ino is the same for
+  all reads corresponding to the same open, i.e., with the same value
+  of fi->fh.  If the server-side ino changes, it indicates that we're
+  not looking at the same file any more.  We have no way to recover...
+  All we can do return an EIO.
+
+- hard links on the server are not recognizable as such on the client.
+  Recall that hard links are normally identifiable as more than one
+  file with the same ino.  But a user-process crawling the fuse
+  filesystem will see different inos (but the same content) for files
+  even if those files are hard-linked on the server.  
+
+  It's an open question about whether we should adjust 'st_nlink' for
+  S_IFREG files to reflect this reality.  Currently, the st_nlink
+  member reported by the client's getattr callback is exactly the same
+  as the st_nlink member on the server.  But on the server, that field
+  counts hard links.  On the client there are, effectively, no hard
+  links, st_nlink!=1 is potentially misleading when S_IFREG is set.
+  This would be easy to change.
+  

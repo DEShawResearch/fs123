@@ -1,0 +1,27 @@
+#!/bin/bash
+# In 7.0, we had a bug whereby the client might never see changes
+# made on the server-side.
+
+set -x
+die(){
+    1>&2 echo "$@"
+    exit 1
+}
+trap 'echo 1>&2 $0: Exiting on ERR trap, line: $LINENO; exit 1' ERR
+
+me=$(basename $0)
+f=$(cd $EXPORT_ROOT && mktemp --tmpdir=. $me.XXXXXX)
+chmod a+r $EXPORT_ROOT/$f
+
+echo initial > $EXPORT_ROOT/$f
+
+# The two 'cat's around the change encourage the client
+# kernel to stash the contents of $f in buffer-cache.
+# They may not be necessary to exhibit the problem.
+cat $MTPT/$f || die did not see file on client
+echo changed > $EXPORT_ROOT/$f
+cat $MTPT/$f
+# FIXME - it should be possible to ask what the max-age, swr, etc. parameters are.
+sleep 20 # Longer than max-age + stale_while_revalidate + past_stale_while_revalidate_
+[ "$(cat $MTPT/$f)" = "changed" ] || die contents seen from client side should have changed
+

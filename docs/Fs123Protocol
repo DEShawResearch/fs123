@@ -1,0 +1,440 @@
+Overview
+========
+
+FUSE (Filesytem in USEr space) is an OS component that transfers
+kernel-level filesystem requests (open, read, write, close, chdir,
+exec) to a non-kernel, userspace "fuse daemon".  FUSE is available on
+Linux, BSD, MacOS and other operating systems.  When a fuse daemon is
+running, it appears that a filesystem is mounted and the contents
+(directories, files, symlinks, etc) are visible to the rest of the
+system.
+
+Fs123 is a family of fuse daemons (there are many other fuse daemons,
+written by a large community of developers) that translates fuse
+requests (lookup, getattr, open, read, release, etc) into http
+requests that follow the "Fs123 Protocol".
+
+The "Fs123 family" currently has only one member: mount.fs123p7, where
+'p7' indicates that it's follows the seventh version of the Fs123
+Protocol, described in this document.  Earlier protocols are no longer
+in service and will probably never be revived.  On the other hand,
+there may be an eighth or ninth protocol one day.  So the protocol
+number is incorporated into the names of executables, (mount.fs123p7,
+fs123p7exportd), the names of rpms and packages (fs123p7-client), the
+names of config directories (/etc/fs123p7exportd), etc.  This allows
+clients and servers for multiple protocols to coexist on the same
+machine.
+
+The FS123 Protocol (p=7):
+=========================
+
+The fs123 protocol is fundamentally a thin layer on top of standard
+HTTP.  In general, where standard HTTP names and concepts are used,
+(e.g., cache-control, If-None-Match) they have their normal, standard
+meaning.  Fs123 extends the HTTP protocol in the normal way, using
+headers specific to fs123 clients and servers.  Such headers, e.g.,
+fs123-errno, are expected to be handled transparently by http caching
+infrastruture.
+
+At the time of writing, there are three different server programs
+capable of responding th FS123 Protocol requests.  This document is
+intended to help the developers of those servers maintain
+compatibility with the client and also as a guide for anyone writing
+an alternative server.
+
+
+Standard HTTP components of the fs123 protocol
+----------------------------------------------
+
+An fs123 server must respond to GET methods.  The client never makes
+HEAD, POST, PUT or other HTTP requests.  However, caches and diagnostic
+tools may make HEAD requests, so a server SHOULD respond to HEAD
+requests in the usual way, i.e., by returning exactly the same headers
+as it would for the equivalent GET request, but an empty body.
+ 
+The p7 client never makes 'Range', 'Vary', 'Accept' or 'Expect'
+requests.  In general, the server is free to ignore any HTTP request
+headers except those explicitly mentioned here.
+
+Authentication and Security
+---------------------------
+
+A good mental model is to imagine that anything exported via the Fs123
+Protocol has roughly the same security and integrity as something
+placed on a public web server on the same machine.  Just as it is
+possible to add layers of security to a public web server (corporate
+firewalls, internal networks, https, client authentication), it is
+equally possible to add such layers to an Fs123 protocol server.
+
+In addition, the fs123 client and server support secure
+Content-encoding: fs123-secretbox.  It is modeled after rfc8188, but
+uses libsodium's 'secretbox' encryption.
+
+The server will optionally encrypt and authenticate all replies using
+a shared secret.  It's then up to administrators to guarantee the
+following "contract":
+
+  Anyone with access to the secret guarantees not to "release" data or
+  metadata to anyone who wouldn't be permitted to read or write the
+  data according to "normal" UID/GID rules.
+ 
+We believe that a mount.fs123p7 client with -odefault_permissions
+(which is, in fact the default) satisfies the contract.
+Unfortunately, the documentation for -odefault_permissions is thin, and
+it's unlikely to have been stress-tested, so it's impossible to be
+sure.
+
+Even though the server encrypts with a secret, an unprivileged user
+may use curl or wget to retrieve URLs from the server.  But if they
+don't have access to the shared secret the data they obtain by doing
+so will be indistinguishable from noise.
+
+Note that this scheme potentially leaks a large amount of metadata.
+Among other weaknesses, it's trivial for an unprivileged user to probe
+for the presence or absence of names in the fileystem, and when names
+are found to learn their size.
+
+
+Cache-control
+-------------
+
+All successful replies (200 and 304) must have a Cache-control header
+and it must contain a max-age directive.  It may optionally contain
+a stale-while-revalidate directive.
+
+The cache-control header is *not* just for intermediate proxy caches.
+The max-age directive communicates cacheability information to the
+daemon and the daemon's kernel.  The stale-while-revalidate directive
+is followed by the daemon's internal (in-memory and on-disk) caching
+as well.
+
+
+Errors: 5xx, 4xx and fs123-errno
+-------------------------------
+
+It's important to distinguish between different types of errors:
+
+- internal errors such as inability of the server to read its own
+databases or files.
+- protocol-level errors such as unparseable URLs, ill-formed requests,
+network errors, etc.
+- fileystem-level, semantically meaningful errors such as non-existent
+files, insufficient permission, or access restrictions.
+
+Internal errors should generate a 5xx reply and protocol-level errors
+should generate a 4xx reply.  The body of the reply may contain
+succinct explanatory information which may be viewed by diagnostic
+tools (curl) and/or copied to the client's syslog channel.  A 5xx or
+4xx reply will typically result in the application seeing errno=EIO.
+
+Filesystem-level errors have semantic content (i.e., ENOENT is
+different from EPERM) intended for the application.  Therefore,
+filesystem-level errors must generate standard 200 replies.  All 200
+replies (error or not) must contain an fs123-errno header integer with
+the value of errno that should be seen by the application.  E.g.,
+
+    fs123-errno: 2
+
+should be set when the requested /PA/TH does not exist.  fs123-errno
+should be 0 when there is no error.
+
+A Cache-control header is still required and meaningful when
+fs123-errno is non-zero.  Servers should take care to provide
+*appropriate* Cache-control max-age directives on replies with
+non-zero errno.  Specifying a large max-age for a transient condition
+can lead to "poisoned" caches, which can be difficult to repair.
+
+Servers should not set fs123-errno to EAGAIN or EWOULDBLOCK.  The
+server itself should retry, or it should set fs123-errno to an
+appropriate value.
+
+
+Same name, different inode:  fs123-estale-cookie
+------------------------------------------------
+
+The Fs123 protocol is name-based.  I.e., requests are made for /PA/THs
+relative to a mountpoint.  It is also stateless.  Servers have no idea
+which clients may have which files "open".  This presents a problem
+for aspects of POSIX (and hence FUSE) semantics that are inherently
+stateful.  In particular, an application can open a file (by name).
+Then a server can unlink that file and create a completely new file
+with the same name.  POSIX requires that when the client reads from
+the opened file descriptor, it sees the contents of the original file,
+not the new one of the same name.  This is impossible with a stateless
+server.  Fs123 works around this problem by making the following
+guarantee: EITHER reads will follow POSIX semantics, OR they will fail
+with errno=ESTALE.
+
+To satisfy this requirement, every(??) Fs123 protocol reply must have
+an fs123-estale-cookie header.  The value is an unsigned 64-bit
+decimal integer with the property that any non-zero value must be
+unique for every  "inode" associated with /PA/TH.  I.e., it
+must stay the same as long as /PA/TH's "inode" is unchanged,
+and it must change to a new value whenever /PA/TH's "inode" changes.
+
+If the server sets fs123-estale-cookie to 0, then the daemoun assumes
+that the server-side inode never changes. This is perfectly sufficient
+if server-side data is truly write-once and immutable.  Non-zero
+estale-cookies are required only when there is a chance that the
+server-side "inode" associated with a /PA/TH may change over time.
+
+Servers that maintain their filesystem data without relying on an
+underlying backend filesystem can satisfy the requirements of
+fs123-estale-cookie by setting it to a sequence number or counter of
+"object creation" operations.  They must be careful not to restart
+from zero when the server restarts, though.
+
+An obvious-but-wrong way to set fs123-estale-cookie when the server is
+backed by a bona fide server-side filesystem is to use the server-side
+/PA/TH's st_ino.  Nothing in POSIX or Linux prevents the server side
+filesystem from re-using st_ino.  In fact, it's not hard at all to
+unlink a file, do a few other filesystem operations (creat, unlink)
+and then create a new file with the same name *and* the same st_ino.
+If this happens, applications will be at risk of reading bad data
+rather than getting ESTALE.
+
+A better way is to use the value returned by ioctl(...,
+FS_IOC_GETVERSION), ...), which is supported by several Linux
+filesystems (ext3, ext4, xfs, btfs, but not NFS).  It exists to
+support ESTALE in NFS, and has precisely the semantics required for
+fs123-estale-cookie.
+
+Alternatively, the server can rely on external tooling to set an
+extended attribute, e.g., user.fs123.estalecookie whenever files are
+modified.  This requires careful coordination with external tooling,
+but has the advantage that it can be propagated with rsync to
+facilitate redundant servers.
+
+
+Cache-busting
+--------------
+
+FIXME
+
+
+
+Integrity checking: fs123-trsum
+-------------------------------
+
+FIXME
+
+
+Validation:  ETag, If-None-Match, Last-Modified, If-Modified-Since
+---------------------------------------------------------------------
+
+Replies may contain ETag headers in which case clients (and possibly
+proxy caches) will make If-None-Match requests.  Server validation
+with ETag must be "strong".  Strong validation with ETag can
+significantly reduce bandwidth requirements, so servers are encouraged
+to support it.
+
+The p7 client ignores Last-Modified and never makes If-Modified-Since
+requests.  If servers refrain from providing Last-Modified headers,
+then proxy caches also won't make If-Modified-Since requests and
+servers can safely ignore them.
+
+
+Fs123 URLS
+----------
+
+URLs are decomposed into parts.  From left to right:
+
+For example:
+
+  http://remote[:port]/SEL/EC/TOR/SIGIL/PROTOmajor[/PROTOminor]/FUNCTION/PA/TH?QUERY
+
+A concrete instance might be:
+
+http://gardenweb1.nyc.desres.deshaw.com:8080/selec/tor/fs123/7/1/f/path/relative/to/exportroot?c=131072@0;ct=xxx
+
+The /SIGIL is the literal string "/fs123".  It's used  as an unambiguous
+   separator between the /SEL/EC/TOR and the rest of the URL.
+
+The /SEL/EC/TOR consists of zero or more /path components.  No
+   individual path-component may match the /SIGIL, i.e., /fs123.
+
+The /PROTOmajor is a single slash followed by the unsigned decimal integer protocol number.
+    In this case, /7.
+The /PROTOminor is a single slash followed by the unsigned decimal integer protocol number.
+    In this case, /1.  Note that /PROTOminor is optional only when /PROTOmajor is /7, in which
+    case the minor protocol number is assumed to be 0.
+The /FUNCTION is a single path component.  There are only a few possible values:
+    /a, /d, /f, /l, /n, /s, and /x.  The /FUNCTION will never start with a digit.
+The /PA/TH consists of 0 or more /path components.  In this case:
+    /path/relative/to/exportroot
+The QUERY contains semi-colon-separated values corresponding to zero
+    or more "parameters" of the /FUNCTION.  Note that their meaning is
+    /FUNCTION-specific, and they are *not* generic CGI-style key-value
+    pairs.
+
+/SEL/EC/TOR:
+
+Servers may completely ignore the /SEL/EC/TOR. Or they may require
+that it match a specific pattern.  Or they may use it to decide which
+filesystem is being asked about.  With apache httpd, it's possible to
+use the ProxyPass directive to direct requests to different backend
+servers based on the /SEL/EC/TOR (and/or the Host and port number).
+
+/FUNCTION:
+
+/a - (mnemonic: attributes).
+   /QUERY = <empty>
+
+  The request is for the attributes of the named /PA/TH.  The first
+  line contains decimal integer values taken from /PA/TH's 'struct
+  stat':
+
+st_mode st_nlink st_uid st_gid st_size st_mtime st_ctime st_atime st_ino st_mtim.tv_nsec st_ctim.tv_nsec st_atim.tv_nsec st_dev st_blocks st_blksize st_rdev
+
+  In the 7.0 protocol, the reply is only one line.  In the 7.1
+  protocol, a second line contains a decimal integer "validator".
+
+  The validator for a regular file *must* have the property that it
+  changes whenever the file's content changes.  In the 7.2 protocol,
+  changes to the validator must be monotonically increasing with time.
+
+  The validator value: 0xfff...fff (~uint64_t(0)) is reserved.  Servers
+  should not use it.
+
+  If the validator fails to change when it should, clients may never
+  see new content because they will never be told to flush kernel
+  caches.  On the other hand, it's desirable that the validator not
+  change too often.  If the validator changes too often, clients will
+  unnecessarily flush kernel buffer caches.
+
+/d - (mnemonic: directory).
+   /QUERY = Len;Begin;Offset
+   
+   It is an error if /PA/TH is not a directory.
+   Len has the standard meaning.
+
+   Begin is either 0 or 1.  If it is 1, the request is understood to
+   be for the contents of a newly opened directory, in which case Offset
+   is ignored.  If Begin is 0, then the value of Offset must be the
+   same as a previously returned fs123-nextoffset header for the same /PA/TH,
+   and the server should continue from that Offset, e.g., by
+   calling seekdir.
+
+   The reply's content is a sequence of records,  one-per-line, listing
+   the directory's contents, in the following form:
+
+      d_name d_type estale_cookie
+
+   The last record must be followed by a blank line, i.e., a single
+   additional newline character.
+
+   d_name is a netstring (see https://cr.yp.to/proto/netstrings.txt)
+   containing the name of the directory entry.
+
+   d_type is a decimal integer, as described by man readdir(3).
+
+   estale_cookie is the directory entry's estale_cookie (see below)
+   expressed as a decimal integer.  Estale_cookie may be 0, indicating
+   that the value was not available to the server at the time of the
+   request (similar to d_type = DT_UNKNOWN).
+
+   The http reply's body length should not exceed Len kibibytes.
+
+   The reply must also contain a header:
+
+      fs123-nextoffset: Offset
+
+   where Offset is a decimal integer whose value is entirely up to the
+   server.  Typically, it will be the value returned by 'telldir'
+   after the server 'readdir'ed the last entry.  It will be used by
+   the client to continue reading entries from this directory.
+
+   If the server determines that the last entry in the reply body
+   is, in fact, the last entry in the directory, then EOF should
+   be added to the fs123-nextoffset header, e.g.,
+
+      fs123-nextoffset: Offset EOF
+
+
+/f - (mnemonic:  file read)
+   /QUERY = Len;Offset
+
+   The /PA/TH must be a regular file (S_IFREG).
+
+   Both Len and Offset are decimal integers and are in units of
+   kibibytes.  I.e., .../f/pa/th?128,896 is a request for 131072
+   (128*1024) bytes of the file <mountpoint>/pa/th starting at
+   byte-offset 917504 (896*1024).
+
+   NOTE - the /f reply changed from 7.1 to 7.2:
+
+   /7/1/f:
+
+   The reply's body must contain exactly the requested bytes,
+   with no leading or trailing padding.
+
+   /7/2/f:
+
+   The reply's body starts with a netstring containing a decimal
+   content validator (identical to the one in the /a reply).  It is
+   followed immediately by the requested bytes with no leading or
+   trailing padding.  The content validator is monotonic.  I.e., if
+   replyA's content validator is less than replyB's, then replyB is
+   newer than replyA.
+
+   Ther server indicates EOF with a short read.  I.e., an fs123-errno
+   of zero, and content-length (not counting the validator) less than
+   the requested Len tells the client that the last byte in the reply
+   is the last byte of the file.
+
+
+/l - (mnemonic: link).
+   /QUERY = <empty>
+   
+   If /PA/TH is not a symbolic link, fs123-errno should be set to EINVAL.
+
+   The reply should contain exactly the bytes that readlink should return,
+   with no padding at either end.
+
+/n - (mnenmonic: numbers).
+   /QUERY = <empty>
+
+   The reply will be available to clients in the file:
+      <mountpoint>/.fs123_server_statistics
+
+   The specifics are at the discretion of the server.  It's perfectly
+   acceptable for a server to return nothing at all.
+
+   To maintain consistency with existing servers, it is strongly
+   recommended that the reply consist of one colon separated key-value
+   pair per line.  Allowing for more general YAML content is a
+   possible future direction.
+
+/s - (mnemonic: statfs).
+   /QUERY = <empty>
+   
+  The request is for the 'statfs' values of the named /PA/TH.  The body of
+  the reply is a single line containing the decimal integer values
+  taken from /PA/TH's 'struct statvfs':
+
+ f_bsize f_frsize f_blocks f_bfree f_bavail f_files f_ffree f_favail f_fsid f_flag f_namemax
+
+
+/x - (mnemonic: xattr).
+   /QUERY = Len;name;
+
+   If Len is 0, then the reply contains the size (in decimal bytes,
+   not kibibytes) of the total length of the attribute list of /PA/TH.
+   
+   If Len is non-zero and name is empty, then the reply contains all
+   the NUL-terminated attributes of /PA/TH with no padding or
+   separation other than the NUL-terminators themselves. If the entire
+   list does not fit in Len kibibytes, fs123-errno should be set to
+   ERANGE.
+
+   If Len is non-zero and name is non-empty, then the reply contains
+   the value (with no padding) of the extended attribute of the
+   url-decode of name.  E.g.,
+     
+     .../x/some/file?128;user.foo%40bar;
+
+   is a request for the user.foo@bar attribute of /some/file.  If
+   the attribute exceeds Len kibibytes in length, fs123-errno should
+   be set to ERANGE
+
+

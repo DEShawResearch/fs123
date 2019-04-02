@@ -1,0 +1,16 @@
+obj/
+obj-*/
+dist/
+build/
+s/
+c/
+utworkspace/
+salmonj/
+*~
+*.grf2.xz
+*.pyc
+.nfs*
+*.tar.gz
+*.secret
+Portfile
+ut_content_codec.secret

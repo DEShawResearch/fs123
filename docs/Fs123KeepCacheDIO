@@ -1,0 +1,123 @@
+This text used to be in the 'Implementation' section of
+the Fs123Consistency document.  But now that we've adopted
+a stronger ino strategy, our consistency implementation is
+far simpler.
+
+Implementation
+--------------
+
+Fuse allows us to set 'keep_cache' and 'direct_io' for every opened
+file descriptor.  'keep_cache=0' tells the kernel to flush any cached
+pages associated with the *ino* before returning from open.  It says
+nothing about subsequent reads.  'direct_io' tells the kernel to avoid
+pagecache entirely for all I/O related to the file.  Subsequent reads
+neither benefit from page cache, nor do they modify it for others to
+see.
+
+I find the "sign" of direct_io confusing.  I find it easier to think
+about 'keep_cache' and use_cache, equal to !direct_io.
+
+Here's the high-level logic we apply in open():
+
+use_cache = ( nothing  I might put in the cache could 
+  possibly cause another open fd to violate consistency)
+
+if( !use_cache ){
+    // I'm not touching the cache.  No need to flush it
+    keep_cache = 1
+}else{
+    keep_cache = nothing currently in the cache could
+        possibly cause me to violate consistency.
+}
+
+The logic in read() and getattr() is:
+   if(ino has changed since open)
+      ESTALE
+
+The logic in release() is:
+   keep track of enough information to be able to
+   answer the questions in open, but try to keep
+   memory to O(#open) and not O(#lookups).
+
+So how do we answer the 'violate consistency' questions??  
+
+REMEMBER: the page-cache is FOREVER.  It does not respect entry
+timeouts or attr timeouts.  It only respects 'keep_cache=0'.  If
+something is in the page cache, it can potentially stay there
+*forever*, or until an open of the same file sets keep_cache=0.
+
+Q1:  "nothing I could write could possibly cause another open
+      fd to violate consistency"
+
+  the only open fds I might screw up are those that 
+  currently have use_cache=true on this ino.
+
+  Lemma: all open fds with use_cache=true must have the same rino.  If
+  they didn't, they'd be in danger of violating consistency.
+  Therefore, we can remember, somewhere, the unique rino of all open
+  cache_using fds.  In fact, we remember it in:
+
+     open_rinomap[ino].rino
+
+  The value_type also has a refcnt, so we can know when to
+  delete.  Invariant:  every entry in open_rinomap has
+  refcnt>=1.
+
+  The test is:
+
+     use_cache = !(open_rinomap.exists(ino) && (open_rinomap[ino].rino != cur_rino)  
+
+Q2:  "nothing currently in the cache could possibly cause me to violate
+      consistency"
+  
+  The only way this can happen is if cached data is older
+  than current data.  So if there's something in the cache
+  that might be older than the current file's mtim, we
+  have to set keep_cache=0.
+
+  So whenever we set use_cache=true, we record (along with rino
+  and an incremented refcnt):
+      inomap[ino].mtim = cur_mtim
+
+  Note that we need to know the mtim of pages in cache, even
+  for files that are not currently open.  We need an mtim for
+  any file we've ever done non-direct_io on.  It doesn't *have* to
+  be in the inomap (which contains a record for every file
+  we've ever looked-up), but that's certainly a convenient
+  place.  
+
+
+So a slightly more detailed reformulation of the pseudocode
+above is:
+
+open(){
+    fi->direct_io = open_rinomap.exists(ino) && (open_rinomap[ino].rino != cur_ino)
+  I if(!fi->direct_io){
+       open_rinomap[ino].rino_refcnt++;
+       open_rinomap[ino].rino = cur_rino; // a noop *unless* refcnt was zero
+       {
+         old_mtim = inomap[ino].mtim;
+         inomap[ino].mtim = cur_tim;
+       }
+       fi->keep_cache = (old_mtim == cur_mtim);
+    }else{
+       fi->keep_cache = 1;
+    }
+    fi->fh = reinterpret_cast<blah>(blah)
+    fi->fh->rino = cur_rino
+    fi->fh->direct_io = fi->direct_io
+}
+
+release(){
+    if(!fi->fh->direct_io){
+        if( --open_rinomap[ino].rino_refcnt == 0 )
+           open_rinomap.erase(ino)
+    }
+    delete reinterpret_cast<blah>(fi->fh)
+}
+
+read() or getattr(){
+    if(cur_rino != fi->fh->rino)
+       return ESTALE
+}
+

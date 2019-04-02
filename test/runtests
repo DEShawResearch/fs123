@@ -1,0 +1,319 @@
+#!/bin/bash
+# TODO: nice to break this into a testsetup script and testrun script since
+# we might repeatedly run the latter.
+#
+# Synopsis:
+#  start an fs123pNexportd server in $WORKDIR/s (aka $RCroot)
+#  start a fs123 client in $WORKDIR/c (aka $MTroot)
+#  run the tests ./t-*.
+#  If any tests exit non-zero, then this script exits non-zero.
+#
+# Earlier versions of this script started the server via
+# fs123p7exportd.rc.  But that doesn't naturally have the flixibility
+# to run under valgrind, or to pass in options from the command line.
+# So it now runs both the server and client via custom 'run' scripts
+# in s/run and c/run.  These jump through some hoops to capture any
+# issues detected by valgrind.
+#
+# It's up to the caller to arrange that:
+#
+# - xmk was run to build everything
+# - it's ok to scribble in $WORKDIR/c and $WORKDIR/s
+# - $WORKDIR/c and $WORKDIR/s will be removed when done.
+# 
+# In other words, if you want to do mktemp, cd, or clean things up
+# with a trap, DO THAT IN THE CALLER!!  (Or perhaps the caller's
+# caller if, for example the caller is ../precheckin, run by jenkins).
+
+######## BEGIN setup for tests
+
+echo Starting setup for tests at $(date +'%Y%m%d %H:%M:%S')
+
+#eval "$(garden-exec)"
+trap 'echo 1>&2 $0: Exiting on ERR trap, line: $LINENO; exit 1' ERR
+trap "exit" INT TERM
+
+export LC_ALL=C
+
+testdir="$(cd ${0%/*}; pwd)"
+ekeep=
+case "$TEST_FS123_DEBUG" in
+y)	ekeep="PS4"; debug=-x;;
+*)	debug=+x;;
+esac
+#garden env-keep-only --user FS123_\* WORKDIR OBJDIR EXPORT_ROOT SERVPORT CLIENTOPTS RCroot LSB_INIT_FUNCTIONS SKEW Fs123DiagNames $ekeep
+
+: ${WORKDIR:=$(pwd)}
+if [ ! -d "$WORKDIR" ]; then
+    echo 1>&2 WORKDIR must be a directory
+    exit 1
+fi
+set $debug -u
+: ${RCroot=$WORKDIR/s}
+: ${MTroot=$WORKDIR/c}
+: ${EXPORT_ROOT=$RCroot/export_root}
+: ${SERVPORT=$(($RANDOM+10000))}
+: ${CLIENTOPTS=}
+
+export MTPT=$MTroot/mtpt
+etc=${RCroot}/etc/fs123p7exportd
+initd=${RCroot}/etc/init.d
+
+export WORKDIR EXPORT_ROOT SERVPORT RCroot MTroot
+
+if [ ${EXPORT_ROOT##/} = $EXPORT_ROOT ]; then
+    EXPORT_ROOT=$RCroot/$EXPORT_ROOT
+fi
+
+if [ -d ${EXPORT_ROOT} ]; then
+    mv ${EXPORT_ROOT} ${EXPORT_ROOT}.removeme.$$
+    rm -rf ${EXPORT_ROOT}.removeme.$$ || true
+fi
+
+for d in ${EXPORT_ROOT} ${RCroot}/var/run ${RCroot}/var/lock/subsys $etc ${RCroot}/sbin $initd ${MTroot}/cachedir ${MTroot}/sbin ${MTPT}
+do
+	if test ! -d "$d"; then mkdir -p "$d"; fi
+done
+export absMTPT=$(cd $MTPT; pwd -P)
+
+touch ${EXPORT_ROOT}/abc
+if lsattr -v ${EXPORT_ROOT}/abc ; then
+    cookie_src=ioc_getversion
+else
+    echo 1>&2 Filesystem does not support testing --estale_cookie_src=ioc_getversion.  
+fi
+if [ ! ${cookie_src:+set} ]; then
+    if setfattr -n "user.fs123.estalecookie" -v "12345"  ${EXPORT_ROOT}/abc ; then
+	cookie_src=setxattr
+    else
+	echo 1>&2 Filesystem does not support testing --estale_cookie_src=setxattr or getxattr
+    fi
+fi
+: ${cookie_src:=st_ino}
+rm ${EXPORT_ROOT}/abc
+
+for f in $initd/fs123p7exportd ${RCroot}/sbin/fs123p7exportd; do
+	if test -f $f; then
+		mv $f $f.removeme.$$
+		rm -f $f.removeme.$$ || true
+	fi
+done
+
+clientexe=${MTroot}/sbin/mount.fs123p7
+rc="bash $debug $initd/fs123p7exportd"
+
+# currently copy init script, daemon and executables to rc.
+# cp -av or ln -s?  do we need a "copy" in addition to stop and start?
+# or start always does a copy?
+: ${CPEXE=ln -sfv} #  was cp -av
+cp -a ${testdir}/../exportd/fs123p7exportd.rc $initd/fs123p7exportd
+sed -i "s,RCroot=[^}]*,RCroot=$RCroot," $initd/fs123p7exportd
+
+: ${OBJDIR:=$(pwd)}
+PATH=$OBJDIR:$PATH
+export OBJDIR PATH
+
+$CPEXE $OBJDIR/fs123p7exportd ${RCroot}/sbin/fs123p7exportd
+$CPEXE $OBJDIR/fs123p7 ${RCroot}/sbin/fs123p7
+$CPEXE $OBJDIR/fs123p7 ${MTroot}/sbin/fs123p7
+$CPEXE $OBJDIR/fs123p7 $clientexe
+# N.B.  the SharedkeydirRefresh is absurdly low - to force us to exercise the re-read code.
+# N.B.  CacheMaxBytes, CacheMaxFiles and EvictPeriodMinutes are all absurdly low to force
+#       us to exercise the diskcache eviction code.  Don't forget that *very* tight
+#       caches might interfere with other tests.  There's code in t-02disconnected
+#       to temporarily change the limits.
+# N.B.  The LogRateWindow is so we exercise the rate limiter without waiting an
+#   hour for it to settle back down.
+# -oFs123Sharedkeydir=$RCroot/secrets.d
+#
+# FIXME - when we are actively supporting multiple minor protocols, we really
+# should run multiple tests.  So Fs123ProtoMinor should be an argument and we
+# should run different several different clients... Until then, test the
+# "most important" one (whatever that means).
+ProtoMinor=2
+client="$clientexe -f -oFs123CommandPipe=${MTroot}/cmdpipe -oFs123LogRateWindow=10 -oFs123FallbackUrls=http://127.0.0.1:$SERVPORT/02 -oFs123RetryTimeout=10 -oFs123BuggyAutomountWorkaround=1 -oFs123EnhancedConsistency=1 -oFs123CacheDir=$MTroot/cachedir,Fs123CacheMaxMBytes=1,Fs123CacheMaxFiles=10,Fs123EvictPeriodMinutes=1 -oFs123SupportXattr=true -oFs123ProtoMinor=$ProtoMinor -oFs123SharedkeydirRefresh=1 -oFs123EncryptRequests=true -oFs123LogMinLevel=LOG_NOTICE,Fs123DiagDestination=$MTroot/fs123.diag,Fs123DiagNames=complaints:err:ofmap:open:getattr:backend=2:secretbox -o ro,noatime $CLIENTOPTS \"\$@\" http://127.0.0.1:$SERVPORT/01 ${MTroot}/mtpt"
+
+$CPEXE ${testdir}/fs123.supp $MTroot/fs123.supp
+
+export cache_control=$etc/fs123cc.crf
+echo > ${cache_control}
+export diag_file=$RCroot/fs123.diag
+
+mkdir -p $RCroot/secrets.d
+cat > $RCroot/secrets.d/99.sharedkey <<EOF
+01 23 45 67 89 ab cd ef 01 23 45 67  89 abcd ef 01234567 89abcdef 01234567 89abcdef deadbeef 0badcafe 01234567 89abcdef
+EOF
+
+echo 99 > $RCroot/secrets.d/encoding.keyid
+
+# it's a little weird to put the config in the EXPORT_ROOT, but
+# nothing forbids it...
+cat > $etc/fs123p7exportd.gflags <<- EOF
+--port=$SERVPORT
+# can't do chroot until exe has ben setpcap'ed
+--chroot=/
+--export_root=$EXPORT_ROOT
+--cache_control_file=$cache_control
+--estale_cookie_src=$cookie_src
+# 
+--log_destination=$RCroot/errorlog
+--log_max_hourly_rate=600
+--accesslog_destination=$RCroot/accesslog
+--diag_names=http=2:bufev:proc:fs123req:cache_control:secretbox:cc_rules:err:complaints
+--diag_destination=$diag_file
+--sharedkeydir=$RCroot/secrets.d
+--sharedkeydir_refresh=1
+--allow_unencrypted_requests
+--allow_unencrypted_replies
+--max_age_long=20
+--max_age_short=3
+--stale_while_revalidate_long=10
+--stale_while_revalidate_short=3
+--cache_control_regex=max-age=55,stale-while-revalidate=44:max-age=33,stale-while-revalidate=22:.*\.dms
+--decentralized_cache_control
+EOF
+
+# set up a various commands to make it easier to repeat tests
+(printf '#!/bin/bash\n'; export -p; echo PATH=\$PATH:$MTroot/sbin:$testdir; printf 'exec "$@"\n') > $MTroot/runtest
+cat <<EOF  > $MTroot/run
+#!/bin/bash -x
+fusermount -u $MTPT
+hms=\$(date +%H:%M:%S)
+for f in fs123.out fs123.err fs123.diag; do
+   mv $MTroot/\$f $MTroot/\$f.\$hms 2>/dev/null
+done
+client="$client"
+if [ x"\${FS123_TEST_WITH_VALGRIND}" = xyes ]; then
+   client="valgrind --leak-check=full --error-exitcode=99 --soname-synonyms=somalloc=NONE --suppressions=$MTroot/fs123.supp \$client"
+fi
+set -x
+\$client > $MTroot/fs123.out 2> $MTroot/fs123.err < /dev/null
+s=\$?
+echo \$s > $MTroot/fs123.exstatus
+exit \$s
+EOF
+
+cat <<EOF > $RCroot/run
+#!/bin/bash
+hms=\$(date +%H:%M:%S)
+for f in fs123.diag exportd.err accesslog errorlog; do
+   if [ -f \$f ]; then  mv $RCroot/\$f $RCroot/\$f.\$hms 2>/dev/null; fi
+done
+# N.B.  Try --run-libc-freeres=no if this segfaults.  See http://valgrind.org/docs/manual/faq.html#faq.exit_errors 
+server="$RCroot/sbin/fs123p7exportd --flagfile $RCroot/etc/fs123p7exportd/fs123p7exportd.gflags --pidfile $RCroot/pidfile "
+if [ x"\${FS123_TEST_WITH_VALGRIND}" = xyes ]; then
+   server="valgrind --error-exitcode=99 --soname-synonyms=somalloc=NONE --suppressions=$MTroot/fs123.supp \$server"
+fi
+set -x
+\$server > $RCroot/exportd.out 2> $RCroot/exportd.err
+s=\$?
+echo \$s > $RCroot/exportd.exstatus
+exit \$s
+EOF
+
+cat <<EOF > $RCroot/stop
+#!/bin/bash
+set -x
+kill \$(cat $RCroot/pidfile)
+EOF
+
+# The others are basically one-liners:
+printf "#!/bin/bash\\nfusermount -u $MTPT\\n" > $MTroot/stop
+printf "#!/bin/bash\\ngrep $MTPT /proc/mounts\\n" > $MTroot/status
+chmod a+x $MTroot/runtest $MTroot/run $MTroot/stop $MTroot/status $RCroot/run $RCroot/stop
+echo "Created convenience commands:"
+echo "$MTroot/runtest  # for re-running tests"
+echo "$MTroot/run	# for restarting client / mount"
+echo "$MTroot/stop	# for stopping client / unmounting "
+echo "$MTroot/status	# for checking client / unmounting "
+echo "$RCroot/run	# for restarting server"
+echo "$RCroot/stop	# for stopping server"
+sleep 1
+
+echo Done with setup at $(date +'%Y%m%d %H:%M:%S')
+
+######## END of setup
+
+# wait after killing the background jobs because jenkins
+# gets very upset if this script exits before its background
+# jobs exit.
+### $RCroot/stop; echo "final test with repeated stop, should say FAILED"; $RCroot/stop
+### (n=0; while [ $n -lt 100 ]; do if ! $rc status; then break; fi; sleep 1; done; echo "$n iterations waiting for shutdown" >&2) || true
+trap 'rv=$?; trap "" ERR; j=$(jobs -pr); [ "$j" ] && ( kill $j || echo kill failed; wait ); $RCroot/stop; fusermount -u $MTPT ; exit $rv' EXIT
+
+set -x
+
+: ${FS123_TEST_WITH_VALGRIND=yes}
+export FS123_TEST_WITH_VALGRIND
+
+$RCroot/run &
+serverpid=$!
+
+######## BEGIN test of client
+
+# shut down existing client and start a new one at $MTPT
+$MTroot/run &
+clientpid=$!
+# wait for the client to really start.
+delay=0
+maxdelay=30
+while :; do
+    sleep 1
+    if mount | grep -q $absMTPT ; then
+        break
+    fi
+    echo 1>&2 client still not ready after $((++delay)) seconds
+    if [ $delay -gt $maxdelay ]; then
+        echo 1>&2 Done waiting for client.  Bye.
+        exit 1
+    fi
+done
+    
+# We can finally run tests...
+# N.B.  run the tests in modification-time order.  The
+# tests are independent, so it shouldn't matter what order
+# we run them.  But it's nice during development to run
+# the one we're "working  on" first.
+# BUT fiddling with the order could expose a heisenbug.
+# If it does, we'd like to know what order we happened to
+# pick.
+tests=$(ls -t $testdir/t-*[a-zA-Z0-9])
+# For example, to run in a particular order:
+#tests=$(sed "s@ @ $testdir/@g" <<< " t-14ccrules t-15cornercases t-16logrotate t-17sigusr2 t-01simple t-02disconnected t-03readdir t-04changingcrf t-05unittests t-06xattr t-07modified t-08estale t-09w2r t-10lsroot t-11showcache t-12swrcache t-13ccregex")
+#garden prepend-path PATH $MTroot/sbin
+PATH=$MTroot/sbin:$PATH
+echo Running tests in this order: $(sed s@$testdir/@@g <<< $tests)
+for f in $tests; do
+    if [ -x "$f" ]; then
+        echo Running $f at $(date +'%Y%m%d %H:%M:%S')
+        /usr/bin/time $f || { echo $f failed 1>&2 ; exit 1; }
+    else
+        echo $f is not executable.  Skipped.
+    fi
+done
+
+echo '>>>' Final client statistics
+cat $MTPT/.fs123_statistics
+echo '>>>' Final server statistics
+cat $MTPT/.fs123_server_statistics
+
+echo Done with unit tests at $(date +'%Y%m%d %H:%M:%S')
+
+$MTroot/stop
+# if valgrind noticed anything, it will exit 99, which will
+# cause the wait to trap ERR.
+echo If the next line exits with status=99 look for valgrind errors in $MTroot/fs123.err
+wait $clientpid
+# But what if the clientpid doesn't exit cleanly as a result of $MTroot/stop??
+# If shouldn't.  Fix $MTroot/stop so it can't happen.
+
+$RCroot/stop
+echo If the next line exits with status=99 look for valgrind errors in $RCroot/exportd.err
+wait $serverpid
+
+######## END test of client
+
+echo OK  All tests passed, expect a fusermount to complain during the final cleanup
+
+# don't let problems with jobs/kill/wait produce unhappy overall results
+trap - ERR

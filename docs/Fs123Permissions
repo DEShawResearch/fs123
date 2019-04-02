@@ -1,0 +1,117 @@
+Access permissions with fs123
+-----------------------------
+
+read-only filesystem and the 'w' bits
+-------------------------------------
+
+The fuse client (mount.fs123) unconditionally adds the
+-odefault_permissions option when the filesystem is mounted.  As a
+result, the local kernel follows its normal, default rules for read,
+write and execute permissions.
+
+All fs123 filesystems are read-only.  Files and directories on the
+server may be writable to different classes of users, but they are
+never writable on the client.  To make the inevitable EACCES
+(Permission denied) errors less confusing, the fs123 client clears all
+the 'w' bits in the modes of mounted files and directories.  For
+example, a file on the server might be:
+
+  -rwxrwxr-x
+
+But when accessed through the fs123 client, it will appear
+to be:
+
+  -r-xr-xr-x
+
+unprivileged  server processes and the 'r' and 'x' bits
+-------------------------------------------------------
+
+The server process, fs123p7exportd, often runs as an unprivileged user in an
+unprivileged group.** Thus, fs123p7exportd can only read files that are
+readable to "other", and it can only 'search' in directories that are
+executable to "other".  As a result, files on the server that are
+unreadable by 'other' can be neither read nor executed on the client,
+regardless of uid, gid or group membership.  Directories are slightly
+different: if a directory is unreadable to other on the server, then
+it will be unreadable to everyone on the client and if it is
+non-executable to other on the server, then it will be non-executable
+to everyone on the client.
+
+The inability to read or execute certain files or directories that
+lack 'other' permission on the server is inevitible.  Fs123 *must*
+return an error when attempts are made to access such files and
+directories.  The only questions are how and when to frame the error.
+
+It chooses to do so by presenting different permission bits on
+the client from the server.  So, for example, a file with
+permissions on the server:
+
+  -rwxrwx--x
+
+will appear on the client as:
+
+  --------
+
+The 'w' bits are cleared because the filesystem is unwritable and the
+'r' and 'x' bits are cleared because the file is unreadable on the
+server.  Attempts to open the file will result in EACCES Permssion
+denied errors, just as would result from attempting to open any
+other file with those permissions.
+
+
+A directory with permissions on the server:
+
+  -rwxrwx--x
+
+will appear to be:
+
+  --x--x--x
+
+on the client.  Again, the 'w' bits are cleared because the filesystem
+is read-only, but for a directory, the 'r' and 'x' bits are
+independent.  The server (and hence the client) can 'execute' the
+directory even without read permission.  In this case, client
+processes will get EACCES if they try to list the directory, but they
+may open files with known names.
+
+The permission-modifications described above are inappropriate if the
+server really does have permission to read the contents of the
+exported directory.  The server need not have 'root' permission.  All
+it needs is permission to read the contents of EXPORT_ROOT. Setting
+the:
+
+  -oFs123PrivilegedServer=true
+
+option tells the client not to clear the user/group read and execute
+bits when the other-read bit is clear.  Thus, permissions on the
+client are much closer to permissions on the server.  For example,
+group-ownership and group-read permissions can be propagated in this
+way.
+
+WARNING: Administrators should think VERY CAREFULLY before granting
+non-other privileges to the server.  It is strongly advised that the
+http server should impose some other form of access control (e.g.,
+BasicAuth over SSL) to prevent non-privileged http clients from
+reading privileged content.
+
+
+Setuid and setgid
+-----------------
+
+Like any other fuse client, the mount.fs123 client accepts options:
+suid,nosuid,dev,nodev.  Filesystems are mounted nosuid and nodev by
+default, which can only be overridden by a privileged user.  Thus, by
+default, the setuid and setgid mode bits on remote files have no
+effect on execution of files under the fs123 mount point.  Overriding
+the defaults is strongly discouraged.
+
+Setxid bits on directories only affect the creation of new directory
+entries, which is forbidden anyway by the read-only nature of fs123.
+
+
+
+
+** Theoretically, we could enhance the protocol and harden the code to
+allow the server to run as root, but the current version (May 2016)
+has no authentication whatsoever, so execution as root is strongly
+discouraged.
