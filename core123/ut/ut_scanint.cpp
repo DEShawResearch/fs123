@@ -140,7 +140,7 @@ void testcorner(const std::string& s, TYPE first, long second){
     ::memcpy(p, s.data(), s.size());
     bool caught = false;
     TYPE result;
-    size_t off;
+    size_t off = 0;
     try{
         off = scanint<TYPE, base> (str_view(p, s.size()), &result);
         std::cout << " got " << result  << ", " << off << "\n";

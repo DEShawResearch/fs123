@@ -32,7 +32,7 @@ that we have built and installed from sources (gcc6, libgflags, libevent)
 To compile and link the client and server:
 
 - gcc
-    8.3.1 (Fedora29), 8.2.0 (bionic), 6.5.0 (xenial), devtoolset-8-gcc-8.2.1 (CentOS7) have been tested. Any compiler with full C++14 support should work.
+    8.3.1 (Fedora29), 8.2.0 (bionic), 5.5.0 (xenial), devtoolset-8-gcc-8.2.1 (CentOS7) have been tested. Any compiler with full C++14 support should work.
 - gmake
     3.82 has been tested.
 - libfuse
@@ -89,8 +89,8 @@ The Makefile follows standard conventions
 for CXX, CC, TARGET_ARCH, CPPFLAGS, CFLAGS, CXXFLAGS, LDFLAGS, and LDLIBS.
 If prerequisites are installed in places that are not
 automatically found by your toolchain, set one or more environment
-variables before calling make.  E.g., on xenial 16.04, after installing
-gcc6 from the ppa:ubuntu-toolchain-r/test repository, we build and test with:
+variables before calling make.  E.g., on xenial 16.04, one can use
+gcc6 from the ppa:ubuntu-toolchain-r/test repository, with:
 ```bash
 $ env CC=gcc-6 CXX=g++-6 make -f .../GNUmakefile check
 ```

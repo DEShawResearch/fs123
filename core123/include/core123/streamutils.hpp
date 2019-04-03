@@ -45,7 +45,7 @@ DOCUMENTATION_END*/
 #include <ostream>
 #include <memory>
 #include <sstream>
-#include <experimental/iterator>
+#include <iterator>
 #include <type_traits>
 #include <cstdio>
 #include <cstdarg>
@@ -168,8 +168,14 @@ public:
     rangeInserter(ITER _b, ITER _e, const char* _sep) : b(_b), e(_e), sep(_sep){}
     friend std::ostream& operator<<(std::ostream& s, const rangeInserter&r){
         std::ostream::sentry sentry(s);
-        if(sentry)
-            copy(r.b, r.e, std::experimental::make_ostream_joiner(s, r.sep));
+        if(sentry){
+            // copy(r.b, r.e, std::ostream_joiner(s, r.sep)); C++20 ?
+            const char *maybe_sep = "";
+            for(ITER p=r.b; p!=r.e; ++p){
+                s << maybe_sep << *p;
+                maybe_sep = r.sep;
+            }
+        }
         return s;
     }
 };
