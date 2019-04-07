@@ -165,7 +165,7 @@ void ino_remember(fuse_ino_t pino, const char *name, fuse_ino_t ino, uint64_t va
                                          pino, name, ino, iterbool.first->second.name()));
     }
     iterbool.first->second.refcount++;
-    DIAGfkey(_inomap, "inomap_remember(%lu, %s, %lu, %lu) refcount: %d\n", pino, name, ino, validator, iterbool.first->second.refcount);
+    DIAGfkey(_inomap, "inomap_remember(%lu, %s, %ju, %lu) refcount: %d\n", pino, name, ino, (uintmax_t)validator, iterbool.first->second.refcount);
 }
 
 void ino_forget(fuse_ino_t ino, uint64_t nlookup){

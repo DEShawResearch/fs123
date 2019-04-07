@@ -96,7 +96,7 @@ def chk(a, b, msg):
     raise MismatchException(msg, a, b)
 
 def chkstat(a, b, msg):
-    for i in (ST_NLINK, ST_UID, ST_GID, ST_SIZE, ST_MTIME): # ST_CTIME (??)
+    for i in (ST_NLINK, ST_UID, ST_GID, ST_SIZE, ST_MTIME, ST_CTIME):
         if a[i] != b[i]:
             raise MismatchException(msg, a, b)
     # don't check ST_MODE because of 'massage_attributes'

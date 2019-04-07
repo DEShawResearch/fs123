@@ -24,12 +24,17 @@ at 40Gbps.
 
 ## Prerequisites
 
-We have successfully run tests on Ubuntu 18.04(LTS) bionic, Ubuntu 16.04(LTS) xenial,
-Fedora 29 and CentOS7 using the distro's provided compilers and libraries.  We run fs123 in production
-on CentOS7 using a mix of distro libraries (libfuse, libcurl, libsodium) and tools
-that we have built and installed from sources (gcc6, libgflags, libevent)
+We run fs123 in production on CentOS7 using a mix of CentOS-provided
+libraries (libfuse, libcurl, libsodium) and tools andlibraries that we
+have built and installed from sources (gcc6, libgflags, libevent)
 
-To compile and link the client and server:
+We have successfully run fs123's self-tests in docker images running
+Ubuntu 18.04(LTS) bionic, Ubuntu 16.04(LTS) xenial, Fedora 29 and
+CentOS7 using the distro's provided compilers and libraries.  See the
+scripts in `misc/prereqs.*` for hints about how to install fs123's
+prerequisites in different distros.
+
+The prerequisites to compile and link the client and server are:
 
 - gcc
     8.3.1 (Fedora29), 8.2.0 (bionic), 5.5.0 (xenial), devtoolset-8-gcc-8.2.1 (CentOS7) have been tested. Any compiler with full C++14 support should work.
@@ -50,9 +55,10 @@ To run the tests (invoked by make check) the following are needed.  The standard
 
 - valgrind
 - time 
-- getfattr
+- attr
 - curl
 - python2, python3
+- e2fsprogs
 
 ## Compiling
 

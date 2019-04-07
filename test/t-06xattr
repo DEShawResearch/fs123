@@ -10,7 +10,7 @@ die(){
 trap 'echo 1>&2 $0: Exiting on ERR trap, line: $LINENO; exit 1' ERR
 
 me=$(basename $0)
-f=$(cd $EXPORT_ROOT && mktemp --tmpdir=. $me.XXXXXX)
+f=$(cd $EXPORT_ROOT && mktemp -p. $me.XXXXXX)
 chmod a+rx $EXPORT_ROOT/$f
 
 setfattr -n user.testing -v ok || {

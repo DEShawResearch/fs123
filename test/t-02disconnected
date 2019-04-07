@@ -17,7 +17,7 @@ delay=2	# long enough to make sure server will send Last-Modified header so clie
 me=$(basename $0)
 value=hello
 newvalue=bye
-f=$(cd $EXPORT_ROOT && mktemp --tmpdir=. $me.XXXXXX)
+f=$(cd $EXPORT_ROOT && mktemp -p. $me.XXXXXX)
 chmod a+rx $EXPORT_ROOT/$f
 printf "%s" "$value" > $EXPORT_ROOT/$f
 sleep $delay	# wait for server skew to be satisfied

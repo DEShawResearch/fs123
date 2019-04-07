@@ -10,7 +10,7 @@ die(){
 
 trap 'echo 1>&2 $0: Exiting on ERR trap, line: $LINENO; exit 1' ERR
 
-cache=$(readlink -e "$MTPT/../cachedir")
+cache=$(readlink -f "$MTPT/../cachedir")
 stat $MTPT # make sure there's something in the cache!
 sleep 1 # serializing is asynchronous, so let's give it a chance to catch up.
 if test ! -d "$cache/0"; then

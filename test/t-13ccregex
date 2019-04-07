@@ -20,7 +20,7 @@ trap 'echo 1>&2 $0: Exiting on ERR trap, line: $LINENO; exit 1' ERR
 
 me=$(basename $0)
 
-d=$(cd $EXPORT_ROOT && mktemp --directory --tmpdir=. $me.XXXXXX | sed 's@^./@@')
+d=$(cd $EXPORT_ROOT && mktemp -d -p. $me.XXXXXX | sed 's@^./@@')
 chmod a+rx $EXPORT_ROOT/$d
 (cd $EXPORT_ROOT/$d; touch a.dms)
 

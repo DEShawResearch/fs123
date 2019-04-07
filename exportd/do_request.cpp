@@ -646,8 +646,8 @@ void ReplyPlus::do_dir_() try {
     svscan(req_->query_, std::tie(ckib, chunkfrombegin, chunkfrom));
     auto chunklen = get_chunklen_(ckib);
     auto fname = full_path_.c_str();
-    DIAGfkey(_http, "%llu do_dir %ld %d %" PRIu64 " %" PRId64 " %s\n",
-	     reqid_, ckib, chunkfrombegin, chunklen, chunkfrom, fname);
+    DIAGfkey(_http, "%llu do_dir %jd %d %ju %zd %s\n",
+	     reqid_, (uintmax_t)ckib, chunkfrombegin, chunklen, (intmax_t)chunkfrom, fname);
     // use open+fdopendir so we can use O_NOFOLLOW for safety
     acfd xfd = open(fname, O_DIRECTORY | O_NOFOLLOW | O_RDONLY);
     acDIR dir = ::fdopendir(std::move(xfd));
@@ -707,8 +707,8 @@ void ReplyPlus::do_file_() try {
     auto chunklen = get_chunklen_(ckib);
     chunkfrom *= KiB; // KiB in the URL, bytes here.
     auto fname = full_path_.c_str();
-    DIAGfkey(_http, "%llu do_file %ld %" PRId64 " %" PRId64 " %s\n",
-	     reqid_, ckib, chunklen, chunkfrom, fname);
+    DIAGfkey(_http, "%llu do_file %jd %zd %jd %s\n",
+	     reqid_, (uintmax_t)ckib, chunklen, (uintmax_t)chunkfrom, fname);
     acfd acfd = ::open(fname, O_RDONLY | O_NOFOLLOW);
     if( !acfd ){
 	// we were presumably able to lstat it, but couldn't open it.
@@ -792,8 +792,8 @@ void ReplyPlus::do_xattr_() try {
 	throw se(EINVAL, "failed to uridecode xattr name");
     auto chunklen = get_chunklen_(ckib);
     auto fname = full_path_.c_str();
-    DIAGfkey(_http, "%llu do_xattr %ld %" PRId64 " name \"%s\" %s\n",
-	     reqid_, ckib, chunklen, name.get(), fname);
+    DIAGfkey(_http, "%llu do_xattr %jd %zd name \"%s\" %s\n",
+	     reqid_, (intmax_t)ckib, chunklen, name.get(), fname);
     if (chunklen)
 	reserve_content_(chunklen);
     ssize_t sz;

@@ -49,10 +49,8 @@ CXXFLAGS += -D_FILE_OFFSET_BITS=64
 CFLAGS += -std=c99 -ggdb
 CFLAGS += $(OPT)
 LDFLAGS += -pthread
-LDFLAGS += -Wl,--build-id # rpm really wants this.
 LDFLAGS += -L. # so the linker can find ./libfs123.a
 LDLIBS += -lcore123 -lfs123
-LDLIBS += -lrt # needed to link core123 with glibc<2.17, not harmful otherwise
 
 # git desribe --exclude would be b
 GIT_DESCRIPTION?=$(cd $(top/) shell git describe --always --dirty || echo not-git)
@@ -73,8 +71,13 @@ libcore123.a:
 
 # fs123p7: the client, linked into a single binary with a few utilities
 fs123p7obj := fs123p7.o app_mount.o app_setxattr.o app_ctl.o fuseful.o backend123.o backend123_http.o diskcache.o special_ino.o inomap.o opensslthreadlock.o openfilemap.o
-fs123p7 : LDLIBS += -lfuse
-fs123p7 : LDLIBS += $(shell curl-config --libs) -lcrypto -lsodium
+ifndef NO_OPENSSL
+fs123p7 : LDLIBS += -lcrypto
+endif
+fs123p7 : LDLIBS += -lsodium
+FUSELIB?=fuse # if not  explicitly set
+fs123p7 : LDLIBS += -l$(FUSELIB) -ldl # -ldl is needed for static linking.  Should be harmless otherwise
+fs123p7 : LDLIBS += $(shell curl-config --libs) -lz # -lz is needed for static linking.  Should be harmless otherwise
 fs123p7 : $(fs123p7obj)
 
 backend123_http.o : CPPFLAGS += $(shell curl-config --cflags)

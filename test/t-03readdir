@@ -9,7 +9,7 @@ trap "1>&2 echo $0: exiting on ERR trap at line: $LINENO; exit 1" ERR
 
 ut_seektelldir $MTPT
 me=$(basename $0)
-d=$(cd $EXPORT_ROOT && mktemp -d --tmpdir=. $me.XXXXXX)
+d=$(cd $EXPORT_ROOT && mktemp -d -p. $me.XXXXXX)
 chmod a+rx $EXPORT_ROOT/$d
 i=0
 n=100

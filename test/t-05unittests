@@ -6,7 +6,7 @@ trap 'echo 1>&2 $0: Exiting on ERR trap, line: $LINENO; exit 1' ERR
 
 cd "$RCroot" 
 me=$(basename $0)
-d=$(mktemp -d --tmpdir=. $me.XXXXXX)
+d=$(mktemp -d -p. $me.XXXXXX)
 for f in ut_*; do
     case $f in
         # some of them require more machinery than just calling

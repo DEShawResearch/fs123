@@ -1,0 +1,20 @@
+There is a huge variety of constantly evolving distros.  The lists of
+packages in the prereqs.* files are *hints* for how to satisfy fs123's
+prerequisites in a few environments.  We hope they're useful hints for
+developers wishing to install fs123's prerequisites.
+
+We have used these scripts to build and test fs123 in docker images.
+For example, we tested fs123 in an ubuntu:18.04 (bionic) image with
+this sequence of commands:
+
+$ docker run --device /dev/fuse -rm --cap-add SYS_PTRACE --cap-add SYS_ADMIN -it --mount=type=bind,src=/u/nyc/salmonj/g/gardenfs,destination=/fs123  ubuntu:18.04
+root@14dcae91065e:/# sh /fs123/misc/prereqs.bionic
+...
+root@14dcae91065e:/# mkdir /tmp/build
+root@14dcae91065e:/# cd /tmp/build
+root@14dcae91065e:/tmp/build# make -f /fs123/GNUmakefile -j check
+...
++ echo OK All tests passed, expect a fusermount to complain during the final cleanup
+OK All tests passed, expect a fusermount to complain during the final cleanup
+...
+root@bb0d224dd9d3:/tmp/build#

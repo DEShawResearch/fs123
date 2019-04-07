@@ -662,8 +662,8 @@ diskcache::deserialize_no_unlink(int rootfd, const std::string& path,
     // unlikely to ever fail.
     size_t bytes_not_counting_url = reply123_pod_length + sizeof(content_len) + content_len + 2*sizeof(int32_t);
     if((size_t)sb.st_size < bytes_not_counting_url)
-        throw se(EINVAL, fmt("diskcache::deserialize: st_size=%zd, should be >= %zd\n",
-                                     sb.st_size, bytes_not_counting_url));
+        throw se(EINVAL, fmt("diskcache::deserialize: st_size=%jd, should be >= %zu\n",
+			     (intmax_t)sb.st_size, bytes_not_counting_url));
     ret.content.resize(content_len);
     nread = sew::read(fd, &ret.content[0], content_len);
     stats.diskcache_deserialize_bytes += nread;

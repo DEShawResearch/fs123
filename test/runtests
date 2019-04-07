@@ -100,14 +100,14 @@ for f in $initd/fs123p7exportd ${RCroot}/sbin/fs123p7exportd; do
 done
 
 clientexe=${MTroot}/sbin/mount.fs123p7
-rc="bash $debug $initd/fs123p7exportd"
 
 # currently copy init script, daemon and executables to rc.
 # cp -av or ln -s?  do we need a "copy" in addition to stop and start?
 # or start always does a copy?
 : ${CPEXE=ln -sfv} #  was cp -av
+set -x
 cp -a ${testdir}/../exportd/fs123p7exportd.rc $initd/fs123p7exportd
-sed -i "s,RCroot=[^}]*,RCroot=$RCroot," $initd/fs123p7exportd
+sed -i.bak -e "s,RCroot=[^}]*,RCroot=$RCroot," $initd/fs123p7exportd
 
 : ${OBJDIR:=$(pwd)}
 PATH=$OBJDIR:$PATH
@@ -243,7 +243,7 @@ trap 'rv=$?; trap "" ERR; j=$(jobs -pr); [ "$j" ] && ( kill $j || echo kill fail
 
 set -x
 
-: ${FS123_TEST_WITH_VALGRIND=yes}
+: ${FS123_TEST_WITH_VALGRIND=$(if type valgrind; then echo yes; else echo no; fi)}
 export FS123_TEST_WITH_VALGRIND
 
 $RCroot/run &
@@ -283,10 +283,11 @@ tests=$(ls -t $testdir/t-*[a-zA-Z0-9])
 #garden prepend-path PATH $MTroot/sbin
 PATH=$MTroot/sbin:$PATH
 echo Running tests in this order: $(sed s@$testdir/@@g <<< $tests)
+failed=
 for f in $tests; do
     if [ -x "$f" ]; then
         echo Running $f at $(date +'%Y%m%d %H:%M:%S')
-        /usr/bin/time $f || { echo $f failed 1>&2 ; exit 1; }
+        /usr/bin/time $f || { echo $f FAILED 1>&2 ; failed+=" $f"; }
     else
         echo $f is not executable.  Skipped.
     fi
@@ -298,6 +299,12 @@ echo '>>>' Final server statistics
 cat $MTPT/.fs123_server_statistics
 
 echo Done with unit tests at $(date +'%Y%m%d %H:%M:%S')
+if [ "$failed" ]; then
+    echo FAILED:  $failed
+    exit 1
+else
+    echo PASSED: ALL
+fi
 
 $MTroot/stop
 # if valgrind noticed anything, it will exit 99, which will

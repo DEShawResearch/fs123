@@ -27,7 +27,7 @@ fi
 me=$(basename $0)
 
 # Let's make sure that ls works too...
-d=$(cd $EXPORT_ROOT && mktemp --directory --tmpdir=. $me.XXXXXX | sed 's@^./@@')
+d=$(cd $EXPORT_ROOT && mktemp -d -p. $me.XXXXXX | sed 's@^./@@')
 chmod a+rx $EXPORT_ROOT/$d
 (cd $EXPORT_ROOT/$d; touch a.dms)
 
@@ -76,14 +76,14 @@ baseurl=http://localhost:$SERVPORT/fs123/7
 # Tweak a/b/.fs123_cc_rules so it violates the schema
 # and try again.  We should still "see" the rules file
 # at $d/.fs123_cc_rules:
-sed -i s/cc/dd/ $EXPORT_ROOT/$d/a/b/.fs123_cc_rules
+sed -i.bak s/cc/dd/ $EXPORT_ROOT/$d/a/b/.fs123_cc_rules
 sleep 2
 [ $(getstatus "$baseurl/a/$d/a/b/c.ark") == 200 ]
 [ $(getstatus "$baseurl/a/$d/a/b/c.ark/d") == 200 ]
 [ "$(getcc $baseurl/a/$d/a/b/c.ark)" = "$d,re-ark" ]
 [ "$(getcc $baseurl/a/$d/a/b/c.ark/d)" = "$d,nomatch" ]
 # Tweak it again so it isn't even valid json
-sed -i s/,/,,/ $EXPORT_ROOT/$d/a/b/.fs123_cc_rules
+sed -i.bak s/,/,,/ $EXPORT_ROOT/$d/a/b/.fs123_cc_rules
 sleep 2
 [ "$(getcc $baseurl/a/$d/a/b/c.ark)" = "$d,re-ark" ]
 [ "$(getcc $baseurl/a/$d/a/b/c.ark/d)" = "$d,nomatch" ]

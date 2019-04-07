@@ -9,7 +9,7 @@ set -x
 
 me=$(basename $0)
 value=hello
-f=$(cd $EXPORT_ROOT && mktemp --tmpdir=. $me.XXXXXX)
+f=$(cd $EXPORT_ROOT && mktemp -p. $me.XXXXXX)
 chmod a+rx $EXPORT_ROOT/$f
 printf "%s" "$value" > $EXPORT_ROOT/$f
 printf "%s" "$value.1" > $EXPORT_ROOT/$f.1

@@ -68,8 +68,10 @@
 #include <sys/stat.h>
 #include <cstddef>
 #include <sys/xattr.h>
-#ifndef __APPLE__
+#if __has_include(<sys/sysinfo.h>) // Linux
 #include <sys/sysinfo.h>
+#elif __has_include(<sys/sysctl.h>) // BSD and MacOS
+#include <sys/sysctl.h>
 #endif
 #ifndef ENOATTR
 # define ENOATTR ENODATA
@@ -249,8 +251,8 @@ bool cookie_mismatch(fuse_ino_t ino, uint64_t estale_cookie){
     auto pino_name = ino_to_pino_name(ino);
     auto gino = genino(estale_cookie, pino_name.first, pino_name.second);
     if(ino != gino)
-        DIAGfkey(_estale, "cookie_mismatch: ec=%lu, name=%s, ino=%lu genino=%lu\n",
-                 estale_cookie,
+        DIAGfkey(_estale, "cookie_mismatch: ec=%ju, name=%s, ino=%lu genino=%lu\n",
+                 (uintmax_t)estale_cookie,
                  pino_name.second.c_str(),
                  ino, gino);
     return ino != gino;
@@ -681,9 +683,9 @@ reply123 begetattr(fuse_ino_t pino, str_view lc, fuse_ino_t ino, int max_stale){
         auto ttl = ret.ttl();
         if( ttl > decltype(ttl)::zero() ){
             bool inserted = attrcache->insert(key, attrcache_value_t(ret.content, ret.estale_cookie), ttl);
-            DIAGfkey(_getattr, "attrcache->insert(pino=%lu, lastcomponent=%s, key=%lu, name=%s, estale_cookie=%lu ttl=%.6f):  %s\n", 
+            DIAGfkey(_getattr, "attrcache->insert(pino=%lu, lastcomponent=%s, key=%ju, name=%s, estale_cookie=%ju ttl=%.6f):  %s\n",
                      pino, std::string(lc).c_str(),
-                     key, name.c_str(), ret.estale_cookie, dur2dbl(ttl),
+                     (uintmax_t)key, name.c_str(), (uintmax_t)ret.estale_cookie, dur2dbl(ttl),
                      inserted? "replaced" : "did not replace");
         }else{
             DIAGfkey(_getattr, "attrcache: did not insert stale attributes:  ttl: %.6f", dur2dbl(ttl));
@@ -812,33 +814,27 @@ void caught(std::exception& e, fuse_ino_t ino, fuse_req_t req, const char *func)
 
 void regular_maintenance(){
     // Load average:
-#ifdef __linux__
+#if __has_include(<sys/sysinfo.h>)
     // sysinfo is linux-specific.
     struct sysinfo si;
     static const float si_load_inv = 1.f/(1 << SI_LOAD_SHIFT); // convert si.load to a float
     if(::sysinfo(&si) == 0){ // no sew::, but we might not want it anyway.
         volatiles->load_average.store(si.loads[0]*si_load_inv);
     }
-    DIAG(_periodic, "updated volatiles->load_average to " << volatiles->load_average);
-#else // ! defined(__linux__)
+#elif __has_include(<sys/sysctl.h>)
+    struct loadavg la;
+    size_t len;
+    if(sysctlbyname("vm.loadavg", &la, &len, NULL, 0) != 0)
+	volatiles->load_average.store(float(la.ldavg[0])/la.fscale);
+#else
 #error "Don't know how to get load averages on this platform"
-    // the BSD's appear to have a sysctl(2).  Maybe something like:
-    //
-    //  #include <sys/sysctl.h>
-    //  #include <vm/vm_param.h>
-    //  ...
-    //  int mib[2] = {CTL_VM, VM_LOAD_AVG};
-    //  struct loadavg la;
-    //  size_t len;
-    //  if(sysctl(mib, 2, &la, &len, NULL, 0) != 0)
-    //      volatiles->load_average.store(float(la.ldavg[0])/la.fscale);
-    //
     // popen("sysctl -n vm.loadavg") should work on OS X and FreeBSD
     // popen("uptime") may be even more generic.  
     // google for getloadavg.c for a multiplatform monstrosity.
     // 
     // At the very least, issue a warning if volatiles->load_timeout_factor is non-zero.
 #endif
+    DIAG(_periodic, "updated volatiles->load_average to " << volatiles->load_average);
 
     // secret_manager:
     if(secret_mgr)
@@ -1159,8 +1155,8 @@ void fs123_readdir(fuse_req_t req, fuse_ino_t ino,
                       size_t size, off_t off, struct fuse_file_info *fi) try
 {
     stats.readdirs++;
-    DIAGfkey(_opendir, "readdir(ino=%lu, size=%zu, off=%ld, fi=%p, fi->fh=%p)\n",
-             ino, size, off, fi, fi?(void*)fi->fh:nullptr);
+    DIAGfkey(_opendir, "readdir(ino=%lu, size=%zu, off=%jd, fi=%p, fi->fh=%p)\n",
+             ino, size, (intmax_t)off, fi, fi?(void*)fi->fh:nullptr);
     atomic_scoped_nanotimer _t(&stats.readdir_sec);
     if(fi==nullptr || fi->fh == 0)
         throw se(EIO, "fs123_readdir called with fi=nullptr or fi->fh==0.  This is totally unexpected!");
@@ -1539,14 +1535,14 @@ void fs123_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct f
         throw se(EINVAL, "fs123_read is limited to size<=" + std::to_string(chunkbytes) );
     }
         
-    DIAGfkey(_read, "read(req=%p, ino=%lu, size=%zu, off=%zu)\n", req, ino, size, off);
+    DIAGfkey(_read, "read(req=%p, ino=%lu, size=%zu, off=%jd)\n", req, ino, size, (intmax_t)off);
     std::string name;
     uint64_t ino_validator;
     std::tie(name, ino_validator) = ino_to_fullname_validator(ino);
     auto chunknum = off / chunkbytes;
     decltype(chunkbytes) off0 = off%chunkbytes;
     auto len0 = std::min(size, chunkbytes-off0);
-    DIAGfkey(_read, "readchunk0(%s, %zu, %zu, %zu, %zu)\n", name.c_str(), chunknum, chunkbytes, off0, len0);
+    DIAGfkey(_read, "readchunk0(%s, %jd, %zu, %zu, %zu)\n", name.c_str(), (intmax_t)chunknum, chunkbytes, off0, len0);
     auto start0kib = chunknum*Fs123Chunk;
     auto reply0 = begetchunk_file(ino, start0kib);
     if(reply0.eno)
@@ -1614,7 +1610,7 @@ void fs123_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct f
     }
     auto nleft = size - len0;
     //  Not done yet.  Request the next chunk:
-    DIAGfkey(_read, "readchunk1(%s, %zu, %zu, %zu, %zu)\n", name.c_str(), chunknum+1, chunkbytes, size_t(0), nleft);
+    DIAGfkey(_read, "readchunk1(%s, %jd, %zu, %zu, %zu)\n", name.c_str(), (intmax_t)chunknum+1, chunkbytes, size_t(0), nleft);
     // FIXME - can we somehow do this read in parallel
     // with the other one?  We've got a threadpool for
     // use in dirent.  Can we reuse that??
@@ -1674,7 +1670,7 @@ void fs123_statfs(fuse_req_t req, fuse_ino_t ino) try {
 }CATCH_ERRS
 
 void do_forget(fuse_ino_t ino, uint64_t nlookup){
-    DIAGfkey(_lookup, "forget(%lu, %lu)\n", ino, nlookup);
+    DIAGfkey(_lookup, "forget(%lu, %ju)\n", ino, (uintmax_t)nlookup);
     if(ino > 1 && ino <= max_special_ino)
 	return forget_special_ino(ino, nlookup);
     ino_forget(ino, nlookup);

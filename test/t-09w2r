@@ -1,4 +1,4 @@
-#!/usr/bin/python2
+#!/usr/bin/env python2
 
 #### This test is most reliable if the client is run under valgrind.
 #### See comments near drh.close(rfd1) around line 96.
@@ -29,13 +29,19 @@ wfname = opj(wdname, '0001')
 wfname2 = opj(wdname, '0002')
 wfname3 = opj(wdname, '0003')
 wfd = os.open(wfname, os.O_RDWR|os.O_CREAT, 0O644)
+# call fs123p7 setxattr in case the server is running with
+# --estale_cookie=setxattr.  Don't worry if it fails - we should
+# be running with st_ino in that case.
+os.system("fs123p7 setxattr %s"%(wfname))
 os.write(wfd, '0001')
 
 wfd2 = os.open(wfname2, os.O_RDWR|os.O_CREAT, 0O644)
+os.system("fs123p7 setxattr %s"%(wfname2))
 os.write(wfd2, '0002')
 os.close(wfd2)
 
 wfd3 = os.open(wfname3, os.O_RDWR|os.O_CREAT, 0O644)
+os.system("fs123p7 setxattr %s"%(wfname3))
 os.write(wfd3, '0003')
 os.close(wfd3)
 

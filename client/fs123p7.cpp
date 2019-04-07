@@ -71,7 +71,9 @@ int app_cachedump(int argc, char **argv) {
 int app_flushfile(int argc, char **argv) {
     for(int i=1; i<argc; ++i){
         acfd fd = sew::open(argv[i], O_RDONLY);
+#ifdef POSIX_FADV_DONTNEED
         sew::posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
+#endif
     }
     return 0;
 }
@@ -105,14 +107,12 @@ extern int app_setxattr(int argc, char **argv);
 int main(int argc, char *argv[]) try {
     char **args = argv;
     auto op = pathsplit(argv[0]).second;
-    if (op == fs123p7pfx && argc > 1) {
+    if (op == mountprog) {
+        op = "mount";
+    }else if (argc > 1) {
         op = argv[1];
         args++;
         argc--;
-    } else if (op == mountprog) {
-        op = "mount";
-    } else if (startswith(op, fs123p7pfx)) {
-        op = op.substr(fs123p7pfx.size());
     } else {
         cerr << usage << endl;
         exit(1);

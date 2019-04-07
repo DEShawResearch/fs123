@@ -19,7 +19,7 @@ auto _special = diag_name("special");
 
 struct stat shared_getattr_special_ino(fuse_ino_t ino, struct fuse_file_info *fi){
     struct stat sb{};
-    DIAGfkey(_special, "shared_getattr_special(ino=%lu, fi=%p, fi->fh=%lx)", ino, fi, fi?fi->fh:0L);
+    DIAGfkey(_special, "shared_getattr_special(ino=%lu, fi=%p, fi->fh=%jx)", ino, fi, (intmax_t)(fi?fi->fh:0L));
     switch(ino){
     case SPECIAL_INO_STATS:
     case SPECIAL_INO_CONFIG:
@@ -88,7 +88,7 @@ void getattr_special_ino(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info* 
 }
 
 void open_special_ino(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi){
-    DIAGfkey(_special, "open_special_ino(ino=%lu, fi=%p, fi->fh=%lu)\n", ino, fi, fi?fi->fh:0L);
+    DIAGfkey(_special, "open_special_ino(ino=%lu, fi=%p, fi->fh=%ju)\n", ino, fi, (intmax_t)(fi?fi->fh:0L));
     struct timeval now;
     gettimeofday(&now, nullptr);
     char nowtm_buf[128];
@@ -96,7 +96,7 @@ void open_special_ino(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
     strftime(nowtm_buf, sizeof(nowtm_buf), "utc: %Y-%m-%dT%H:%M:%SZ\n", nowtm);
     std::ostringstream oss;
     oss << std::boolalpha;
-    oss << nowtm_buf << fmt("epoch: %lu.%06lu\n", now.tv_sec, now.tv_usec);
+    oss << nowtm_buf << fmt("epoch: %lu.%06lu\n", now.tv_sec, (long)now.tv_usec);
     switch(ino){
     case SPECIAL_INO_STATS:
         // /.statistics
@@ -140,8 +140,8 @@ void read_special_ino(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, st
         // recover the contents from fi and send it out.
         ANNOTATE_HAPPENS_AFTER(fi->fh);
         const std::string* sp = reinterpret_cast<const std::string*>(fi->fh);
-        DIAGfkey(_special, "read_special_ino(ino=%lu, size=%zd, off_t=%zd, sp=%p\n",
-                 ino, size, off, sp);
+        DIAGfkey(_special, "read_special_ino(ino=%lu, size=%zd, off_t=%jd, sp=%p\n",
+                 ino, size, (intmax_t)off, sp);
         DIAGfkey(_special, "%zd: %s\n", sp->size(), sp->data());
         if(off<0)
             throw se(EINVAL, "read_special_ino with negative offset?");

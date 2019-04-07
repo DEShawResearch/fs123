@@ -592,8 +592,8 @@ struct backend123_http::curl_handler : private countedobj<backend123_http::curl_
             // replyp->last_chunk depends on which case.
             size_t pos = svscan<int64_t>(ii->second, &replyp->chunk_next_offset, 0);
             const char *p = ii->second.data() + pos;
-            DIAGfkey(_backend, HHNO ": chunk_next_offset=%ld, ii->second=%s, pos=%zd\n",
-                     replyp->chunk_next_offset, ii->second.c_str(), pos);
+            DIAGfkey(_backend, HHNO ": chunk_next_offset=%jd, ii->second=%s, pos=%zd\n",
+                     (intmax_t)replyp->chunk_next_offset, ii->second.c_str(), pos);
             while( ::isspace(*p) )
                 ++p;
             if( *p == '\0')
