@@ -8,7 +8,7 @@ For example, we tested fs123 in an ubuntu:18.04 (bionic) image with
 this sequence of commands:
 
 $ docker run --device /dev/fuse -rm --cap-add SYS_PTRACE --cap-add SYS_ADMIN -it --mount=type=bind,src=/u/nyc/salmonj/g/gardenfs,destination=/fs123  ubuntu:18.04
-root@14dcae91065e:/# sh /fs123/misc/prereqs.bionic
+root@14dcae91065e:/# . /fs123/misc/prereqs.ubuntu:bionic
 ...
 root@14dcae91065e:/# mkdir /tmp/build
 root@14dcae91065e:/# cd /tmp/build
