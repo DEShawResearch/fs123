@@ -103,20 +103,17 @@ void lowlevel_notify_inval_inode_detached(fuse_ino_t ino, off_t off, off_t len);
 // They're not fatal, but they might be leaking file descriptors.
 void my_close_failure_handler(const std::string& msg);
 
-// handle_signals - one-stop-shopping
-void handle_signals();
-
 // fuse_main_ll - lifted from examples/hello_ll.c in the fuse 2.9.2 tree.
-int fuse_main_ll(fuse_args* args, const fuse_lowlevel_ops& llops,
-                 bool single_threaded_only);
+int fuseful_main_ll(fuse_args* args, const fuse_lowlevel_ops& llops,
+                 bool single_threaded_only, void (*crash_handler)());
 
-// fuse_teardown - gracefully bring down the lowlevel fuse
+// fuseful_teardown - gracefully bring down the lowlevel fuse
 // infrastructure: sessions are destroyed, channels are closed,
 // signals are restored, mounts are unmounted.  May be called when
 // things are crashing or failing or the system is critically short of
 // resources like memory or threads, in which case a best-effort is
 // made to clean up as much as possible.
-void fuse_teardown();
+void fuseful_teardown();
 
 // fuseful_report - report statistics.
 std::string fuseful_report();
@@ -134,5 +131,6 @@ extern std::string fuse_device_option;
 extern std::string g_mountpoint;
 extern fuse_ino_t g_mount_dotdot_ino;
 extern fuse_session* g_session;
+extern std::string g_named_pipe_name;
 void fuse_options_to_envvars(fuse_args* args, const std::string& desc, std::initializer_list<std::string> envvars);
 

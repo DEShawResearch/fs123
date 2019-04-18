@@ -63,6 +63,20 @@ struct log_channel{
     void close(){ open("%none", 0); }
     void send(int level, str_view) const;
     void send(str_view sv) const { send(-1, sv); }
+    // send acquires a lock and then calls _send, which actually sends
+    // the string to the destination.  Callers should use _send
+    // directly only in exceptional circumstances where even acquiring
+    // a lock is undesirable, e.g., in a signal handler.  Note that in
+    // the current implementation, _send-ing to a %syslog destination
+    // is not strictly async-signal-safe because syslog(3) itself is
+    // not async-signal-safe.  But we leave it up to the caller to
+    // decide if the benefit of logging a message is worth the risk of
+    // calling an async-signal-unsafe function.
+    //
+    // A potentially async-signal-safe implementation could open the
+    // /dev/log socket and writev the conventional syslog prefix
+    // followed by the contents of the sv.
+    void _send(int lev, str_view sv) const;
 private:
     void _close(); // assumes lock is already held
     void parse_dest_priority(const std::string&);
