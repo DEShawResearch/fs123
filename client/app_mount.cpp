@@ -1051,6 +1051,22 @@ void fs123_destroy(void*){
     complain(LOG_NOTICE, "return from fs123_destroy at epoch: " + str(std::chrono::system_clock::now()));
 }
 
+void fs123_crash(){
+    // Called by fuseful's signal handlers *only* for "Program
+    // Termination Signals", e.g., SIGSEGV, SIGILL - the signals that
+    // we can't return from.  The very limited goal here is to make a
+    // best-effort to clean up anything that would have persistent
+    // consequences, e.g., filesystem litter.  Since we're called by a
+    // signal handler, only async-signal-safe functions should be
+    // used.  Assume as little as possible about the integrity of data
+    // structures, threads, etc., and do no more than necessary to
+    // achieve the limited goal.  Also note that shutting fuse itself
+    // down is handled by our caller, so there's no need to call
+    // fuse_unmount, fuse_session_exit, etc.
+    if(!named_pipe_name.empty())
+        unlink(named_pipe_name.c_str());
+}
+
 void fs123_lookup(fuse_req_t req, fuse_ino_t ino, const char *name) try
 {
     stats.lookups++;
@@ -2268,7 +2284,6 @@ try {
     // facility alone if it was previously set, and sets it to
     // LOG_USER if it wasn't.
     openlog(syslog_name, LOG_PID, 0);
-    handle_signals();
 
     // Permit multithreading as a command line option.
     bool single_threaded_only = false;
@@ -2367,11 +2382,11 @@ try {
     fuse_opt_add_arg(&args, ("-ofsname=" + fuse_device_option ).c_str());
     // N.B.  nosuid and nodev are already the defaults for fuse mounts.
 
-    int ret = fuse_main_ll(&args, fs123_oper, single_threaded_only);
+    int ret = fuseful_main_ll(&args, fs123_oper, single_threaded_only, fs123_crash);
     complain(LOG_NOTICE, str("app_mount:  fuse_main_ll returned", ret, " return from app_mount() at", std::chrono::system_clock::now()));
     return ret;
  }catch(std::exception& e){
     complain(LOG_CRIT, e, "%s:  nested exception caught in main:", argv[0]);
-    fuse_teardown();
+    fuseful_teardown();
     return 1;
  }

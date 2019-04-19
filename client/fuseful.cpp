@@ -31,6 +31,7 @@ namespace {
 fuseful_stats_t stats;
 
 struct fuse_chan *g_channel;
+void (*crash_handler)();
 
 // It's illegal to call the fuse_lowlevel_notify_inval_{entry,inode} functions
 // from a filesystem 'op' callback.  So we need to background them somehow.
@@ -107,7 +108,7 @@ std::terminate_handler sys_terminate_handler = nullptr;
 
 // complain_and_abort - intended to be the C++ termination handler.
 // Send a stack trace and the nested exception to the complaint
-// channel, then call fuse_teardown, and then fall through to the
+// channel, then call fuseful_teardown, and then fall through to the
 // standard terminate handler (which should call abort, and might
 // also write some info to stderr).
 void complain_and_abort(){
@@ -125,19 +126,18 @@ void complain_and_abort(){
         complain(LOG_CRIT, "std::terminate handler.  abi::__cxa_current_exception_type returned nullptr");
     }
 
-    complain(LOG_CRIT, "std::terminate handler:  calling fuse_teardown()");
-    fuse_teardown();
+    complain(LOG_CRIT, "std::terminate handler:  calling fuseful_teardown()");
+    fuseful_teardown();
 
     if(sys_terminate_handler)
         (*sys_terminate_handler)();
     abort();
 }
 
-void fuse_still_connected(fuse_chan* ch){
+void fuseful_still_connected(fuse_chan* ch){
     // this is how libfuse decides whether to call umount in
     // fuse_kern_unmount!
     int fd = ch ? fuse_chan_fd(ch) : -1;
-    auto epoch = str(std::chrono::system_clock::now());
     if (fd != -1) {
         struct pollfd pfd = {};
         pfd.fd = fd;
@@ -145,64 +145,121 @@ void fuse_still_connected(fuse_chan* ch){
         /* If file poll returns POLLERR on the device file descriptor,
            then the filesystem is already unmounted */
         if (1 == ret && (pfd.revents & POLLERR))
-            complain(LOG_NOTICE, "epoch: %s fuse_still_connected: no - This is often the result of an external fusermount -u.  POLERR is set in pfd.revents.  fuse_unmount will not call fusermount -u.", epoch.c_str());
+            complain(LOG_NOTICE, "fuseful_still_connected: no - This is often the result of an external fusermount -u.  POLERR is set in pfd.revents.  fuse_unmount will not call fusermount -u.");
         else
-            complain(LOG_NOTICE, "epoch: %s: fuse_still_connected: yes - This often follows a call to fuse_session_exit, possibly via libfuse's SIG{TERM,HUP or INT} handlers.  poll returned %d pfd.revents = %d.  fuse_unmount will close pfd and call fusermount -u", epoch.c_str(), ret, pfd.revents);
+            complain(LOG_NOTICE, "fuseful_still_connected: yes - This often follows a call to fuse_session_exit, possibly via a signal handler.  poll returned %d pfd.revents = %d.  fuse_unmount will close pfd and call fusermount -u", ret, pfd.revents);
     }else{
-        complain(LOG_NOTICE, "epoch: %s: fuse_still_connected(ch=nullptr):  no - This is rare, and not the typical result of either a signal or a fusermount -u.  fuse_unmount will call fusermount -u", epoch.c_str());
+        complain(LOG_NOTICE, "fuseful_still_connected(ch=nullptr):  no - This is rare, and not the typical result of either a signal or a fusermount -u.  fuse_unmount will call fusermount -u");
+    }
+}
+
+
+static void (*libfuse_handler)(int);
+
+void fuseful_handler(int signum){
+    // Try to tell the world we're here.  Note that this is potentially
+    // async-signal-*un*safe if the complaint channel is %syslog.  The
+    // risk seems worth it.
+    char msg[] = "fuseful_handler:  Caught signal NN";
+    msg[sizeof(msg)-3] = '0' + (signum/10)%10;  // Tens-digit
+    msg[sizeof(msg)-2] = '0' + signum%10;       // Ones-digit
+    _complain_direct(LOG_NOTICE, msg);
+
+    // N.B.  the tmp_xxx idiom is to so we call the function
+    // no more than once, even if it segfaults the first time.
+    if(libfuse_handler){
+        auto tmp_hndlr = libfuse_handler;
+        libfuse_handler = nullptr;
+        (*tmp_hndlr)(signum);
+    }
+
+    // When used by fuse_set_signal_handlers, the libfuse_handler
+    // returns control to "normal", non-signal-handling code.  We do
+    // the same - when doing so does not result in undefined behavior.
+    // But
+    // https://pubs.opengroup.org/onlinepubs/9699919799/functions/V2_chap02.html#tag_15_04_03
+    // says that behavior is undefined if we return from SIGBUS,
+    // SIGFPE, SIGILL or SIGSEGV.  We can't call fuseful_teardown()
+    // because it's wildly async-signal-unsafe.  But doing nothing is
+    // guaranteed to leave the mount point in a "Transport endpoint
+    // not connected" state.  So when handling a "Program Error
+    // Signal", we *try* to leave the mount-point not borked by
+    // calling fuse_unmount before re-raising the signal with the
+    // SIG_DFL handler.
+    switch(signum){
+    // These are the "Program Error Signals" according to:
+    // https://www.gnu.org/software/libc/manual/html_node/Program-Error-Signals.html#Program-Error-Signals
+    case SIGFPE:
+    case SIGILL:
+    case SIGSEGV:
+    case SIGBUS:
+    case SIGABRT:
+#if defined(SIGIOT) && SIGABRT != SIGIOT
+    case SIGIOT:
+#endif
+    case SIGTRAP:
+#ifdef SIGEMT
+    case SIGEMT:
+#endif
+    case SIGSYS:
+        if(g_channel){
+            auto tmp_channel = g_channel;
+            g_channel = nullptr;
+            fuse_unmount(g_mountpoint.c_str(), tmp_channel);
+        }
+        if(crash_handler){
+            auto tmp_hndlr = crash_handler;
+            crash_handler = nullptr;
+            (*tmp_hndlr)();
+        }
+        // reraise
+        ::signal(signum, SIG_DFL);
+        ::raise(signum);
+    }
+}
+
+void handle_all_signals(){
+    sys_terminate_handler = std::set_terminate(complain_and_abort);
+
+    // *Exactly* what happens in libfuse's handler changes from
+    // version to version.  In general, the handler sets a flag
+    // somewhere in libfuse's internal data structures, and the
+    // presence of that flag causes the fuse_session_loop to exit the
+    // next time it loops.  But libfuse is careful to make the details
+    // opaque, so the only way we can get it to do its thing is to
+    // call it.  But the handler itself is static.  We can't call it
+    // directly.  So we first let fuse set up its signal handlers, and
+    // then ask sigaction what fuse_set_signal_handlers has registered
+    // for SIGHUP.
+    if(fuse_set_signal_handlers(g_session) == -1)
+        throw se(EINVAL, "fuse_set_signal_handlers failed");
+    struct sigaction sa;
+    sew::sigaction(SIGHUP, NULL, &sa);
+    if(sa.sa_handler != SIG_IGN && sa.sa_handler != SIG_DFL)
+        libfuse_handler = sa.sa_handler;
+    complain(LOG_NOTICE, "libfuse_handler = %p", libfuse_handler);
+
+    // Change the handler in sa to be *our* handler, and reinstall
+    // it on (almost) all signals.
+    sa.sa_handler = fuseful_handler;
+    for(int sig=1; sig<32; ++sig){
+        switch(sig){
+        case SIGKILL:
+        case SIGSTOP:
+        case SIGALRM: // We *hope* nobody's using it, but don't count on it.
+        case SIGCHLD: // Let's not interfere with this one either...
+        case SIGPIPE: // fuse_set_signal_handlers set this to a no-op. Leave it alone.
+            break;
+        default:
+            // The fuseful_handler will call the libfuse_handler,
+            // before jumping through additional hoops.
+            sew::sigaction(sig, &sa, NULL);
+            break;
+        }
     }
 }
 
 } // namespace <anon>
-
-
-// A few "handlers" for things that shouldn't happen, but
-// inevitably will.
-
-void handle_signals(){
-    // First, some things that are like signals in that they
-    // probably indicate something very bad...
-    sys_terminate_handler = std::set_terminate(complain_and_abort);
-
-    // We could set our own signal handlers here.
-
-    // fuse_set_signal_handlers in the library sets handlers for
-    // SIGHUP, SIGINT and SIGTERM, but only if those signals are tied
-    // to SIG_DFL.  If we set a handler for a signal here,
-    // fuse_set_signal_handlers does nothing.  The library handler
-    // calls fuse_session_exit() which calls fuse_session_ops.exit()
-    // if it exists and then sets se->exited=1.  But
-    // fuse_lowlevel_new_common, which sets up the session ops, does
-    // not set session_ops.exit (see the initializer of
-    // fuse_session_ops sop in fuse_lowlevel_new_common).  So unless
-    // we modify fuse_lowlevel_new_common, all that happens is
-    // se->exited is set.  Once se->exited is set, the
-    // fuse_session_loop(_mt) quickly pops its stack and returns to
-    // fuse_main_ll (below).  In fuse_main_ll, we call fuse_teardown
-    // which should gracefully bring everything down (see comments in
-    // fuse_teardown!).  Bottom line: everything is cleaned up nicely
-    // if there's a SIGHUP, SIGTERM or SIGINT.  On the other hand, the
-    // fact that we're exiting on a signal is completely hidden.  No
-    // notice is given to the outside world that a signal was handled.
-    // Nothing to syslog.  Nothing to stderr.  Not even an
-    // identifiable value returned by fuse_session_loop{_mt}.
-
-    // Other signals are left with their default behavior, which is
-    // generally either to exit or abort.  In either case, things are
-    // NOT cleaned up nicely and there's a good chance that the kernel
-    // is left with an unconnected "Transport end point", which will
-    // prevent anyone from re-mounting a file system at the same
-    // mountpoint.  This is an annoyance, but it's A LOT of effort to
-    // do better.  Don't forget that we'd really like to get a
-    // meaningful core dump from SEGV, ABRT, etc.  even (especially!)
-    // in production environments.  Also note that among the things
-    // *forbidden* in a signal handler are syslog and printf, so it
-    // requires another thread even to get a meaningful error message
-    // out.
-    
-    // After several attempts to "do better", we've given up and we're
-    // leaving the signal handling in libfuse's capable hands.
-}
 
 void lowlevel_notify_inval_entry(fuse_ino_t pino, const std::string& name) noexcept{
     int ret = fuse_lowlevel_notify_inval_entry(g_channel, pino, name.c_str(), name.size());
@@ -319,9 +376,9 @@ std::string fuseful_report(){
     return str(stats);
 }
 
-// start_fuse_ll - lifted from examples/hello_ll.c in the fuse 2.9.2 tree.
-int fuse_main_ll(fuse_args *args, const fuse_lowlevel_ops& llops,
-                 bool single_threaded_only) try {
+// fuseful_main_ll - inspired by examples/hello_ll.c in the fuse 2.9.2 tree.
+int fuseful_main_ll(fuse_args *args, const fuse_lowlevel_ops& llops,
+                 bool single_threaded_only, void (*crash_handler_arg)() ) try {
         char *mountpoint = nullptr;
 	int err = -1;
 
@@ -405,8 +462,8 @@ int fuse_main_ll(fuse_args *args, const fuse_lowlevel_ops& llops,
         if( g_session == nullptr )
             throw se(EINVAL, "fuse_lowlevel_new failed.  Unrecognized command line options??");
 
-        if (fuse_set_signal_handlers(g_session) == -1)
-            throw se(EINVAL, "fuse_set_signal_handlers failed.  ???");
+        crash_handler = crash_handler_arg;
+        handle_all_signals();
         fuse_session_add_chan(g_session, g_channel);
         complain(LOG_NOTICE, "starting fuse_session_loop: %s-threaded, %sground", 
                multithreaded?"multi":"single",
@@ -416,21 +473,21 @@ int fuse_main_ll(fuse_args *args, const fuse_lowlevel_ops& llops,
         else
             err = fuse_session_loop(g_session);
 
-        fuse_teardown();
+        fuseful_teardown();
 	return err ? 1 : 0;
  }catch(std::exception& e){
-    std::throw_with_nested(std::runtime_error("exception thrown by fuse_main_ll.  call fuse_teardown and return 1"));
-    fuse_teardown();
+    std::throw_with_nested(std::runtime_error("exception thrown by fuseful_main_ll.  call fuseful_teardown and return 1"));
+    fuseful_teardown();
     return 1;
  }
                            
-// fuse_teardown is called "normally" immediately after
+// fuseful_teardown is called "normally" immediately after
 // fuse_session_loop returns.  It's also called "abnormally" when
 // something throws unexpectedly in fuse_main_ll and by the top-level
 // exception handler around app_mount (i.e., "main") and by our
 // terminate handler.  Thus, it takes some extra care to check that
 // pointers are non-NULL before using them.
-void fuse_teardown() try {
+void fuseful_teardown() try {
     // ????? What's the right order here ?????
     // It seems that the shutdown sequence suggested by examples/hello_ll.c
     // results in spurious calls to fusermount /path/to/mountpoint, which
@@ -453,13 +510,14 @@ void fuse_teardown() try {
     //
     // It turns out that libfuse has logic to prevent this in
     // fuse_kern_unmount().  We follow the same logic, (but purely for
-    // diagnostic purposes) in fuse_still_connected.  But it only
+    // diagnostic purposes) in fuseful_still_connected.  But it only
     // works if we call fuse_unmount with a not-yet-destroyed channel.
     invaltp.reset();
     if(g_session)
         fuse_remove_signal_handlers(g_session);
+    libfuse_handler = nullptr;
     if(g_channel){
-        fuse_still_connected(g_channel); // DIAGNOSTIC ONLY!!!
+        fuseful_still_connected(g_channel); // DIAGNOSTIC ONLY!!!
         fuse_unmount(g_mountpoint.c_str(), g_channel);
         g_channel = nullptr;
     }
@@ -477,5 +535,5 @@ void fuse_teardown() try {
         g_session = nullptr;
     }
  }catch(std::exception& e){
-    complain(LOG_CRIT, e, "fuse_teardown: ignoring exception.  This probably won't end well.");
+    complain(LOG_CRIT, e, "fuseful_teardown: ignoring exception.  This probably won't end well.");
  }

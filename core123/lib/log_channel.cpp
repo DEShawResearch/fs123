@@ -66,9 +66,13 @@ void log_channel::send(int level, str_view sv) const {
     // Should we throw on error?
     // level is only used with syslog.  Oversight?  Inadequate  API?
     // Lack of imagination?
+    std::lock_guard<std::mutex> lg(mtx);
+    _send(level, sv);
+}
+
+void log_channel::_send(int level, str_view sv) const {
     if(sv.size() == 0)
         return;
-    std::lock_guard<std::mutex> lg(mtx);
     if(dest_syslog){
         // if level is unspecified (-1) use dest_lev.  If it
         // is specified, silently mask off any non-level bits.

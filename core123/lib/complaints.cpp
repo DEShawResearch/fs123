@@ -219,4 +219,8 @@ _whatnest (int priority, const std::string& pfx, char const* const* beg, char co
     return ret;
 }
 
+void _complain_direct(int lev, str_view sv){
+    the_channel()._send(lev, sv);
+}
+
 }
