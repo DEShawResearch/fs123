@@ -67,10 +67,6 @@ void log_channel::send(int level, str_view sv) const {
     // level is only used with syslog.  Oversight?  Inadequate  API?
     // Lack of imagination?
     std::lock_guard<std::mutex> lg(mtx);
-    _send(level, sv);
-}
-
-void log_channel::_send(int level, str_view sv) const {
     if(sv.size() == 0)
         return;
     if(dest_syslog){

@@ -153,20 +153,38 @@ void fuseful_still_connected(fuse_chan* ch){
     }
 }
 
-
 static void (*libfuse_handler)(int);
+static const char *signal_filename;
 
 void fuseful_handler(int signum){
-    // Try to tell the world we're here.  Note that this is potentially
-    // async-signal-*un*safe if the complaint channel is %syslog.  The
-    // risk seems worth it.
-    char msg[] = "fuseful_handler:  Caught signal NN";
-    msg[sizeof(msg)-3] = '0' + (signum/10)%10;  // Tens-digit
-    msg[sizeof(msg)-2] = '0' + signum%10;       // Ones-digit
-    _complain_direct(LOG_NOTICE, msg);
+    // syslog is not async-signal-safe.  Even if it were, our
+    // 'complain' API isn't, and it would be A LOT of effort to make
+    // it so.  Instead, we try to write a line to
+    // 'signal_filename' (which was specified as an argument to
+    // fuseful_main_ll).  If open() or write() fails, we just carry
+    // on.  It's too late to try anything else...
+    int fd = -1;
+    if(signal_filename)
+        fd = ::open(signal_filename, O_CREAT|O_WRONLY|O_APPEND, 0666);
+    if(fd >= 0){
+        char msg[] = "fuseful_handler:  Caught signal NN\n";
+        msg[sizeof(msg)-4] = '0' + (signum/10)%10;  // Tens-digit
+        msg[sizeof(msg)-3] = '0' + signum%10;       // Ones-digit
+        ::write(fd, msg, sizeof(msg)-1);
+#ifdef __GLIBC__
+        // glibc has backtrace_symbols_fd, which is allegedly async-signal-safe...
+        void* bt[50];
+        int n = backtrace(&bt[0], 50);
+#define MSG "Backtrace from backtrace_symbols_fd\n"
+        ::write(fd, MSG, sizeof(MSG)-1);
+        backtrace_symbols_fd(bt, n, fd); // too bad this isn't more useful...
+#undef MSG
+#endif // __GLIBC__
+        ::close(fd);
+    }
 
-    // N.B.  the tmp_xxx idiom is to so we call the function
-    // no more than once, even if it segfaults the first time.
+    // N.B.  the tmp_xxx idiom is so we call the function no more than
+    // once, even if it segfaults and otherwise brings us back here.
     if(libfuse_handler){
         auto tmp_hndlr = libfuse_handler;
         libfuse_handler = nullptr;
@@ -185,7 +203,9 @@ void fuseful_handler(int signum){
     // not connected" state.  So when handling a "Program Error
     // Signal", we *try* to leave the mount-point not borked by
     // calling fuse_unmount before re-raising the signal with the
-    // SIG_DFL handler.
+    // SIG_DFL handler.  fuse_unmount isn't async-safe either, so
+    // this could hang (or worse), but it's still probably better
+    // than leaving the endpoint disconnected.
     switch(signum){
     // These are the "Program Error Signals" according to:
     // https://www.gnu.org/software/libc/manual/html_node/Program-Error-Signals.html#Program-Error-Signals
@@ -213,7 +233,9 @@ void fuseful_handler(int signum){
             (*tmp_hndlr)();
         }
         // reraise
-        ::signal(signum, SIG_DFL);
+        struct sigaction sa{};
+        sa.sa_handler = SIG_DFL;
+        ::sigaction(signum, &sa, nullptr);
         ::raise(signum);
     }
 }
@@ -224,8 +246,8 @@ void handle_all_signals(){
     // *Exactly* what happens in libfuse's handler changes from
     // version to version.  In general, the handler sets a flag
     // somewhere in libfuse's internal data structures, and the
-    // presence of that flag causes the fuse_session_loop to exit the
-    // next time it loops.  But libfuse is careful to make the details
+    // presence of that flag causes the fuse_session_loop to exit on
+    // its next iteration.  But libfuse is careful to make the details
     // opaque, so the only way we can get it to do its thing is to
     // call it.  But the handler itself is static.  We can't call it
     // directly.  So we first let fuse set up its signal handlers, and
@@ -237,7 +259,7 @@ void handle_all_signals(){
     sew::sigaction(SIGHUP, NULL, &sa);
     if(sa.sa_handler != SIG_IGN && sa.sa_handler != SIG_DFL)
         libfuse_handler = sa.sa_handler;
-    complain(LOG_NOTICE, "libfuse_handler = %p", libfuse_handler);
+    complain(LOG_NOTICE, "signal receipt will be logged in %s", signal_filename?signal_filename:"<nowhere>");
 
     // Change the handler in sa to be *our* handler, and reinstall
     // it on (almost) all signals.
@@ -378,7 +400,9 @@ std::string fuseful_report(){
 
 // fuseful_main_ll - inspired by examples/hello_ll.c in the fuse 2.9.2 tree.
 int fuseful_main_ll(fuse_args *args, const fuse_lowlevel_ops& llops,
-                 bool single_threaded_only, void (*crash_handler_arg)() ) try {
+                    bool single_threaded_only, void (*crash_handler_arg)(),
+                    const char *_signal_filename) try {
+        signal_filename = _signal_filename;
         char *mountpoint = nullptr;
 	int err = -1;
 

@@ -212,19 +212,6 @@ inline void log_notice(const std::string& msg){
     complain(LOG_NOTICE, msg);
 }
 
-// _complain_direct - send a complaint directly to the channel without
-// any manipulation or modification.  No locks are held.  No counters
-// are incremented.  No datestamps are prepended.  No rate-limiting is
-// applied, etc.  On the other hand, _complain_direct may be safe to
-// call from a signal handler.  It is async-signal-safe if the current
-// destination is a file or %stdout or %stderr.  If the destination is
-// %syslog, then it will ultimately call syslog, which isn't
-// async-signal-safe, but otherwise, it avoids async-signal-unsafe
-// operations.  N.B.  In the future, this might be fully
-// async-signal-safe.  See the comments about log_channel::_send in
-// log_channel.hpp.
-void _complain_direct(int lev, str_view sv);
-
 // Now for the overloads that that take a printf-style format string
 // and a ... arglist.  They can be disabled with a #define.
 #if !defined(NO_CORE123_FORMATTED_COMPLAINTS)

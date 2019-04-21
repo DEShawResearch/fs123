@@ -177,6 +177,7 @@ bool encrypt_requests;
 
 // configurable, but can't be changed after startup
 bool enhanced_consistency;
+std::string signal_filename;
 bool no_kernel_data_caching; // DEBUGGING TESTING ONLY.  WILL KILL PERFORMANCE!
 bool no_kernel_attr_caching;   // DEBUGGING TESTING ONLY.  WILL KILL PERFORMANCE!
 bool no_kernel_dentry_caching;   // DEBUGGING TESTING ONLY.  WILL KILL PERFORMANCE!
@@ -2104,6 +2105,7 @@ std::ostream& report_config(std::ostream& os){
         //Prt(Fs123RetryInitialMillis)
         //Prt(Fs123RetrySaturate)
         Prt(Fs123EnhancedConsistency, true)
+        Prt(Fs123SignalFile, "fs123signal")
         // In backend123
         Prt(Fs123SO_RCVBUF, 1024 * 24)
         Prt(Fs123SSLNoVerifyPeer, "<unset>") // default in backend123_http.cpp
@@ -2184,6 +2186,7 @@ try {
                                     "Fs123IgnoreEstaleMismatch=",
 				    "Fs123SupportXattr=",
                                     "Fs123EnhancedConsistency=",
+                                    "Fs123SignalFile=",
                                     // Retry configuration
                                     "Fs123RetryTimeout=",
                                     "Fs123RetryInitialMillis=",
@@ -2285,6 +2288,10 @@ try {
     // LOG_USER if it wasn't.
     openlog(syslog_name, LOG_PID, 0);
 
+    signal_filename = envto<std::string>("Fs123SignalFile", "fs123signal");
+    if(!signal_filename.empty())
+        signal_filename += "." + str(getpid());
+
     // Permit multithreading as a command line option.
     bool single_threaded_only = false;
 #ifdef __linux__
@@ -2382,7 +2389,11 @@ try {
     fuse_opt_add_arg(&args, ("-ofsname=" + fuse_device_option ).c_str());
     // N.B.  nosuid and nodev are already the defaults for fuse mounts.
 
-    int ret = fuseful_main_ll(&args, fs123_oper, single_threaded_only, fs123_crash);
+    // N.B.  signal_filename has global scope.  It is never
+    // modified.  It's safe to give it to fuseful_main_ll, which will
+    // use it only if it catches any signals.
+    const char *sig_report = (signal_filename.empty()) ? nullptr : signal_filename.c_str();
+    int ret = fuseful_main_ll(&args, fs123_oper, single_threaded_only, fs123_crash, sig_report);
     complain(LOG_NOTICE, str("app_mount:  fuse_main_ll returned", ret, " return from app_mount() at", std::chrono::system_clock::now()));
     return ret;
  }catch(std::exception& e){
