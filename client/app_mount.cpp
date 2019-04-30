@@ -252,10 +252,10 @@ bool cookie_mismatch(fuse_ino_t ino, uint64_t estale_cookie){
     auto pino_name = ino_to_pino_name(ino);
     auto gino = genino(estale_cookie, pino_name.first, pino_name.second);
     if(ino != gino)
-        DIAGfkey(_estale, "cookie_mismatch: ec=%ju, name=%s, ino=%lu genino=%lu\n",
+        DIAGfkey(_estale, "cookie_mismatch: ec=%ju, name=%s, ino=%ju genino=%ju\n",
                  (uintmax_t)estale_cookie,
                  pino_name.second.c_str(),
-                 ino, gino);
+                 (uintmax_t)ino, (uintmax_t)gino);
     return ino != gino;
 }
 
@@ -265,7 +265,7 @@ bool cookie_mismatch(fuse_ino_t ino, uint64_t estale_cookie){
 //   - set the attr_timeout in lookup and getattr
 //   - set the entry_timeout in lookup
 // All four have the property that a non-zero ttl_or_stale will cause
-// us to use this reply until until the ttl_or_stale expires.
+// us to use this reply until the ttl_or_stale expires.
 // I.e., we won't contact the backend for a refresh until the ttl_or_stale
 // expires, which is good for latency and bandwidth, but bad for
 // freshness.
@@ -588,7 +588,6 @@ void beflush(fuse_ino_t pino, str_view lastcomponent){
 void berefresh(fuse_ino_t ino, req123& req, reply123* reply){
     if(encrypt_requests)
         encrypt_request(req);
-    // If the request says to use  cacheing, then do so.
     berefresh_decode(req, reply);
     if(!(reply->eno==0 && cookie_mismatch(ino, reply->estale_cookie)))
         // We return from here the vast majority of  the time!
@@ -684,8 +683,8 @@ reply123 begetattr(fuse_ino_t pino, str_view lc, fuse_ino_t ino, int max_stale){
         auto ttl = ret.ttl();
         if( ttl > decltype(ttl)::zero() ){
             bool inserted = attrcache->insert(key, attrcache_value_t(ret.content, ret.estale_cookie), ttl);
-            DIAGfkey(_getattr, "attrcache->insert(pino=%lu, lastcomponent=%s, key=%ju, name=%s, estale_cookie=%ju ttl=%.6f):  %s\n",
-                     pino, std::string(lc).c_str(),
+            DIAGfkey(_getattr, "attrcache->insert(pino=%ju, lastcomponent=%s, key=%ju, name=%s, estale_cookie=%ju ttl=%.6f):  %s\n",
+                     (uintmax_t)pino, std::string(lc).c_str(),
                      (uintmax_t)key, name.c_str(), (uintmax_t)ret.estale_cookie, dur2dbl(ttl),
                      inserted? "replaced" : "did not replace");
         }else{
@@ -788,8 +787,8 @@ void caught(std::system_error& se, fuse_ino_t ino, fuse_req_t req, const char* f
     else                                                        
         eno = EIO;                                                      
     auto ctx = fuse_req_ctx(req);
-    complain(se, "std::system_error::what: %s(req=%p, ino=%lu (%s)) caught std::system_error: returning errno=%d to pid=%d uid=%d gid=%d",
-             func, req, ino, ino_to_fullname_nothrow(ino).c_str(), int(eno), int(ctx->pid), int(ctx->uid), int(ctx->gid)); 
+    complain(se, "std::system_error::what: %s(req=%p, ino=%ju (%s)) caught std::system_error: returning errno=%d to pid=%d uid=%d gid=%d",
+             func, req, (uintmax_t)ino, ino_to_fullname_nothrow(ino).c_str(), int(eno), int(ctx->pid), int(ctx->uid), int(ctx->gid)); 
     stats.caught_system_errors++;
     return reply_err(req, eno);                                           
  }catch(...){
@@ -798,8 +797,8 @@ void caught(std::system_error& se, fuse_ino_t ino, fuse_req_t req, const char* f
 
 void caught(std::exception& e, fuse_ino_t ino, fuse_req_t req, const char *func) try{
     auto ctx = fuse_req_ctx(req);
-    complain(e, "std::exception::what: %s(req=%p, ino=%lu (%s)) caught std::exception: returning EIO to pid=%d uid=%d gid=%d",
-                 func, req, ino, ino_to_fullname_nothrow(ino).c_str(), int(ctx->pid), int(ctx->uid), int(ctx->gid));
+    complain(e, "std::exception::what: %s(req=%p, ino=%ju (%s)) caught std::exception: returning EIO to pid=%d uid=%d gid=%d",
+             func, req, (uintmax_t)ino, ino_to_fullname_nothrow(ino).c_str(), int(ctx->pid), int(ctx->uid), int(ctx->gid));
     stats.caught_std_exceptions++;
     return reply_err(req, EIO);                                                
  }catch(...){
@@ -1007,7 +1006,7 @@ void fs123_init(void *, struct fuse_conn_info *conn_info) try {
         complain("fs123_init:  calling fuse_session_exit");
         fuse_session_exit(g_session);
     }else{
-        complain(LOG_CRIT, "fs123_init:  g_session is null.  How did we get into the fuse_init callback withoug a g_session?");
+        complain(LOG_CRIT, "fs123_init:  g_session is null.  How did we get into the fuse_init callback without a g_session?");
     }
  }
 
@@ -1070,12 +1069,13 @@ void fs123_crash(){
 
 void fs123_lookup(fuse_req_t req, fuse_ino_t ino, const char *name) try
 {
+    const auto pino = ino;  // it's really the parent ino.  It's called ino for CATCH_ERRS
     stats.lookups++;
     atomic_scoped_nanotimer _t(&stats.lookup_sec);
-    DIAGfkey(_lookup, "lookup(%p, %lu, %s)\n", req, ino, name);
-    if(lookup_special_ino(req, ino, name))
+    DIAGfkey(_lookup, "lookup(%p, %ju, %s)\n", req, (uintmax_t)pino, name);
+    if(lookup_special_ino(req, pino, name))
         return;
-    auto reply = begetattr(ino, name, 0, req123::MAX_STALE_UNSPECIFIED);
+    auto reply = begetattr(pino, name, 0, req123::MAX_STALE_UNSPECIFIED);
     struct fuse_entry_param e = {};
     double ttl = dur2dbl(ttl_or_stale(reply));
     e.attr_timeout = no_kernel_attr_caching ? 0. : ttl;
@@ -1094,15 +1094,15 @@ void fs123_lookup(fuse_req_t req, fuse_ino_t ino, const char *name) try
         stats.lookup_other_errno++;
         return reply_err(req, reply.eno);
     }
-    e.ino = genino(reply.estale_cookie, ino, name);
+    e.ino = genino(reply.estale_cookie, pino, name);
     e.entry_timeout = no_kernel_dentry_caching ? 0. : ttl;
     uint64_t validator;
     std::tie(e.attr, validator) = pair_from_a_reply(reply.content);
     if( !privileged_server && S_ISDIR(e.attr.st_mode) && !(e.attr.st_mode&S_IXOTH) ){
-        complain(LOG_WARNING, "pino=%llu name=%s is a directory with the 'other' execute bit unset.  Attempts to look inside this directory will fail with EACCES (Permission denied)", (long long unsigned)ino, name);
+        complain(LOG_WARNING, "pino=%ju name=%s is a directory with the 'other' execute bit unset.  Attempts to look inside this directory will fail with EACCES (Permission denied)", (uintmax_t)pino, name);
     }
     massage_attributes(&e.attr, e.ino);
-    ino_remember(ino, name, e.ino, validator);
+    ino_remember(pino, name, e.ino, validator);
     DIAGkey(_lookup, "lookup(" << req << ") -> stat: " << e.attr << " entry_timeout: " << e.entry_timeout << " attr_timeout: " << e.attr_timeout  <<"\n");
     reply_entry(req, &e);
  } CATCH_ERRS
@@ -1123,7 +1123,7 @@ void fs123_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info* fi) tr
     atomic_scoped_nanotimer _t(&stats.getattr_sec);
     if(fi)
         stats.getattrs_with_fi++;
-    DIAGfkey(_getattr, "getattr(%p, %lu, fi=%p, fi->fh=%p)\n", req, ino, fi, fi?(void*)fi->fh:nullptr);
+    DIAGfkey(_getattr, "getattr(%p, %ju, fi=%p, fi->fh=%p)\n", req, (uintmax_t)ino, fi, fi?(void*)fi->fh:nullptr);
     if( ino>1 && ino <= max_special_ino )
         return getattr_special_ino(req, ino, fi);
 
@@ -1147,7 +1147,7 @@ void fs123_opendir(fuse_req_t req, fuse_ino_t  ino, struct fuse_file_info *fi) t
     stats.opendirs++;
     atomic_scoped_nanotimer _t(&stats.opendir_sec);
     fi->fh = reinterpret_cast<decltype(fi->fh)>(new fh_state{});
-    DIAGfkey(_opendir, "opendir(%lu, fi=%p, fi->fh = %p)\n", (unsigned long)ino, fi, (void*)fi->fh);
+    DIAGfkey(_opendir, "opendir(%ju, fi=%p, fi->fh = %p)\n", (uintmax_t)ino, fi, (void*)fi->fh);
     // Documentation is silent on whether keep_cache is honored for
     // directories.  We want the kernel *not* to use cached entries --
     // if it did, then clients would never see new entries because
@@ -1172,8 +1172,8 @@ void fs123_readdir(fuse_req_t req, fuse_ino_t ino,
                       size_t size, off_t off, struct fuse_file_info *fi) try
 {
     stats.readdirs++;
-    DIAGfkey(_opendir, "readdir(ino=%lu, size=%zu, off=%jd, fi=%p, fi->fh=%p)\n",
-             ino, size, (intmax_t)off, fi, fi?(void*)fi->fh:nullptr);
+    DIAGfkey(_opendir, "readdir(ino=%ju, size=%zu, off=%jd, fi=%p, fi->fh=%p)\n",
+             (uintmax_t)ino, size, (intmax_t)off, fi, fi?(void*)fi->fh:nullptr);
     atomic_scoped_nanotimer _t(&stats.readdir_sec);
     if(fi==nullptr || fi->fh == 0)
         throw se(EIO, "fs123_readdir called with fi=nullptr or fi->fh==0.  This is totally unexpected!");
@@ -1214,8 +1214,8 @@ void fs123_readdir(fuse_req_t req, fuse_ino_t ino,
     std::string dir = ino_to_fullname(ino);
 
     if(nextoff > fhstate->contents.size() + ((ino==1)?(max_special_ino-1):0))
-        throw se(EINVAL, fmt("readdir offset invalid.  It points past end of directory.  contents.size()=%zu, ino=%llu, max_special_ino=%zu, off=%zu",
-                                     fhstate->contents.size(), (unsigned long long)ino, max_special_ino, nextoff));
+        throw se(EINVAL, fmt("readdir offset invalid.  It points past end of directory.  contents.size()=%zu, ino=%ju, max_special_ino=%zu, off=%zu",
+                                     fhstate->contents.size(), (uintmax_t)ino, max_special_ino, nextoff));
     str_view svin(fhstate->contents);
     while(nextoff < svin.size()){
         str_view name;
@@ -1301,8 +1301,8 @@ void fs123_readdir(fuse_req_t req, fuse_ino_t ino,
         // N.B.  If needed > bufsz-used, then fuse_add_direntry did nothing.
         if( needed > bufsz-used )
             break;
-        DIAGfkey(_readdir, "fuse_add_direntry(%llu) -> %s, nextoff = %ld used=%zu\n",
-                 (unsigned long long)ino, (dir + "/" + std::string(name)).c_str(), nextoff, used);
+        DIAGfkey(_readdir, "fuse_add_direntry(%ju) -> %s, nextoff = %ld used=%zu\n",
+                 (uintmax_t)ino, (dir + "/" + std::string(name)).c_str(), nextoff, used);
         used += needed;
     }
     
@@ -1315,7 +1315,7 @@ void fs123_readdir(fuse_req_t req, fuse_ino_t ino,
             if( needed > bufsz-used )
                 break;
             used += needed;
-            DIAGfkey(_readdir, "fuse_add_direntry(%llu) -> %s, nextoff = %ld used=%zu\n",  (unsigned long long)ino, (dir + "/" + special_ino_to_fullname(sino)).c_str(), nextoff, used);
+            DIAGfkey(_readdir, "fuse_add_direntry(%ju) -> %s, nextoff = %ld used=%zu\n",  (uintmax_t)ino, (dir + "/" + special_ino_to_fullname(sino)).c_str(), nextoff, used);
         }
     }
     // We could release the lock sooner but it would require thinking
@@ -1332,7 +1332,7 @@ void fs123_readdir(fuse_req_t req, fuse_ino_t ino,
 
 void fs123_releasedir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) try
 {
-    DIAGfkey(_opendir, "releasedir(%lu, fi=%p, fi->fh=%p)\n", ino, fi, fi?(void*)fi->fh:nullptr);
+    DIAGfkey(_opendir, "releasedir(%ju, fi=%p, fi->fh=%p)\n", (uintmax_t)ino, fi, fi?(void*)fi->fh:nullptr);
     stats.releasedirs++;
     if(fi == nullptr || fi->fh == 0)
         throw se(EINVAL, "fs123_releasedir called with fi==nullptr or fi->fh=0.  This is totally unexpected!");
@@ -1399,7 +1399,7 @@ void fs123_readlink(fuse_req_t req, fuse_ino_t ino) try
 void fs123_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) try {
     stats.opens++;
     atomic_scoped_nanotimer _t(&stats.open_sec);
-    DIAGfkey(_open, "open(%p, %lu, flags=%#o)\n", req, ino, fi->flags);
+    DIAGfkey(_open, "open(%p, %ju, flags=%#o)\n", req, (uintmax_t)ino, fi->flags);
     // According to the fuse docs: "Open flags (with the exception of O_CREAT,
     // O_EXCL, O_NOCTTY and O_TRUNC are available in fi->flags".  So
     // we don't have to worry about them.  What about the others.  These
@@ -1448,15 +1448,15 @@ void fs123_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) try {
         return reply_err(req, EROFS);
 
     if( fi->flags & (O_APPEND|O_SYNC) )
-        complain(LOG_WARNING, "fs123_open(ino=%lu, flags=%#o) contains one or more of O_APPEND|O_SYNC=%#o, which only apply to writing.  This is a read-only fs", ino, fi->flags, O_APPEND|O_SYNC);        
+        complain(LOG_WARNING, "fs123_open(ino=%ju, flags=%#o) contains one or more of O_APPEND|O_SYNC=%#o, which only apply to writing.  This is a read-only fs", (uintmax_t)ino, fi->flags, O_APPEND|O_SYNC);        
     if( fi->flags & (O_ASYNC|O_DIRECTORY) ){
-        complain("fs123_open(ino=%lu, flags=%#o) contains one or more unsupported flags in O_ASYNC|O_DIRECTORY=%#o",
-               ino, fi->flags, O_ASYNC|O_DIRECTORY);
+        complain("fs123_open(ino=%ju, flags=%#o) contains one or more unsupported flags in O_ASYNC|O_DIRECTORY=%#o",
+                 (uintmax_t)ino, fi->flags, O_ASYNC|O_DIRECTORY);
         return reply_err(req, ENOSYS);
     }
     if( fi->flags & 034 )
-        complain(LOG_WARNING, "fs123_open(ino=%lu, flags=%#o) has undocumented/unrecognized bits in 034 set in flags",
-               ino, fi->flags);
+        complain(LOG_WARNING, "fs123_open(ino=%ju, flags=%#o) has undocumented/unrecognized bits in 034 set in flags",
+                 (uintmax_t)ino, fi->flags);
 
     if(ino > 1 && ino <= max_special_ino)
         return open_special_ino(req, ino, fi);
@@ -1521,8 +1521,8 @@ void fs123_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) try {
     if(fi->direct_io)
         stats.direct_io_opens++;
     
-    DIAGfkey(_open, "open(req=%p, ino=%lu) -> fi->fh: %p, fi->keep_cache: %d fi->direct_io: %d\n",
-             req, ino, (void*)fi->fh, fi->keep_cache, fi->direct_io);
+    DIAGfkey(_open, "open(req=%p, ino=%ju) -> fi->fh: %p, fi->keep_cache: %d fi->direct_io: %d\n",
+             req, (uintmax_t)ino, (void*)fi->fh, fi->keep_cache, fi->direct_io);
     reply_open(req, fi);
  } CATCH_ERRS
 
@@ -1552,7 +1552,7 @@ void fs123_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct f
         throw se(EINVAL, "fs123_read is limited to size<=" + std::to_string(chunkbytes) );
     }
         
-    DIAGfkey(_read, "read(req=%p, ino=%lu, size=%zu, off=%jd)\n", req, ino, size, (intmax_t)off);
+    DIAGfkey(_read, "read(req=%p, ino=%ju, size=%zu, off=%jd)\n", req, (uintmax_t)ino, size, (intmax_t)off);
     std::string name;
     uint64_t ino_validator;
     std::tie(name, ino_validator) = ino_to_fullname_validator(ino);
@@ -1606,13 +1606,13 @@ void fs123_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct f
         content = reply0.content;
     }
     
-    DIAGfkey(_read, "reply0: size=%lu\n", content.size());
+    DIAGfkey(_read, "reply0: size=%zu\n", content.size());
     struct iovec iovecs[2];
     bool shortread;
     // We asked for, and received the whole chunk, which might or
     // might not be what we wanted.
     if(off0 > content.size())
-        throw se(EIO, fmt("read(%s) throwing EIO - got off0(%lu)<=size(%lu)",
+        throw se(EIO, fmt("read(%s) throwing EIO - got off0(%zu)<=size(%zu)",
                                   name.c_str(), off0, content.size()));
     iovecs[0].iov_base = const_cast<char *>(content.data()) + off0;
     iovecs[0].iov_len = std::min(len0, content.size()-off0);
@@ -1622,7 +1622,7 @@ void fs123_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct f
         // We're done.  Either we got a short read, indicating EOF,
         // or we've satisfied the request for 'size' bytes.
         stats.bytes_read += iovecs[0].iov_len;
-        DIAGfkey(_read, "read(%p, %lu) -> iovecs[1]{len=%zd}\n", req, ino, iovecs[0].iov_len);
+        DIAGfkey(_read, "read(%p, %ju) -> iovecs[1]{len=%zd}\n", req, (uintmax_t)ino, iovecs[0].iov_len);
         return reply_iov(req, iovecs, 1);
     }
     auto nleft = size - len0;
@@ -1660,12 +1660,12 @@ void fs123_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct f
     iovecs[1].iov_len = len1;
     DIAGfkey(_read, "iov[1]: %lu@%p\n", iovecs[1].iov_len,  iovecs[1].iov_base);
     stats.bytes_read += len0+len1;
-    DIAGfkey(_read, "read(%p, %lu) -> iovecs[2]{len0=%zd, len1=%zd} \n", req, ino, len0, len1);
+    DIAGfkey(_read, "read(%p, %ju) -> iovecs[2]{len0=%zd, len1=%zd} \n", req, (uintmax_t)ino, len0, len1);
     return reply_iov(req, iovecs, 2);
  } CATCH_ERRS
 
 void fs123_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) try {
-    DIAGfkey(_open, "release(%lu, %p)\n", ino, fi);
+    DIAGfkey(_open, "release(%ju, %p)\n", (uintmax_t)ino, fi);
     stats.releases++;
     if(ino > 1 && ino <= max_special_ino)
         return release_special_ino(req, ino, fi);
@@ -1687,7 +1687,7 @@ void fs123_statfs(fuse_req_t req, fuse_ino_t ino) try {
 }CATCH_ERRS
 
 void do_forget(fuse_ino_t ino, uint64_t nlookup){
-    DIAGfkey(_lookup, "forget(%lu, %ju)\n", ino, (uintmax_t)nlookup);
+    DIAGfkey(_lookup, "forget(%ju, %ju)\n", (uintmax_t)ino, (uintmax_t)nlookup);
     if(ino > 1 && ino <= max_special_ino)
 	return forget_special_ino(ino, nlookup);
     ino_forget(ino, nlookup);
@@ -1729,7 +1729,7 @@ void fs123_ioctl(fuse_req_t req, fuse_ino_t ino, int cmd, void *arg, struct fuse
     // downstream code.
     
     stats.ioctls++;
-    DIAGfkey(_ioctl, "ioctl(ino=%lu, cmd=%d, arg=%p)\n", ino, cmd, arg);
+    DIAGfkey(_ioctl, "ioctl(ino=%ju, cmd=%d, arg=%p)\n", (uintmax_t)ino, cmd, arg);
 
     // N.B.  It's tempting to try to implement an FS_IOC_GETVERSION
     // which could simply return the ino.  It's not particularly
