@@ -223,13 +223,12 @@ fuse_ino_t genino(uint64_t estale_cookie, fuse_ino_t pino, const str_view name){
 bool cookie_mismatch(fuse_ino_t ino, uint64_t estale_cookie){
     // It's a "mismatch" if we haven't been told to ignore mismatches
     // and if the ino computed from the estale_cookie and the ino is
-    // the same as the ino itself.  A zero value for estale_cookie is
-    // the server's way of telling us to "Relax.  Ignore any
-    // mismatches".  A zero value for ino is our way of saying "Relax. 
-    // We've never seen this estale_cookie before".
+    // the same as the ino itself.  A zero value for ino is the
+    // caller's way of saying "Relax.  We've never seen this
+    // estale_cookie before".
     if(ino == 0)
         return false;
-    if( volatiles->ignore_estale_mismatch || estale_cookie == 0 ){
+    if( volatiles->ignore_estale_mismatch ){
         stats.estale_ignored++;
         return false;
     }
@@ -579,28 +578,28 @@ void beflush(fuse_ino_t pino, str_view lastcomponent){
     berefresh_decode(req, &unused);
 }
 
-// berefresh - common code for begetXXX.  Calls berefresh_decode,
-// and checks for staleness mismatch.  If there's a mismatch,
-// tries again with req.no_cache = true, and if there's still
-// a mismatch, invalidate the entry in the kernel, call beflush to
-// flush/replace the attributes in the attrcache and web caches,
-// and throw an ESTALE.
-void berefresh(fuse_ino_t ino, req123& req, reply123* reply){
+// berefresh - common code for begetXXX.  Calls berefresh_decode, and
+// optionally checks for staleness mismatch.  If there's a mismatch,
+// tries again with req.no_cache = true, and if there's still a
+// mismatch, invalidate the entry in the kernel, call beflush to
+// flush/replace the attributes in the attrcache and web caches, and
+// throw an ESTALE.
+void berefresh(fuse_ino_t ino, req123& req, reply123* reply, bool check_cookie){
     if(encrypt_requests)
         encrypt_request(req);
     berefresh_decode(req, reply);
-    if(!(reply->eno==0 && cookie_mismatch(ino, reply->estale_cookie)))
+    if(!(reply->eno==0 && check_cookie && cookie_mismatch(ino, reply->estale_cookie)))
         // We return from here the vast majority of  the time!
         return;
 
-    // Either we weren't  caching to begin with, or we got a cookie
+    // Either we weren't caching to begin with, or we got a cookie
     // mismatch with the cache in play.  Try again without caching:
     DIAGfkey(_estale, "ESTALE mismatch retry %s\n", req.urlstem.c_str());
     stats.estale_retries++;
     req123 ncreq = req;
     ncreq.no_cache = true;
     berefresh_decode(ncreq, reply);
-    if(reply->eno==0 && cookie_mismatch(ino, reply->estale_cookie)){
+    if(reply->eno==0 && check_cookie && cookie_mismatch(ino, reply->estale_cookie)){
         // The estale cookie has changed, making the ino itself bogus.
         // Let's tell the kernel:
         //
@@ -617,7 +616,7 @@ void berefresh(fuse_ino_t ino, req123& req, reply123* reply){
         // caches by calling berefresh_decode with
         // req.no_cache=true.  But it's possible (likely) that *this*
         // URL is up to date, and the mismatch is because the
-        // c=0@0 'getattr' URL is stale.  For the benefit of future
+        // /a/ 'getattr' URL is stale.  For the benefit of future
         // accesses, we want to flush that too.
         beflush(pino_name.first, pino_name.second);
         stats.estale_thrown++;
@@ -633,7 +632,7 @@ reply123 begetchunk_dir(fuse_ino_t ino, bool begin, int64_t start){
     reply123 ret;
     std::string name = ino_to_fullname(ino);
     req123 req = req123::dirreq(name, Fs123Chunk, begin, start);
-    berefresh(ino, req, &ret);
+    berefresh(ino, req, &ret, true);
     return ret;
 }    
 
@@ -642,7 +641,7 @@ reply123 begetchunk_file(fuse_ino_t ino, int64_t startkib, bool no_cache = false
     std::string name = ino_to_fullname(ino);
     req123 req = req123::filereq(name, Fs123Chunk, startkib, req123::MAX_STALE_UNSPECIFIED);
     req.no_cache = no_cache;
-    berefresh(ino, req, &ret);
+    berefresh(ino, req, &ret, true);
     return ret;
 }    
 
@@ -669,7 +668,7 @@ reply123 begetattr(fuse_ino_t pino, str_view lc, fuse_ino_t ino, int max_stale){
     std::string name = fullname(pino,  lc);
     req123 req = req123::attrreq(name, max_stale);
     reply123 ret;
-    berefresh(ino, req, &ret);
+    berefresh(ino, req, &ret, true);
     if(ret.eno == 0){
         DIAGfkey(_getattr, "/a reply with content: %s\n", ret.content.c_str());
         // A subsequent request might be for max-stale=0.  Since the
@@ -703,7 +702,7 @@ reply123 begetstatfs(fuse_ino_t ino) {
     reply123 ret;
     std::string name = ino_to_fullname(ino);
     req123 req = req123::statfsreq(name);
-    berefresh(ino, req, &ret);
+    berefresh(ino, req, &ret, false);
     return ret;
 }    
 
@@ -711,7 +710,7 @@ reply123 begetlink(fuse_ino_t ino) {
     reply123 ret;
     std::string name = ino_to_fullname(ino);
     req123 req = req123::linkreq(name);
-    berefresh(ino, req, &ret);
+    berefresh(ino, req, &ret, false);
     return ret;
 }    
 
@@ -720,7 +719,7 @@ reply123 begetxattr(fuse_ino_t ino, const char *attrname, bool nosize){
     std::string name = ino_to_fullname(ino);
     // TODO should we have an Fs123AttrMax rather than using Fs123Chunk?
     req123 req = req123::xattrreq(name, nosize ? 0 : Fs123Chunk, attrname);
-    berefresh(ino, req, &ret);
+    berefresh(ino, req, &ret, false);
     return ret;
 }
 
@@ -1976,7 +1975,7 @@ validator_from_a_reply(const reply123& r) try {
 reply123 begetserver_stats(fuse_ino_t ino){
     reply123 ret;
     req123 req = req123::statsreq();
-    berefresh(ino, req, &ret);
+    berefresh(ino, req, &ret, false);
     return ret;
 }
 
