@@ -977,7 +977,7 @@ void fs123_init(void *, struct fuse_conn_info *conn_info) try {
     named_pipe_name = envto<std::string>("Fs123CommandPipe", "");
     if( !named_pipe_name.empty() ){
         named_pipe_name += "." + std::to_string(getpid());
-        mkfifo(named_pipe_name.c_str(), 0622); // & ~umask
+        sew::mkfifo(named_pipe_name.c_str(), 0622); // & ~umask
         named_pipe_done = false;
         named_pipe_fd = sew::open(named_pipe_name.c_str(), O_RDWR);
         named_pipe_thread = std::thread(named_pipe_func);

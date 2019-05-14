@@ -441,7 +441,9 @@ _wrap_void(rmdir);
 _wrap_void(mkdir);
 _wrap_void(mkdirat);
 _wrap_void(mknod);
+_wrap_void(mkfifo);
 _NOT_GLIBC( _wrap_void(mknodat); )
+_NOT_GLIBC( _wrap_void(mkfifoat); )
 // Some of the pathname functions are in stdio.h
 _wrap_void(rename);
 _wrap_void(renameat);
