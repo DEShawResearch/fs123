@@ -170,13 +170,13 @@ void fuseful_handler(int signum){
         char msg[] = "fuseful_handler:  Caught signal NN\n";
         msg[sizeof(msg)-4] = '0' + (signum/10)%10;  // Tens-digit
         msg[sizeof(msg)-3] = '0' + signum%10;       // Ones-digit
-        ::write(fd, msg, sizeof(msg)-1);
+        unused(::write(fd, msg, sizeof(msg)-1));
 #ifdef __GLIBC__
         // glibc has backtrace_symbols_fd, which is allegedly async-signal-safe...
         void* bt[50];
         int n = backtrace(&bt[0], 50);
 #define MSG "Backtrace from backtrace_symbols_fd\n"
-        ::write(fd, MSG, sizeof(MSG)-1);
+        unused(::write(fd, MSG, sizeof(MSG)-1));
         backtrace_symbols_fd(bt, n, fd); // too bad this isn't more useful...
 #undef MSG
 #endif // __GLIBC__
