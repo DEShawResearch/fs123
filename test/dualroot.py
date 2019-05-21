@@ -40,6 +40,19 @@ def _read(fd, len):
     except OSError as e:
         return e
 
+def _pread(fd, len, off):
+    try:
+        try:
+            return os.pread(fd, len, off)
+        except AttributeError:
+            off0 = os.lseek(fd, 0, os.SEEK_CUR)
+            os.lseek(fd, off, os.SEEK_SET)
+            ret = os.read(fd, len)
+            os.lseek(fd, off0, os.SEEK_SET)
+            return ret
+    except OSError as e:
+        return e
+
 def _close(fd):
     try:
         return os.close(fd)
@@ -150,3 +163,8 @@ class Hndl:
         r1 = _lseek(fdpair[0], pos, how)
         r2 = _lseek(fdpair[1], pos, how)
         return chk(r1, r2, "lseek")
+
+    def pread(self, fdpair, n, off):
+        r1 = _pread(fdpair[0], n, off)
+        r2 = _pread(fdpair[1], n, off)
+        return chk(r1, r2, "pread")

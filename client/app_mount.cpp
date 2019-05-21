@@ -1607,15 +1607,18 @@ void fs123_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct f
     
     DIAGfkey(_read, "reply0: size=%zu\n", content.size());
     struct iovec iovecs[2];
-    bool shortread;
-    // We asked for, and received the whole chunk, which might or
-    // might not be what we wanted.
-    if(off0 > content.size())
-        throw se(EIO, fmt("read(%s) throwing EIO - got off0(%zu)<=size(%zu)",
-                                  name.c_str(), off0, content.size()));
+    bool shortread = (content.size() < chunkbytes);
+    if(off0 > content.size()){
+        // We're probably reading more than one chunk past the end of
+        // the file.  It's perfectly legal, so a warning may be
+        // a bit panicy, but in practice, we've only seen it when
+        // something was misbehaving.
+        complain(LOG_WARNING, "fs123_read(ino=%ju (%s), size=%zu, off=%jd) got only content.size()=%zu bytes in reply for chunk at start0kib=%ju.  Return 0 bytes (EOF)\n",
+                 (uintmax_t)ino, name.c_str(), size, (intmax_t)off, content.size(), (uintmax_t)start0kib);
+        return reply_buf(req, nullptr, 0);
+    }
     iovecs[0].iov_base = const_cast<char *>(content.data()) + off0;
     iovecs[0].iov_len = std::min(len0, content.size()-off0);
-    shortread = (content.size() < chunkbytes);
     DIAGfkey(_read, "iov[0]: %lu@%p\n", iovecs[0].iov_len,  iovecs[0].iov_base);
     if( shortread || iovecs[0].iov_len == size ){
         // We're done.  Either we got a short read, indicating EOF,

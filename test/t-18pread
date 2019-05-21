@@ -1,0 +1,59 @@
+#!/usr/bin/env python2
+
+#### This test is most reliable if the client is run under valgrind.
+#### See comments near drh.close(rfd1) around line 96.
+#### FIXME - we really need a way to run the client under valgrind
+#### as part of our regression testing!!
+
+import os, sys
+import tempfile
+import errno
+import time
+import dualroot
+# Try to test "write-to-read" semantics.  This
+# entails modifying files on the server and
+# verifying that the modifications show up in
+# a timely manner on the client.
+#
+EXPORT_ROOT = os.getenv('EXPORT_ROOT')
+MTPT = os.getenv('MTPT')
+
+opj = os.path.join
+wdname = tempfile.mkdtemp(prefix='t-18pread', dir=EXPORT_ROOT)
+os.chmod(wdname, 0O755)
+basedname = os.path.basename(wdname)
+drh = dualroot.Hndl(opj(MTPT,basedname), opj(EXPORT_ROOT,basedname))
+
+# create '0001' on the server
+wfname = opj(wdname, '0001')
+wfname2 = opj(wdname, '0002')
+wfname3 = opj(wdname, '0003')
+wfd = os.open(wfname, os.O_RDWR|os.O_CREAT, 0O644)
+# call fs123p7 setxattr in case the server is running with
+# --estale_cookie=setxattr.  Don't worry if it fails - we should
+# be running with st_ino in that case.
+os.system("fs123p7 setxattr %s"%(wfname))
+os.write(wfd, '0001'*1024)  # 4k bytes 0001 repeated 1k times...
+os.close(wfd)
+
+# First read from the middle of the file
+rfd = drh.open('0001', 0)
+drh.lseek(rfd, 22, 0)
+txt = drh.read(rfd, 100)
+assert(len(txt) == 100)
+
+# Seek well past the end and read again
+drh.lseek(rfd, 1000000, 0)
+txt = drh.read(rfd, 100)
+assert(len(txt) == 0)
+
+# pread from the middle of the file.
+txt = drh.pread(rfd, 100, 22)
+assert(len(txt) == 100)
+
+# pread from well past the end of the file.
+txt = drh.pread(rfd, 100, 1000000)
+assert(len(txt) == 0)
+
+exit(0)
+
