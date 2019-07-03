@@ -1,0 +1,63 @@
+The semantics of readdir, rewinddir, seekdir and telldir are
+complicated and confusing.
+
+POSIX says this about readdir:
+
+  If a file is removed from or added to the directory after the most
+  recent call to opendir() or rewinddir(), whether a subsequent call
+  to readdir() returns an entry for that file is unspecified.
+
+It also says that rewinddir:
+
+  ... shall also cause the directory stream to refer to the current
+  state of the corresponding directory, as a call to opendir() would
+  have done.
+
+And it says this about the argument to seekdir:
+
+   The value of loc should have been returned from an earlier call to
+   telldir() using the same directory stream.
+   ...
+   If the value of loc was not obtained from an earlier call to
+   telldir(), or if a call to rewinddir() occurred between the call to
+   telldir() and the call to seekdir(), the results of subsequent
+   calls to readdir() are unspecified.
+
+Roughly: rewinddir "syncs" the stream to the filesystem, and in doing
+so, *may* invalidate previous telldirs.  In the absence of rewinddir,
+readdir doesn't have to keep track of additions and deletions.
+
+On Linux, it appears to be the case that:
+
+    telldir(opendir("some/dir")) ->  0
+
+I.e, immediately after opening a file, telldir returns 0.  This isn't
+required by POSIX, but it appears to be the case on Linux.  As far as
+I can tell, fuse isn't "consulted" about this when the directory is in
+a fuse filesystem.  Telldir calls lseek which is handled entirely in
+the kernel, without asking fuse.
+
+Also on Linux, it appears that both:
+
+    rewinddir() and seekdir(loc=0)
+
+are implemented by calls to lseek(fd, 0, 0).  It's impossible
+for fuse (or any filesystem) to tell them apart.  
+
+This is troublesome because one of them (rewinddir) is meant to
+"cause the directory stream to refer to the current state of the
+corresponding directory" - with the permissible side-effect of
+invalidating previously recorded telldirs.  The other (seekdir(d, 0))
+is not permitted to invalidate previously recorded telldirs, but
+it is also not required to "sync" the directory stream with the
+current state of the directory.
+
+Since we (fuse) can't tell them apart, the only completely POSIX
+compliant imlementations would have both rewinddir() and
+seekdir(loc=0) "sync" to the underlying directory and would have
+neither of them invalidate previously returned telldirs.
+
+I can't see any reasonable way to accomplish this.  I can satisfy
+either one, but not both.  I.e., either rewinddir() doesn't
+necessarily "sync" the stream with the underlying diretory, OR
+seekdir(d, 0) is allowed to invalidate previous telldirs.
