@@ -41,6 +41,9 @@ libs:=libcore123.a
 pylibs:=threeroe.py py_threeroe.so
 
 unit_tests:=\
+	ut_histogram \
+	ut_lguniformhist \
+	ut_nonuniformhist \
 	ut_intutils \
 	ut_threefry_easy \
 	ut_threeroe \
