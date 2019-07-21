@@ -16,10 +16,16 @@
 //   enqueue(T item) - if the queue is closed return false.
 //     Otherwise, move item onto the back of the queue and return true.
 //   emplace(args...) - like enqueue, but T is constructed from args...
-//   close() - Disables further enqueues.
-//   bool dequeue(T& result) - Wait until either the queue is closed or it
-//       is non-empty.  Then, if it is closed, return false.  Otherwise,
-//       swap the front of the queue with result and then pop the front of the queue.
+//   close() - Disables further enqueues.  Subsequent dequeues will
+//       drain the queue, returning true until the queue is empty.
+//   bool dequeue(T& result) - Wait until either the queue is closed
+//       or it is non-empty.  Then, if it is empty (and hence also
+//       closed), return false.  Otherwise, (it is non-empty, and
+//       may or may not be closed), move-assign the front of the
+//       queue to result and then pop the front of the queue.  Note
+//       that dequeue on a closed queue returns true and pops the
+//       front until the queue is both closed and empty, after which
+//       it returns false.
 //   size() - return the number of elements in the queue.
 //   closed() - return whether the queue is closed.
 //   empty() - return whether the queue is empty.
@@ -43,7 +49,10 @@
 
 // Missing features:
 //  - timeouts would be nice.
-//  - close() and closed() may not be the semantics we want.
+//  - it's easy to imagine different semantics for close,  e.g.,
+//    close immediately.  Note that the existing semantics work nicely
+//    with threadpool, so take care not to break that if we introduce
+//    alternatives.
 //  - it would be easy to allow "line jumping" with push_front.
 //
 // Question: Should we only notify when the queue becomes empty?
@@ -125,7 +134,7 @@ public:
             dequeue_able_cv.wait(lk);
         if(l.empty()) 
             return false;
-        std::swap(result, l.front());
+        result = std::move(l.front());
         l.pop_front();
         enqueue_able_cv.notify_one();
         return true;
