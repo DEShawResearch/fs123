@@ -1492,23 +1492,10 @@ void fs123_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) try {
         std::throw_with_nested(std::runtime_error("non-monotonic validator.  Probable server misconfiguration.  lowlevel_notify_inval_inode_detached(ino) called"));
     }
 
-    // FIXME - There should be a way for the server to tell the
-    // client: "this file's content won't be cacheable.  Use direct_io
-    // and avoid the openfilemap logic".  Two ways have been
-    // suggested:
-    //  1) decide based on whether the a_reply has max-age=0 and/or
-    //     no-cache.  This requires a new member in reply123 and code
-    //     to manage it.
-    //  2) designate a special value for the validator.  E.g.,
-    //     fff..fff.  Easy, and local, but seems to require the server
-    //     to request the same behavior in two different ways:
-    //     max-age=0 *and* validator=fff
-    //
-    // if(new_validator == std::numeric_limits<decltype(new_validator)>::max())
-    //     fi->direct_io = true;
-    //
-    // Ultimately, this may be premature optimization.  If it ever becomes
-    // important, we can pick a strategy.
+    // If the reply has max-age==0 turn on direct_io to completely
+    // avoid the openfilemap logic.
+    if(r.max_age().count() == 0)
+        fi->direct_io = true;
     fi->keep_cache = (old_validator == new_validator);
     if(enhanced_consistency && !fi->direct_io){
         fi->fh = openfile_register(ino, r);
@@ -1539,6 +1526,14 @@ void fs123_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct f
     atomic_scoped_nanotimer _t(&stats.read_sec);
     if(ino > 1 && ino <= max_special_ino)
         return read_special_ino(req, ino, size, off, fi);
+    // FIXME - if fi->fh==0 && enhanced_consistency, it means we were
+    // opened with direct_io.  In that case, it might make more sense
+    // to skip the chunking and request (almost) exactly the bytes we
+    // want.  Otherwise, if somebody does a lot of short reads, we
+    // might DoS ourselves by pulling Fs123Chunk*KiB over the network
+    // for every read(2).  Maybe something like:
+    // if(enhanced_consistency && fi->fh == 0)
+    //     return fs123_read_nochunk(req, ino, size, off, fi);
 
     static constexpr int KiB = 1024;
     auto chunkbytes = Fs123Chunk*KiB;	// most math below is in bytes
