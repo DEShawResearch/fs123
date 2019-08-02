@@ -50,10 +50,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //                  from native to and from bigendian and littlendian.
 //
 //   clip(low, x, high) - return x, clipped from below by low and from
-//                  above by high.  Arguments must be of the same type
-//                  and must be comparable with '<'.  N.B.  this isn't
-//                  just for integers, but this seemed like the best
-//                  place to put it.
+//                  above by high.  Arguments must be comparable with
+//                  operator: x<low and high<x.  The type of x must be
+//                  copy-constructable and constructable from const
+//                  refs to the types of low and high.  N.B.  this
+//                  isn't just for integers, but this seemed like the
+//                  best place to put it.
 
 #include <cinttypes>
 #include <limits>
@@ -256,8 +258,8 @@ constexpr IntegerType letonative(IntegerType x) noexcept{
     return nativetole(x);
 }
 
-template <typename T>
-T clip(T low, T x, T high){
+template <typename Tlow, typename Tx, typename Thigh>
+Tx clip(const Tlow& low, const Tx& x, const Thigh& high){
     if( high<x ) return high;
     if( x<low ) return low;
     return x;
