@@ -38,7 +38,7 @@ int main(int argc, char **argv){
     volatiles_t vols;
     vols.dc_maxfiles=100;
     vols.dc_maxmbytes=1000;
-    diskcache dc(std::move(upstream), argv[1], 12345, vols); // tiny - 100 files and 1MB.
+    diskcache dc(std::move(upstream), argv[1], 12345, true, vols); // tiny - 100 files and 1MB.
 
     // sleep for long enough to let the eviction thread run once
     // and set the injection_probability.

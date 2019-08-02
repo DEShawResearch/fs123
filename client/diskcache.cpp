@@ -14,6 +14,7 @@
 #include <core123/envto.hpp>
 #include <core123/pathutils.hpp>
 #include <core123/stats.hpp>
+#include <core123/fdstream.hpp>
 #include <random>
 #include <vector>
 #include <utility>
@@ -160,6 +161,94 @@ diskcache::evict(size_t Nevict, size_t dir_to_evict, scan_result& sr, std::defau
     }
 }
 
+// The diskcache code is intentionally oblivious to external processes
+// removing files from (or adding properly named and formatted files
+// to) the cache "behind its back".  This makes it possible for
+// multiple mount.fs123 processes to share the same active diskcache.
+// If they have different baseurls they *must* have different
+// hash_seeds (specified in the constructor).  Conversely, if they
+// have the same baseurl, they should have the same seed, which will
+// allow them to share.
+//
+// If 'fancy_sharing' was requested at construction, then if more than
+// one process is sharing a diskcache, only one of them will be the
+// 'custodian' at any one time.  The 'custodian' is responsible for
+// actually evicting files *and* for writing the 'status' file in the
+// root directory.  The non-custodian caches poll the statusfd_ every
+// 10 seconds and adjust their 'injection probability' accordingly.
+//
+// WARNING: the fancy-sharing code is untested (and off by default).
+// WARNING: the fancy-sharing code will misbehave if the diskcache is
+//        NFS.  There are at least two problems:
+//  1 - flock will return EBADF.  Arguably, this is a "feature"
+//      that tells people to stop what they're doing before they
+//      hurt themselves.  Don't "fix" this without fixing #2.
+//  2 - NFS doesn't promise write-to-read consistency, so there's no
+//      telling when one process' read_status will "see" another
+//      process' write_status.  This *may* not be a problem if both
+//      processes are on the same machine, but who knows...
+//  3 - Multiple machines sharing a single diskcache over NFS is
+//      crazy-talk.  Don't even think about it.
+bool
+diskcache::custodian_check(){
+    // Once the custodian - always the custodian...
+    if(custodian_)
+        return true;
+    // Try to acquire an exclusive flock on the rootfd_.
+    // If it succeeds, we take responsibility for
+    // evictions, and hold the flock until rootfd_ is
+    // closed by the diskcache destructor.
+    if( flock(statusfd_, LOCK_EX|LOCK_NB) == 0 ){
+        complain(LOG_NOTICE, "diskcache::custodian_check:  Acquired flock on statusfd.  This process is now in charge of diskcache evictions");
+        custodian_ = true;
+        return true;
+    }
+    if(errno != EWOULDBLOCK)
+        throw se(errno, "diskcache::custodian_check flock(rootfd_, LOCK_EX|LOCK_NB) failed unexpectedly");
+    return false;
+}
+
+static constexpr int BUFSZ = 32;  // more than enough for a %.9g
+void
+diskcache::write_status(float prob) const {
+    // N.B.  This is only called in one thread in the process that's
+    // the 'custodian' of the statusfd, i.e., when it has an exclusive
+    // flock on the statusfd_.  We must defend against torn reads and
+    // writes, but we don't have to defend against other processes
+    // racing with us to write the file.  The "solution" is to read
+    // and write exactly BUFSIZ (32) bytes with single atomic calls to
+    // pread and pwrite on statusfd_.  (Note - the diskcache is safe
+    // against external processes *removing* files from the rootfd,
+    // but it's definitely not safe against random scribbling).
+    char buf[BUFSZ] = {}; // fill with NUL
+    // FIXME - It's 2019.  Shouldn't we have something more structured
+    // than a single %g? Json? INI?
+    auto nprt = ::snprintf(buf, BUFSZ, "%g", prob);
+    if(nprt < 0 || nprt >= BUFSZ)
+        throw se(EINVAL, "diskcache::write_status:  Unexpected snprintf overflow.  This can't happen");
+    auto wrote = sew::pwrite(statusfd_, buf, BUFSZ, 0);
+    if(wrote != BUFSZ){
+        complain(LOG_ERR, "diskcache::write_status:  short write");
+        wrote = sew::pwrite(statusfd_, buf, BUFSZ, 0);
+        if(wrote != BUFSZ)
+            throw se(EINVAL, "diskcache::write_status:  short write");
+    }
+}
+
+float
+diskcache::read_status() {
+    char buf[BUFSZ];
+    auto nread = sew::pread(statusfd_, &buf[0], BUFSZ, 0);
+    if(nread == 0){
+        // see comment in ctor where we open statusfd_.
+        complain(LOG_WARNING, "Oops.  You have found the tiny window during which the 'custodian' has taken ownership, but hasn't written anything to the statusfile.  This is normal if it happens once but is probably a misconfiguration if it recurs.");
+        return injection_probability_.load();
+    }
+    if(nread != BUFSZ)
+        throw se(EINVAL, "diskcache::read_status:  short read");
+    return svto<float>({buf, BUFSZ});
+}
+
 // evict_loop is the entry-point for the evict_thread.  It loops until
 // the 'evict_thread_done_' bool is set and the evict_thread_done_cv_
 // is notifiy()'ed, which is done by the diskcache destructor.  It
@@ -174,84 +263,81 @@ diskcache::evict_loop(size_t Ndirs){
     size_t files_scanned = 0;
     size_t bytes_scanned = 0;
     std::default_random_engine urng; // not seeded.  Should we care...
-    // The diskcache code is intentionally oblivious to external
-    // processes modifying the disk cache "behind its back".  This
-    // makes it possible for multiple mount.fs123 processes to share
-    // the same active diskcache.  If they have different baseurls
-    // they *must* have different hash_seeds (specified in the
-    // constructor).  Conversely, if they have the same baseurl, they
-    // should have the same seed, which will allow them to share.  (Is
-    // there really a use-case where the same baseurl is mounted at
-    // two different mount-points?)  Don't forget that the the
-    // evict_loop feeds back injection_probability to the main
-    // diskcache, so it would be unwise to "cleverly" lock out all but
-    // one evict_loop.
+    float inj_prob;
     do{
         try{
-            auto scan = do_scan(dir_to_evict);
-            auto Nfiles = scan.names.size();
-            float maxfiles_per_dir = float(vols_.dc_maxfiles) / Ndirs;
-            float maxbytes_per_dir = float(vols_.dc_maxmbytes)*1000000. / Ndirs;
-            double filefraction = Nfiles / maxfiles_per_dir;
-            double bytefraction = scan.nbytes / maxbytes_per_dir;
-            double usage_fraction = std::max( filefraction, bytefraction );
-            // We don't evict anything until we're above evict_target_fraction.
-            // Once we're above target_lwm, we try to evict down to 'evict_lwm'
-            size_t Nevict = 0;
-            if(usage_fraction > 1.0)
-                complain(LOG_WARNING, "Usage fraction %g > 1.0 in directory: %zx.  Disk cache may be dangerously close to max-size",
-                       usage_fraction, dir_to_evict);
-            if( usage_fraction > vols_.evict_target_fraction ){
-                auto evict_fraction = (usage_fraction - vols_.evict_lwm)/usage_fraction;
-                Nevict = clip(0, int(ceil(Nfiles*evict_fraction)), int(scan.names.size()));
-                complain(LOG_NOTICE, "evict %zd files from %zx. In this directory: files: %zu (%g) bytes: %zu (%g)",
-                       Nevict, dir_to_evict, Nfiles, filefraction, scan.nbytes, bytefraction);
-            }
-            evict(Nevict, dir_to_evict, scan, urng);
-            files_evicted += Nevict;
-            files_scanned += Nfiles;
-            bytes_scanned += scan.nbytes;
-            // If usage_fraction is above evict_throttle_lwm, we assume we're "under attack".
-            // There are two responses:
-            //   randomly reject insertion of new objects
-            //   lower the interval between directory scans.
-            float inj_prob = clip(0., (1. - usage_fraction)/(1. - vols_.evict_throttle_lwm), 1.);
-            sleepfor = std::chrono::duration<double>(std::chrono::minutes(vols_.evict_period_minutes)) * inj_prob / Ndirs;
-            DIAGfkey(_evict, "Injection probability set to %g after scanning directory %zx.  filefraction=%g, bytefraction=%g, Nevict=%zd, sleepfor=%s",
-                     inj_prob, dir_to_evict, filefraction, bytefraction, Nevict, str(sleepfor).c_str());
-            if(inj_prob < 1.0)
-                complain(LOG_NOTICE, "Injection probability set to %g after scanning directory %zx.  filefraction=%g, bytefraction=%g, Nevict=%zd, sleepfor=%s",
-                         inj_prob, dir_to_evict, filefraction, bytefraction, Nevict, str(sleepfor).c_str());
-            else if(injection_probability_ < 1.0)
-                complain(LOG_NOTICE, "Injection probability restored to 1.0 after scanning %zx", dir_to_evict);
-            injection_probability_ = inj_prob;
+            if(custodian_check()){
+                auto scan = do_scan(dir_to_evict);
+                auto Nfiles = scan.names.size();
+                float maxfiles_per_dir = float(vols_.dc_maxfiles) / Ndirs;
+                float maxbytes_per_dir = float(vols_.dc_maxmbytes)*1000000. / Ndirs;
+                double filefraction = Nfiles / maxfiles_per_dir;
+                double bytefraction = scan.nbytes / maxbytes_per_dir;
+                double usage_fraction = std::max( filefraction, bytefraction );
+                size_t Nevict = 0;
+                if(usage_fraction > 1.0)
+                    complain(LOG_WARNING, "Usage fraction %g > 1.0 in directory: %zx.  Disk cache may be dangerously close to max-size",
+                             usage_fraction, dir_to_evict);
+                // We don't evict anything until we're above evict_target_fraction.
+                if( usage_fraction > vols_.evict_target_fraction ){
+                    // We're above evict_target_fraction.  Try to get down to 'evict_lwm'
+                    auto evict_fraction = (usage_fraction - vols_.evict_lwm)/usage_fraction;
+                    Nevict = clip(0, int(ceil(Nfiles*evict_fraction)), int(scan.names.size()));
+                    complain(LOG_NOTICE, "evict %zd files from %zx. In this directory: files: %zu (%g) bytes: %zu (%g)",
+                             Nevict, dir_to_evict, Nfiles, filefraction, scan.nbytes, bytefraction);
+                }
+                evict(Nevict, dir_to_evict, scan, urng);
+                files_evicted += Nevict;
+                files_scanned += Nfiles;
+                bytes_scanned += scan.nbytes;
+                // If usage_fraction is above evict_throttle_lwm, we assume we're "under attack".
+                // There are two responses:
+                //   lower the injection_probability to randomly reject insertion of new objects
+                //   lower the interval between directory scans.
+                inj_prob = clip(0., (1. - usage_fraction)/(1. - vols_.evict_throttle_lwm), 1.);
+                DIAGfkey(_evict, "Injection probability set to %g after scanning directory %zx.  filefraction=%g, bytefraction=%g, Nevict=%zd",
+                         inj_prob, dir_to_evict, filefraction, bytefraction, Nevict);
+                if(statusfd_) // i.e., we really are fancy_sharing.
+                    write_status(inj_prob);
 
-            if(++dir_to_evict >= Ndirs)
-                dir_to_evict = 0;
-            if(dir_to_evict == 0){
-                complain((files_evicted == 0)? LOG_INFO : LOG_NOTICE, "evict_loop:  completed full scan.  Found %zd files of size %zd.  Evicted %zd files", 
-                       files_scanned, bytes_scanned, files_evicted);
-                files_evicted = 0;
-                files_scanned = 0;
-                bytes_scanned = 0;
+                sleepfor = std::chrono::minutes(vols_.evict_period_minutes);
+                sleepfor *= inj_prob / Ndirs;
+                
+                if(++dir_to_evict >= Ndirs)
+                    dir_to_evict = 0;
+                if(dir_to_evict == 0){
+                    complain((files_evicted == 0)? LOG_INFO : LOG_NOTICE, "evict_loop:  completed full scan.  Found %zd files of size %zd.  Evicted %zd files", 
+                             files_scanned, bytes_scanned, files_evicted);
+                    files_evicted = 0;
+                    files_scanned = 0;
+                    bytes_scanned = 0;
+                }
+                stats.dc_eviction_dirscans++;
+            }else{
+                inj_prob = read_status();
+                sleepfor = std::chrono::seconds(10);
             }
-            stats.dc_eviction_dirscans++;
+            if(inj_prob < 1.0)
+                complain(LOG_NOTICE, "Injection probability set to %g", inj_prob);
+            else if(injection_probability_ < 1.0)
+                complain(LOG_NOTICE, "Injection probability restored to 1.0");
+            injection_probability_.store(inj_prob);
         }catch(std::exception& e){
-            complain(e, "exception thrown in evict_loop");
             // We're the thread's entry point, so the buck stops here.
             // If we rethrow, we terminate the program, which seems "harsh".
             // Our only choice is to hope that somebody notices the complain(LOG_ERR,...)
             // OTOH, let's avoid thrashing by waiting at least 5 minutes before
             // trying again.
-            if( std::chrono::minutes(5) > sleepfor )
-                sleepfor = std::chrono::minutes(5);
+            sleepfor = clip(std::chrono::minutes(5), sleepfor, sleepfor);
+            injection_probability_.store(0.);
+            complain(e, "exception thrown in evict_loop.  diskcache injection disabled.  Will try again in %.0f seconds", sleepfor.count());
         }
     }while(!evict_thread_done_cv_.wait_for(lk, sleepfor, [this](){return evict_thread_done_;}));
     complain(LOG_NOTICE, "evict_loop thread exiting.");
 }
     
 diskcache::diskcache(std::unique_ptr<backend123> upstream, const std::string& root,
-                     uint64_t hash_seed_first, volatiles_t& vols) :
+                     uint64_t hash_seed_first, bool fancy_sharing, volatiles_t& vols) :
     backend123(upstream?upstream->get_disconnected():false),
     upstream_(std::move(upstream)),
     injection_probability_(1.0),
@@ -273,6 +359,25 @@ diskcache::diskcache(std::unique_ptr<backend123> upstream, const std::string& ro
         makedirs(root, 0755);
         rootfd_ = sew::open(root.c_str(), O_DIRECTORY);
     }
+
+    if(fancy_sharing){
+        statusfd_ = sew::openat(rootfd_, status_filename_, O_RDWR|O_CREAT, 0600);
+        // Consider the case where two processes start up concurrently
+        // and there's no pre-existing statusfile.  The status file is
+        // O_CREAT'ed with zero length.  One of them takes the lock.
+        // But after taking the lock, the other one can race ahead and
+        // get to read_status before the custodian gets to
+        // write_status.  The reader will see a zero-length file,
+        // which we are careful to handle (with a warning) in
+        // read_status.
+        //
+        // Try to narrow the window by trying the lock now, and if
+        // successful, immediately writing the statusfile.  There's still
+        // a window, but it's pretty narrow.
+        if(custodian_check())
+            write_status(1.0f);
+    }else
+        custodian_ = true; // without fancy_sharing there are many custodians
 
     // Look for directories:  <root>/0, <root>/00, <root>/000, <root>/0000
     // If any of them exist, then assume we're looking at a pre-exisiting

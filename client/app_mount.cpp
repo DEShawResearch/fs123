@@ -958,7 +958,8 @@ void fs123_init(void *, struct fuse_conn_info *conn_info) try {
         // it possible for multiple clients to share the same cache.
         // Requests made to different baseurls will (with high probability)
         // not collide.
-        be = std::make_unique<diskcache>(std::move(be), cache_dir, threeroe(baseurl).Final().first, *volatiles);
+        be = std::make_unique<diskcache>(std::move(be), cache_dir, threeroe(baseurl).Final().first,
+                                         envto<bool>("Fs123CacheFancySharing", false), *volatiles);
     }
     auto attrcachesz = envto<size_t>("Fs123AttrCacheSize", 100000);
     attrcache = std::make_unique<decltype(attrcache)::element_type>(attrcachesz);
@@ -2101,7 +2102,7 @@ std::ostream& report_config(std::ostream& os){
         //Prt(Fs123RetryTimeout)
         //Prt(Fs123RetryInitialMillis)
         //Prt(Fs123RetrySaturate)
-        Prt(Fs123EnhancedConsistency, true)
+        Prt(Fs123EnhancedConsistency, "true")
         Prt(Fs123SignalFile, "fs123signal")
         // In backend123
         Prt(Fs123SO_RCVBUF, 1024 * 24)
@@ -2120,6 +2121,7 @@ std::ostream& report_config(std::ostream& os){
         //Prt(Fs123PastStaleWhileRevalidate)
         //Prt(Fs123CacheMaxMBytes)
         //Prt(Fs123CacheMaxFiles)
+        Prt(Fs123CacheFancySharing, "false")
         //Prt(Fs123EvictLwm, "0.7")        // default in diskcache.cpp
         //Prt(Fs123EvictTargetFraction, "0.8")  // default in diskcache.cpp
         //Prt(Fs123EvictThrottleLWM, "0.9") // default in diskcache.cpp
@@ -2207,6 +2209,7 @@ try {
                                     "Fs123PastStaleWhileRevalidate=",
                                     "Fs123CacheMaxMBytes=",
                                     "Fs123CacheMaxFiles=",
+                                    "Fs123CacheFancySharing=",
                                     "Fs123EvictLwm=",
                                     "Fs123EvictTargetFraction=",
                                     "Fs123EvictThrottleLWM=",

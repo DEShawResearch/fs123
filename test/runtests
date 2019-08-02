@@ -131,7 +131,7 @@ $CPEXE $OBJDIR/fs123p7 $clientexe
 # should run different several different clients... Until then, test the
 # "most important" one (whatever that means).
 ProtoMinor=2
-client="$clientexe -f -oFs123CommandPipe=${MTroot}/cmdpipe -oFs123LogRateWindow=10 -oFs123FallbackUrls=http://127.0.0.1:$SERVPORT/02 -oFs123RetryTimeout=10 -oFs123BuggyAutomountWorkaround=1 -oFs123EnhancedConsistency=1 -oFs123CacheDir=$MTroot/cachedir,Fs123CacheMaxMBytes=1,Fs123CacheMaxFiles=10,Fs123EvictPeriodMinutes=1 -oFs123SupportXattr=true -oFs123ProtoMinor=$ProtoMinor -oFs123SharedkeydirRefresh=1 -oFs123EncryptRequests=true -oFs123LogMinLevel=LOG_NOTICE,Fs123DiagDestination=$MTroot/fs123.diag,Fs123DiagNames=complaints:err:ofmap:open:getattr:backend=2:secretbox -o ro,noatime $CLIENTOPTS \"\$@\" http://127.0.0.1:$SERVPORT/01 ${MTroot}/mtpt"
+client="$clientexe -f -oFs123CommandPipe=${MTroot}/cmdpipe -oFs123LogRateWindow=10 -oFs123FallbackUrls=http://127.0.0.1:$SERVPORT/02 -oFs123RetryTimeout=10 -oFs123BuggyAutomountWorkaround=1 -oFs123EnhancedConsistency=1 -oFs123CacheDir=$MTroot/cachedir,Fs123CacheMaxMBytes=1,Fs123CacheMaxFiles=10,Fs123CacheFancySharing=false,Fs123EvictPeriodMinutes=1 -oFs123SupportXattr=true -oFs123ProtoMinor=$ProtoMinor -oFs123SharedkeydirRefresh=1 -oFs123EncryptRequests=true -oFs123LogMinLevel=LOG_NOTICE,Fs123DiagDestination=$MTroot/fs123.diag,Fs123DiagNames=complaints:err:ofmap:open:getattr:backend=2:secretbox -o ro,noatime $CLIENTOPTS \"\$@\" http://127.0.0.1:$SERVPORT/01 ${MTroot}/mtpt"
 
 $CPEXE ${testdir}/fs123.supp $MTroot/fs123.supp
 
