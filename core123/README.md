@@ -58,6 +58,7 @@ make -f ../GNUmakefile check
 * json.hpp  (MIT license)
 * base64.hpp (MIT license)
 * fdstream.hpp (MIT license)
+* configparser.hpp (uses diag, requires linkage)
 
 ## Threads and synchronization
 
