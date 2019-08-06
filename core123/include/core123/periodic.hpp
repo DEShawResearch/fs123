@@ -107,9 +107,11 @@ public:
         done = true;
         cv.notify_all();
         lk.unlock();
-        try{
-            fut.get(); // wait for the thread to complete
-        }catch(...){}
+        // The async thread is still running and may access
+        // members: cv, done, mtx.  We have to wait for
+        // it to finish before it's safe to destroy our
+        // members.
+        fut.wait();
     }
 private:
     std::condition_variable cv;
