@@ -17,4 +17,4 @@ if test ! -d "$cache/0"; then
 	echo "$0: cache \"$cache\" does not seem to exist or is not populated" >&2
 	exit 1
 fi
-exec fs123p7 cachedump $(find "$cache" -type f -print| head -1)
+exec fs123p7 cachedump $(find "$cache" -type f -not -name 'stats*' -print| head -1)
