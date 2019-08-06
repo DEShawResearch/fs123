@@ -69,12 +69,12 @@ bool should_serialize(const reply123& r){
 } // end namespace <anon>
 
 void 
-diskcache::check_root(size_t Ndirs){
+diskcache::check_root(){
     // FIXME - there should be more checks here!
 
     // make sure that the directories we need either
     // already exist, or that we successfully create them.
-    for(unsigned i=0; i<Ndirs; ++i){
+    for(unsigned i=0; i<Ndirs_; ++i){
         auto d = reldirname(i);
         struct stat sb;
         auto ret = ::fstatat(rootfd_, d.c_str(), &sb, 0);
@@ -144,13 +144,13 @@ diskcache::do_scan(unsigned dirnum) const{
 }
 
 void
-diskcache::evict(size_t Nevict, size_t dir_to_evict, scan_result& sr, std::default_random_engine& eng){
+diskcache::evict(size_t Nevict, size_t dir_to_evict, scan_result& sr){
     // try to evict Nevict files from the current dir_to_evict_.
     // The names (and perhaps other metadata) are in sr.
     std::string pfx = reldirname(dir_to_evict) + "/";
     for(size_t i=0; i<Nevict; ++i){
         // Randomly pick one of the names in the inclusive range [i, size()-1]
-        size_t j = std::uniform_int_distribution<size_t>(i, sr.names.size()-1)(eng);
+        size_t j = std::uniform_int_distribution<size_t>(i, sr.names.size()-1)(urng_);
         std::swap( sr.names[i], sr.names[j] );
         auto ret = ::unlinkat(rootfd_, (pfx + sr.names[i]).c_str(), 0);
         if(ret && errno != ENOENT)
@@ -249,99 +249,100 @@ diskcache::read_status() {
     return svto<float>({buf, BUFSZ});
 }
 
-// evict_loop is the entry-point for the evict_thread.  It loops until
-// the 'evict_thread_done_' bool is set and the evict_thread_done_cv_
-// is notifiy()'ed, which is done by the diskcache destructor.  It
-// sleeps in between loops by an amount that depends on the number of
-// directories and whether it's feeling "pressure".
-void
-diskcache::evict_loop(size_t Ndirs){
-    std::unique_lock<std::mutex> lk(evict_done_mtx_);
-    std::chrono::duration<double> sleepfor(0);
-    size_t dir_to_evict = 0;
-    size_t files_evicted = 0;
-    size_t files_scanned = 0;
-    size_t bytes_scanned = 0;
-    std::default_random_engine urng; // not seeded.  Should we care...
+// evict_once is called periodically by a core123::periodic object.
+//
+// If the calling thread is not the cache 'custodian', it sets the
+// injection probability by atomically reading the statusfile and
+// returns, telling the periodic object to call it again in 10
+// seconds.
+//
+// If the calling thread is the cache 'custodian', it scans one of the
+// cache directories and estimates the cache 'usage_fraction'.  If the
+// usage fraction exceeds the 'evict_target', files are deleted
+// (randomly) from the scanned directory to reach the 'evict_lwm'.  If
+// the usage_fraction exceeds the 'evict_throttle_lwm', the injection
+// probability is set to a value less than one to throttle cache
+// growth.  It returns, telling the periodic object how long to wait
+// before calling again.  The value returned is the injection
+// probability times the 'evict_period_minutes' divided by the number
+// of cache directories.  Thus, under unloaded conditions, the entire
+// cache will be scanned in evict_period_minutes, and more frequently
+// when the cache is under pressure.
+std::chrono::duration<float>
+diskcache::evict_once() try {
+    std::chrono::duration<float> sleepfor;;
     float inj_prob;
-    do{
-        try{
-            if(custodian_check()){
-                auto scan = do_scan(dir_to_evict);
-                auto Nfiles = scan.names.size();
-                float maxfiles_per_dir = float(vols_.dc_maxfiles) / Ndirs;
-                float maxbytes_per_dir = float(vols_.dc_maxmbytes)*1000000. / Ndirs;
-                double filefraction = Nfiles / maxfiles_per_dir;
-                double bytefraction = scan.nbytes / maxbytes_per_dir;
-                double usage_fraction = std::max( filefraction, bytefraction );
-                size_t Nevict = 0;
-                if(usage_fraction > 1.0)
-                    complain(LOG_WARNING, "Usage fraction %g > 1.0 in directory: %zx.  Disk cache may be dangerously close to max-size",
-                             usage_fraction, dir_to_evict);
-                // We don't evict anything until we're above evict_target_fraction.
-                if( usage_fraction > vols_.evict_target_fraction ){
-                    // We're above evict_target_fraction.  Try to get down to 'evict_lwm'
-                    auto evict_fraction = (usage_fraction - vols_.evict_lwm)/usage_fraction;
-                    Nevict = clip(0, int(ceil(Nfiles*evict_fraction)), int(scan.names.size()));
-                    complain(LOG_NOTICE, "evict %zd files from %zx. In this directory: files: %zu (%g) bytes: %zu (%g)",
-                             Nevict, dir_to_evict, Nfiles, filefraction, scan.nbytes, bytefraction);
-                }
-                evict(Nevict, dir_to_evict, scan, urng);
-                files_evicted += Nevict;
-                files_scanned += Nfiles;
-                bytes_scanned += scan.nbytes;
-                // If usage_fraction is above evict_throttle_lwm, we assume we're "under attack".
-                // There are two responses:
-                //   lower the injection_probability to randomly reject insertion of new objects
-                //   lower the interval between directory scans.
-                inj_prob = clip(0., (1. - usage_fraction)/(1. - vols_.evict_throttle_lwm), 1.);
-                DIAGfkey(_evict, "Injection probability set to %g after scanning directory %zx.  filefraction=%g, bytefraction=%g, Nevict=%zd",
-                         inj_prob, dir_to_evict, filefraction, bytefraction, Nevict);
-                if(statusfd_) // i.e., we really are fancy_sharing.
-                    write_status(inj_prob);
-
-                sleepfor = std::chrono::minutes(vols_.evict_period_minutes);
-                sleepfor *= inj_prob / Ndirs;
-                
-                if(++dir_to_evict >= Ndirs)
-                    dir_to_evict = 0;
-                if(dir_to_evict == 0){
-                    complain((files_evicted == 0)? LOG_INFO : LOG_NOTICE, "evict_loop:  completed full scan.  Found %zd files of size %zd.  Evicted %zd files", 
-                             files_scanned, bytes_scanned, files_evicted);
-                    files_evicted = 0;
-                    files_scanned = 0;
-                    bytes_scanned = 0;
-                }
-                stats.dc_eviction_dirscans++;
-            }else{
-                inj_prob = read_status();
-                sleepfor = std::chrono::seconds(10);
-            }
-            if(inj_prob < 1.0)
-                complain(LOG_NOTICE, "Injection probability set to %g", inj_prob);
-            else if(injection_probability_ < 1.0)
-                complain(LOG_NOTICE, "Injection probability restored to 1.0");
-            injection_probability_.store(inj_prob);
-        }catch(std::exception& e){
-            // We're the thread's entry point, so the buck stops here.
-            // If we rethrow, we terminate the program, which seems "harsh".
-            // Our only choice is to hope that somebody notices the complain(LOG_ERR,...)
-            // OTOH, let's avoid thrashing by waiting at least 5 minutes before
-            // trying again.
-            sleepfor = clip(std::chrono::minutes(5), sleepfor, sleepfor);
-            injection_probability_.store(0.);
-            complain(e, "exception thrown in evict_loop.  diskcache injection disabled.  Will try again in %.0f seconds", sleepfor.count());
+    if(custodian_check()){
+        auto scan = do_scan(dir_to_evict_);
+        auto Nfiles = scan.names.size();
+        float maxfiles_per_dir = float(vols_.dc_maxfiles) / Ndirs_;
+        float maxbytes_per_dir = float(vols_.dc_maxmbytes)*1000000. / Ndirs_;
+        double filefraction = Nfiles / maxfiles_per_dir;
+        double bytefraction = scan.nbytes / maxbytes_per_dir;
+        double usage_fraction = std::max( filefraction, bytefraction );
+        size_t Nevict = 0;
+        if(usage_fraction > 1.0)
+            complain(LOG_WARNING, "Usage fraction %g > 1.0 in directory: %zx.  Disk cache may be dangerously close to max-size",
+                     usage_fraction, dir_to_evict_);
+        // We don't evict anything until we're above evict_target_fraction.
+        if( usage_fraction > vols_.evict_target_fraction ){
+            // We're above evict_target_fraction.  Try to get down to 'evict_lwm'
+            auto evict_fraction = (usage_fraction - vols_.evict_lwm)/usage_fraction;
+            Nevict = clip(0, int(ceil(Nfiles*evict_fraction)), int(scan.names.size()));
+            complain(LOG_NOTICE, "evict %zd files from %zx. In this directory: files: %zu (%g) bytes: %zu (%g)",
+                     Nevict, dir_to_evict_, Nfiles, filefraction, scan.nbytes, bytefraction);
         }
-    }while(!evict_thread_done_cv_.wait_for(lk, sleepfor, [this](){return evict_thread_done_;}));
-    complain(LOG_NOTICE, "evict_loop thread exiting.");
-}
+        evict(Nevict, dir_to_evict_, scan);
+        if(++dir_to_evict_ >= Ndirs_)
+            dir_to_evict_ = 0;
+        if(dir_to_evict_ == 0){
+            complain((files_evicted_ == 0)? LOG_INFO : LOG_NOTICE, "evict_once:  completed full scan.  Found %zd files of size %zd.  Evicted %zd files", 
+                     files_scanned_, bytes_scanned_, files_evicted_);
+            files_evicted_ = 0;
+            files_scanned_ = 0;
+            bytes_scanned_ = 0;
+        }
+        files_evicted_ += Nevict;
+        files_scanned_ += Nfiles;
+        bytes_scanned_ += scan.nbytes;
+        stats.dc_eviction_dirscans++;
+
+        // If usage_fraction is above evict_throttle_lwm, we assume we're "under attack".
+        // There are two responses:
+        //   lower the injection_probability to randomly reject insertion of new objects
+        //   lower the interval between directory scans.
+        inj_prob = clip(0., (1. - usage_fraction)/(1. - vols_.evict_throttle_lwm), 1.);
+        if(statusfd_) // i.e., we really are fancy_sharing.
+            write_status(inj_prob);
+        sleepfor = std::chrono::minutes(vols_.evict_period_minutes);
+        sleepfor *= inj_prob / Ndirs_;
+    }else{
+        inj_prob = read_status();
+        sleepfor = std::chrono::seconds(10);
+    }
+    if(inj_prob < 1.0)
+        complain(LOG_NOTICE, "Injection probability set to %g", inj_prob);
+    else if(injection_probability_ < 1.0)
+        complain(LOG_NOTICE, "Injection probability restored to 1.0");
+    injection_probability_.store(inj_prob);
+    return sleepfor;
+ }catch(std::exception& e){
+    // We're the thread's entry point, so the buck stops here.  If we
+    // rethrow, we terminate the core123::periodic, which seems
+    // "harsh".  Our only choice is to hope that somebody notices the
+    // complaint.  OTOH, let's avoid thrashing by waiting for 5
+    // minutes before trying again.
+    injection_probability_.store(0.);
+    complain(e, "evict_once:  caught exception.  Diskcache injection disabled.  Eviction deferred for 5 minutes.");
+    return std::chrono::minutes(5);
+ }
+
     
 diskcache::diskcache(std::unique_ptr<backend123> upstream, const std::string& root,
                      uint64_t hash_seed_first, bool fancy_sharing, volatiles_t& vols) :
     backend123(upstream?upstream->get_disconnected():false),
     upstream_(std::move(upstream)),
     injection_probability_(1.0),
-    evict_thread_done_(false),
     hashseed_(hash_seed_first, 0),
     vols_(vols)
 {
@@ -403,36 +404,20 @@ diskcache::diskcache(std::unique_ptr<backend123> upstream, const std::string& ro
                  root.c_str(), hexdigits_, suggested_hexdigits, vols_.dc_maxfiles.load());
 
     DIAGkey(_diskcache, "cachedir root: " << root << " maxfiles=" << vols_.dc_maxfiles << " hexdigits=" << hexdigits_ << "\n");
-    auto Ndirs = 1<<(4*hexdigits_);
+    Ndirs_ = 1<<(4*hexdigits_);
     
-    check_root(Ndirs);
+    check_root();
 
-    // start the evict_loop thread.  The evict loop is almost independent
-    // of the rest of the diskcache code.  Points are contact are:
+    // start the periodic evict_thread.  The evict_thread is almost
+    // independent of the rest of the diskcache code.  Points are
+    // contact are:
     //
-    //   - the eviction loop sets the injection_probability, which
+    //   - evict_once sets the injection_probability, which
     //     affects the behavior of diskcache::serialize.
-    //   - evict_loop does unlinkat(diskcache::rootfd_, ...
+    //   - evict_once does unlinkat(diskcache::rootfd_, ...
     //     and calls 'diskcache::reldirname'
-    //   - the diskcache destructor notifies the evict_loop thread
-    //     and joins with it, using evict_thread_done_cv, evict_done_mtx_
-    //     and evict_thread_done_.
-    evict_thread_ = std::thread(&diskcache::evict_loop, this, Ndirs);
+    evict_thread_ = std::make_unique<periodic>([this](){return evict_once();});
 }
-
-diskcache::~diskcache(){
-    // shut down the evict_loop thread
-    {
-        std::lock_guard<std::mutex> lk(evict_done_mtx_);
-        evict_thread_done_ = true;
-        evict_thread_done_cv_.notify_all();
-    }
-
-    if(evict_thread_.joinable())
-        evict_thread_.join();
-    else
-        complain(LOG_ERR, "~diskcache destructor called, but evict_thread is not joinable???");
-}    
 
 // It's not uncommon (python startup with an empty cache) to see lots
 // of back-to-back requests for the same resource.  This hack discards

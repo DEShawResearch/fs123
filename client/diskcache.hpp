@@ -5,6 +5,7 @@
 #include <core123/threadpool.hpp>
 #include <core123/expiring.hpp>
 #include <core123/autoclosers.hpp>
+#include <core123/periodic.hpp>
 #include <atomic>
 #include <string>
 #include <thread>
@@ -34,8 +35,6 @@ struct diskcache : public backend123{
     // non-fancy clients can safely share the same cache.
     diskcache(std::unique_ptr<backend123>, const std::string& root,
               uint64_t hash_seed_first, bool fancy_sharing, volatiles_t& vols);
-    // we need a destructor to rejoin the evict thread.
-    ~diskcache();
     bool refresh(const req123& req, reply123*) override; 
     std::ostream& report_stats(std::ostream& os) override;
     // override set_disconnected(bool) so it passes the news upstream.
@@ -65,13 +64,10 @@ struct diskcache : public backend123{
 
 
 protected:
-    void evict(size_t Nevict, size_t dir_to_evict, scan_result& sr, std::default_random_engine& e);
-    void check_root(size_t Ndirs);
+    void evict(size_t Nevict, size_t dir_to_evict, scan_result& sr);
+    void check_root();
     std::string reldirname(unsigned i) const;
-    // N.B.  the period parameter takes anything that can be
-    // implicitly converted into milliseconds.  E.g., hours, days,
-    // minutes or seconds.
-    void evict_loop(size_t Ndirs);
+    std::chrono::duration<float> evict_once();
     scan_result do_scan(unsigned dir_to_evict) const;
 
     // Members and methods for 'fancy_sharing':
@@ -84,16 +80,16 @@ protected:
 
     std::unique_ptr<backend123> upstream_;
     acfd rootfd_;
+    size_t Ndirs_;
+    size_t dir_to_evict_ = 0;
+    size_t files_evicted_ = 0;
+    size_t files_scanned_ = 0;
+    size_t bytes_scanned_ = 0;
+    std::default_random_engine urng_; // not seeded.  Should we care...
     std::string rootpath_; // only used in diagnostics and error reports
     unsigned hexdigits_;
     std::atomic<float> injection_probability_;
-    // All this machinery seems to be necessary to promptly
-    // shut down the evict_thread when the destructor is
-    // called.
-    std::thread evict_thread_;
-    std::condition_variable evict_thread_done_cv_;
-    std::mutex evict_done_mtx_;
-    bool evict_thread_done_;
+    std::unique_ptr<core123::periodic> evict_thread_;
     // construct the hashseed from the baseurl in the constructor.
     // This allows different baseurls to coexist in the same diskcache
     // even if they have the same relative paths.
