@@ -75,23 +75,7 @@ diskcache::check_root(){
     // make sure that the directories we need either
     // already exist, or that we successfully create them.
     for(unsigned i=0; i<Ndirs_; ++i){
-        auto d = reldirname(i);
-        struct stat sb;
-        auto ret = ::fstatat(rootfd_, d.c_str(), &sb, 0);
-        if( ret==0 ){
-            if(!S_ISDIR(sb.st_mode))
-                throw se(EINVAL, "diskcache::check_root: " + d + " exists but is not a directory");
-        }else{
-            if(errno == ENOENT){
-                if(::mkdirat(rootfd_, d.c_str(), 0700) != 0){
-                    if(errno == EEXIST)
-                        complain(LOG_WARNING, "Now-you-see-it-now-you-dont cache directory.  This is normal if there are two mount.fs123 processes concurrently creating a cache directory.  If not, your diskcache is probably corrupted.");
-                    else
-                        throw se("mkdirat(rootfd_," + d + ")");
-                }
-            }else
-                throw se("fstatat(rootfd_, " + d + ")");
-        }
+        makedirsat(rootfd_, reldirname(i), 0700, true);
     }
 }
 
@@ -353,13 +337,9 @@ diskcache::diskcache(std::unique_ptr<backend123> upstream, const std::string& ro
     size_t nthreads = envto<size_t>("Fs123RefreshThreads", 10);
     size_t backlog = envto<size_t>("Fs123RefreshBacklog", 10000);
     tp = std::make_unique<threadpool<void>>(nthreads, backlog);
-    rootfd_ = ::open(root.c_str(), O_DIRECTORY);
+    makedirs(root, 0755, true); // EEXIST is not an error.
+    rootfd_ = sew::open(root.c_str(), O_DIRECTORY);
     rootpath_ =  root;
-    // If there's no root, we'll make one...
-    if(!rootfd_){
-        makedirs(root, 0755);
-        rootfd_ = sew::open(root.c_str(), O_DIRECTORY);
-    }
 
     if(fancy_sharing){
         statusfd_ = sew::openat(rootfd_, status_filename_, O_RDWR|O_CREAT, 0600);
