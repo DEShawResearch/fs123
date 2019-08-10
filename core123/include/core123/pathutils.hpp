@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <limits.h> // PATH_MAX
+#include <fcntl.h>  // AT_FDCWD
 #include <sys/stat.h> // mkdir
 #include <core123/throwutils.hpp>
 #include <core123/strutils.hpp>
@@ -44,8 +45,8 @@ inline std::pair<std::string, std::string> pathsplit(const std::string& p){
 //   p must be writable!  It may be modified.
 //   p[len] == '\0' 
 //   p[len-1] != '/'
-inline int _makedirs(char *p, size_t len, int mode){
-    int ret = ::mkdir(p, mode);
+inline int _makedirsat(int dirfd, char *p, size_t len, int mode){
+    int ret = ::mkdirat(dirfd, p, mode);
     if(ret==0 || errno != ENOENT)
         return ret;
     // trust that fiddling with string_view won't set errno!
@@ -59,36 +60,58 @@ inline int _makedirs(char *p, size_t len, int mode){
         return ret;
     lastslash = lastnotslash+1; // actually, first_slash_in_last_group_of_slashes
     p[lastslash] = '\0';
-    ret = _makedirs(p, lastslash, mode);
+    ret = _makedirsat(dirfd, p, lastslash, mode|S_IWUSR);
     if(ret != 0 && errno != EEXIST)
         return ret;
     p[lastslash] = '/';
-    return ::mkdir(p, mode);
+    return ::mkdirat(dirfd, p, mode);
 }
 
 // we'd like an sew::makedirs, but we don't want to put it in
 // system_error_wrapper to keep sew.hpp for only system call analogs,
 // not for improved APIs that we prefer
 
-// makedirs - like python's os.makedirs.  Call mkdir, but if it fails
-//  with ENOENT, try to recursively create parent directories.  If an
-//  error occurs, throw with errno set by the last mkdir that failed
-//  (which may have been an attempt to create a parent of the
-//  argument).
-inline void makedirs(core123::str_view d, int mode){
-    // make a temporary, writeabl copy of d, up to, but not including
+// makedirsat - inspired by python's os.makedirs.  Call mkdirat, but
+//  if it fails with ENOENT, try to recursively create parent
+//  directories with mode=mode|S_IWUSR, i.e., so that they are
+//  writable to the calling process.  If an error occurs, throw a
+//  system_error with errno set by the last mkdir that failed (which
+//  may have been an attempt to create a parent of the argument).  If
+//  a parent mkdirat fails with EEXIST, ignore it (we don't care who
+//  made the parent, as long as it exists now).  If exist_ok is true,
+//  then if the final mkdir fails with EEXIST, and if the final path
+//  satisfies S_ISDIR when fstatat'ed, then consider the result a
+//  success and do not throw.
+//
+//  Note that the modes and ownership of pre-existing directories will
+//  not be changed, so there is no guarantee that the final directory
+//  has the specified mode.
+inline void makedirsat(int dirfd, const std::string& d, int mode, bool exist_ok = false){
+    // make a temporary, writeable copy of d, up to, but not including
     // any trailing slashes to hand over to _makedirs.
     auto lastnotslash = d.find_last_not_of('/');
     if(lastnotslash == core123::str_view::npos){
-        // It's all slashes.  Should we call ::mkdir,
-        // or are we confident that we know the result.
-        throw se(EEXIST, strfunargs("makedirs", d, mode));
+        // d consists of zero or more slashes and nothing else.
+        // We don't have to ask whether a root directory exists...
+        if(exist_ok)
+            return;
+        throw se(EEXIST, strfunargs("makedirsat", dirfd, d, mode));
     }
-    auto irrelevant = lastnotslash + 1; // makedirs doesn't need to see this
+    auto irrelevant = lastnotslash + 1; // _makedirsat doesn't need to see trailing slashes.
     std::vector<char> vc(d.data(), d.data()+irrelevant+1);
     vc[irrelevant] = '\0';
-    if (_makedirs(vc.data(), irrelevant, mode) != 0)
-        throw se(strfunargs("makedirs", d, mode));
+    if (_makedirsat(dirfd, vc.data(), irrelevant, mode) != 0){
+        auto eno = errno;
+        struct stat sb;
+        if(eno == EEXIST && exist_ok && ::fstatat(dirfd, d.data(), &sb, 0)==0 && S_ISDIR(sb.st_mode))
+            return;
+        throw se(eno, strfunargs("makedirsat", dirfd, d, mode));
+    }
+}
+
+// makedirs - fall through to makedirsat, inspired by python's os.makedirs.
+inline void makedirs(const std::string& d, int mode, bool exist_ok = false){
+    return makedirsat(AT_FDCWD, d, mode, exist_ok);
 }
 
 // Some transformations between st_mode (in stat) and d_type (in dirent)

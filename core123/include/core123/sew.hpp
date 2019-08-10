@@ -378,6 +378,7 @@ _wrap_void(ftruncate);
 _wrap_void(flock);
 _wrap_void(chmod);
 _wrap_void(fchmod);
+_wrap_void(fchmodat);
 //_wrap_void(lchmod); // "lchmod is not implemented and will always fail"
 _wrap_void(chown);
 _wrap_void(fchown);
