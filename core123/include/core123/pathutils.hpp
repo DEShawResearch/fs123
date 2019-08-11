@@ -40,78 +40,86 @@ inline std::pair<std::string, std::string> pathsplit(const std::string& p){
         return make_pair( p.substr(0, last), p.substr(last+1) );
 }
 
-// _makedirs - used internally by makedirs.
+// _makedirsat - used internally by makedirs.
 // Preconditions:
 //   p must be writable!  It may be modified.
-//   p[len] == '\0' 
-//   p[len-1] != '/'
+//   p[len] == '\0'       It must be a NUL-terminated string of length  len
+//   len==0 || p[len-1] != '/' It must not have trailing slashes
 inline int _makedirsat(int dirfd, char *p, size_t len, int mode){
     int ret = ::mkdirat(dirfd, p, mode);
     if(ret==0 || errno != ENOENT)
         return ret;
-    // trust that fiddling with string_view won't set errno!
     auto lastslash = core123::str_view(p, len).find_last_of('/');
     if(lastslash == core123::str_view::npos)
         return ret;  // no slashes.  No parent to try
     // Check for a group of lastslashes
     auto lastnotslash = core123::str_view(p, lastslash).find_last_not_of('/');
-    // We're done if p is "/xyz" or "///xyz"
+    // We're done if there's nothing to the left of the last group of slashes,
+    // i.e., if p is "/xyz" or "///xyz"
     if(lastnotslash == core123::str_view::npos)
         return ret;
     lastslash = lastnotslash+1; // actually, first_slash_in_last_group_of_slashes
     p[lastslash] = '\0';
     ret = _makedirsat(dirfd, p, lastslash, mode|S_IWUSR);
+    p[lastslash] = '/';
     if(ret != 0 && errno != EEXIST)
         return ret;
-    p[lastslash] = '/';
     return ::mkdirat(dirfd, p, mode);
 }
 
-// we'd like an sew::makedirs, but we don't want to put it in
-// system_error_wrapper to keep sew.hpp for only system call analogs,
-// not for improved APIs that we prefer
-
 // makedirsat - inspired by python's os.makedirs.  Call mkdirat, but
 //  if it fails with ENOENT, try to recursively create parent
-//  directories with mode=mode|S_IWUSR, i.e., so that they are
-//  writable to the calling process.  If an error occurs, throw a
-//  system_error with errno set by the last mkdir that failed (which
+//  directories with mode=mode|S_IWUSR.  If an error occurs, throw a
+//  system_error with errno set by the last mkdirat that failed (which
 //  may have been an attempt to create a parent of the argument).  If
-//  a parent mkdirat fails with EEXIST, ignore it (we don't care who
-//  made the parent, as long as it exists now).  If exist_ok is true,
-//  then if the final mkdir fails with EEXIST, and if the final path
-//  satisfies S_ISDIR when fstatat'ed, then consider the result a
-//  success and do not throw.
+//  an exception is thrown, the filesystem may be left in a modified
+//  state (some parent directories created).  If a parent mkdirat fails
+//  with EEXIST, ignore it.
+
+//  If exist_ok is true, then if the final mkdir fails with EEXIST,
+//  and if the final path satisfies S_ISDIR when fstatat'ed, then
+//  consider the result a success and do not throw.
 //
-//  Note that the modes and ownership of pre-existing directories will
-//  not be changed, so there is no guarantee that the final directory
-//  has the specified mode.
-inline void makedirsat(int dirfd, const std::string& d, int mode, bool exist_ok = false){
-    // make a temporary, writeable copy of d, up to, but not including
-    // any trailing slashes to hand over to _makedirs.
-    auto lastnotslash = d.find_last_not_of('/');
-    if(lastnotslash == core123::str_view::npos){
-        // d consists of zero or more slashes and nothing else.
-        // We don't have to ask whether a root directory exists...
-        if(exist_ok)
-            return;
-        throw se(EEXIST, strfunargs("makedirsat", dirfd, d, mode));
+//  In other words - when called with exist_ok=true, it either throws
+//  or satisfies the post-condition that the specified path exists and
+//  is a directory.  N.B. the post-condition says nothing about the
+//  ownership or mode of the specified path or any of its parents.
+//
+//  When called with exist_ok=false, it either throws or satisfies the
+//  post-condition that the specified path was created by the caller
+//  with the given mode.  N.B.  the post-condition says nothing about
+//  the ownership or mode of the specified path's parents.
+//
+//  Note that the path argument is a by-value std::string, not a const
+//  reference.  Callers concerned about copies can pass an rvalue
+//  reference, e.g., std::move.
+//  
+inline void makedirsat(int dirfd, std::string path, int mode, bool exist_ok = false){
+    auto lastnotslash = path.find_last_not_of('/');
+    auto pathlen = path.size();
+    if(lastnotslash < pathlen){
+        // Trailing slashes will confuse _makedirsat
+        pathlen = lastnotslash;
+        path[pathlen+1] = '\0';
     }
-    auto irrelevant = lastnotslash + 1; // _makedirsat doesn't need to see trailing slashes.
-    std::vector<char> vc(d.data(), d.data()+irrelevant+1);
-    vc[irrelevant] = '\0';
-    if (_makedirsat(dirfd, vc.data(), irrelevant, mode) != 0){
+    // Corner cases:
+    // - if path is empty, pathlen is zero and _makedirsat calls
+    //   calls mkdirat(dirfd, "", mode),  which returns ENOENT.
+    // - if path consists of nothing but one or more slashes,
+    //   _mkdirsat calls mkdirat(dirfd, "///", mode), which
+    //   returns EEXIST
+    if (_makedirsat(dirfd, &path[0], pathlen, mode) != 0){
         auto eno = errno;
         struct stat sb;
-        if(eno == EEXIST && exist_ok && ::fstatat(dirfd, d.data(), &sb, 0)==0 && S_ISDIR(sb.st_mode))
+        if(eno == EEXIST && exist_ok && ::fstatat(dirfd, path.data(), &sb, 0)==0 && S_ISDIR(sb.st_mode))
             return;
-        throw se(eno, strfunargs("makedirsat", dirfd, d, mode));
+        throw se(eno, strfunargs("makedirsat", dirfd, path, mode));
     }
 }
 
 // makedirs - fall through to makedirsat, inspired by python's os.makedirs.
-inline void makedirs(const std::string& d, int mode, bool exist_ok = false){
-    return makedirsat(AT_FDCWD, d, mode, exist_ok);
+inline void makedirs(std::string path, int mode, bool exist_ok = false){
+    return makedirsat(AT_FDCWD, std::move(path), mode, exist_ok);
 }
 
 // Some transformations between st_mode (in stat) and d_type (in dirent)

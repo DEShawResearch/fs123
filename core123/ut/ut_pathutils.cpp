@@ -22,9 +22,9 @@ void test_makedirs(){
     try {
         core123::makedirs("", 0777);
     } catch (std::system_error& xe) {
-        EQUAL(xe.code().value(), EEXIST);
+        // According to POSIX, mkdir("") sets errno to ENOENT
+        EQUAL(xe.code().value(), ENOENT);
     } 
-    core123::makedirs("", 0777, true);
 
     char name[] = "/tmp/test_makedirsXXXXXX";
     sew::mkdtemp(name);
