@@ -10,6 +10,5 @@ yum -y install libevent-devel
 yum -y install gflags-devel
 yum -y install time attr e2fsprogs
 yum -y install python36
-ln -sf /usr/bin/python36 /usr/bin/python3
 . /opt/rh/devtoolset-8/enable
 # scl enable devtoolset-8 bash # starts a new shell with gcc->gcc8
