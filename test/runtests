@@ -70,7 +70,7 @@ if [ -d ${EXPORT_ROOT} ]; then
     rm -rf ${EXPORT_ROOT}.removeme.$$ || true
 fi
 
-for d in ${EXPORT_ROOT} ${RCroot}/var/run ${RCroot}/var/lock/subsys $etc ${RCroot}/sbin $initd ${MTroot}/cachedir ${MTroot}/sbin ${MTPT}
+for d in ${EXPORT_ROOT} ${RCroot}/var/run ${RCroot}/var/lock/subsys $etc ${RCroot}/sbin $initd ${MTroot}/sbin ${MTPT}
 do
 	if test ! -d "$d"; then mkdir -p "$d"; fi
 done
@@ -131,7 +131,7 @@ $CPEXE $OBJDIR/fs123p7 $clientexe
 # should run different several different clients... Until then, test the
 # "most important" one (whatever that means).
 ProtoMinor=2
-client="$clientexe -f -oFs123CommandPipe=${MTroot}/cmdpipe -oFs123LogRateWindow=10 -oFs123FallbackUrls=http://127.0.0.1:$SERVPORT/02 -oFs123RetryTimeout=10 -oFs123BuggyAutomountWorkaround=1 -oFs123EnhancedConsistency=1 -oFs123CacheDir=$MTroot/cachedir,Fs123CacheMaxMBytes=1,Fs123CacheMaxFiles=10,Fs123CacheFancySharing=false,Fs123EvictPeriodMinutes=1 -oFs123SupportXattr=true -oFs123ProtoMinor=$ProtoMinor -oFs123SharedkeydirRefresh=1 -oFs123EncryptRequests=true -oFs123LogMinLevel=LOG_NOTICE,Fs123DiagDestination=$MTroot/fs123.diag,Fs123DiagNames=complaints:err:ofmap:open:getattr:backend=2:secretbox:diskcache -o ro,noatime $CLIENTOPTS \"\$@\" http://127.0.0.1:$SERVPORT/01 ${MTroot}/mtpt"
+client="$clientexe -f -oFs123CommandPipe=${MTroot}/cmdpipe -oFs123SignalFile=${MTroot}/fs123.sig -oFs123LogRateWindow=10 -oFs123FallbackUrls=http://127.0.0.1:$SERVPORT/02 -oFs123RetryTimeout=10 -oFs123BuggyAutomountWorkaround=1 -oFs123EnhancedConsistency=1 -oFs123CacheDir=$MTroot/cachedir,Fs123CacheMaxMBytes=1,Fs123CacheMaxFiles=10,Fs123CacheFancySharing=false,Fs123EvictPeriodMinutes=1 -oFs123SupportXattr=true -oFs123ProtoMinor=$ProtoMinor -oFs123SharedkeydirRefresh=1 -oFs123EncryptRequests=true -oFs123LogMinLevel=LOG_NOTICE,Fs123DiagDestination=$MTroot/fs123.diag,Fs123DiagNames=complaints:err:ofmap:open:getattr:backend=2:secretbox:diskcache -o ro,noatime $CLIENTOPTS \"\$@\" http://127.0.0.1:$SERVPORT/01 ${MTroot}/mtpt"
 
 $CPEXE ${testdir}/fs123.supp $MTroot/fs123.supp
 
@@ -179,7 +179,7 @@ cat <<EOF  > $MTroot/run
 #!/bin/bash -x
 fusermount -u $MTPT
 hms=\$(date +%H:%M:%S)
-for f in fs123.out fs123.err fs123.diag; do
+for f in fs123.out fs123.err fs123.diag fs123.sig; do
    mv $MTroot/\$f $MTroot/\$f.\$hms 2>/dev/null
 done
 client="$client"
