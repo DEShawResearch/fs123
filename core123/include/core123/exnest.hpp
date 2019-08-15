@@ -16,6 +16,10 @@
 //    any type derived from std::exception, e.g., std::system_error,
 //    a user-defined exception type, etc.
 //
+//    We'll call the object thrown by the explicit throw-expression
+//    that starts the stack unwinding process, as above, the
+//    'innermost' exception.
+//
 //  - When you catch an exception and wish to rethrow it with a
 //    "nested annotation", you say:
 //      catch(std::exception& e){
@@ -30,16 +34,18 @@
 //
 //  - When you catch an error and wish to finally dispose of it, it
 //    might contain one or more of these fancy "nested annotations".
-//    Use the functions defined here to unpack it.  If all you want is
-//    the innermost (original) exception, use innermost:
+//    Use the functions defined here to unpack it.  A catch expression
+//    matches the outermost nested annotation.
+//
+//    The easiest  way to dispose of a nested exception is to 'complain'
+//    about it using <core123/complain.hpp>, e.g.,
 //
 //    catch(std::exception& e){
-//       std::exception& inner = innermost(e);
-//       ...
+//       complain(e);
 //    }
 //
-//    Iterate through the entire stack of nested exceptions them with
-//    exnest:
+//    For more control, iterate through the entire stack of nested
+//    exceptions with exnest or rexnest.  E.g.,
 //
 //    catch(std::exception& e){
 //       for(auto& a : exnest(e)){
@@ -61,6 +67,45 @@
 //    catch(std::exception& e){
 //       for(auto& a : rexnest(e)){
 //          std::cout << a.what() << "\n";
+//       }
+//    }
+//
+//    If all you want is the innermost (original) exception, use
+//    innermost:
+//
+//    catch(std::exception& e){
+//       std::exception& inner = innermost(e);
+//       ...
+//    }
+//
+//    It's possible to match specific exception types in the usual
+//    way:
+//
+//    try{
+//       ...
+//    }catch(e1_type& e){
+//        ...
+//    }catch(e2_type& e){
+//        ...
+//    }catch(e3_type& e){
+//           ...
+//    }
+//
+//    But note that it's the *outer*most nested exception that is
+//    matched against the catch expressions.  To instead match the
+//    originally thrown (innermost) type:
+//
+//    try{
+//       ...
+//    }catch(std::exception& outer){
+//       try{
+//           throw innermost(outer);
+//       }catch(e1_type& e){
+//           ...
+//       }catch(e2_type& e){
+//           ...
+//       }catch(e3_type& e){
+//           ...
 //       }
 //    }
 //
