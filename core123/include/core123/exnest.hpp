@@ -113,17 +113,23 @@
 //    std::terminate() if any of the the nested extensions within e
 //    contain a null nested_ptr.  This can happen if throw_with_nested
 //    was called outside of a catch handler.  Don't do that.
+//
+//  - Finally, what if you want to initiate a 'throw', but you have
+//    two (or more) exceptions that you'd like to nest together?
+//    Maybe you've got a 'backtracer' object derived from
+//    std::exception whose what() method prints a stack backtrace.
+//    Then use throw_nest:
+//
+//    if(errno)
+//        throw_nest(some_error("outer, but there's a nested backtrace!"), backtracer());
+//
+//    The arguments are outermost to innermost from left to right.
 
 #pragma once
 #include <iterator>
 #include <stdexcept>
 #include <exception>
 #include <vector>
-#include <functional>
-#include <string>
-#include <mutex>
-#include <atomic>
-#include <syslog.h>
 
 namespace core123{
 // This seems to be one of those cases where you have to implement
@@ -236,5 +242,37 @@ innermost(const std::exception& e){
     }
     return e;
 }
+
+#if __cpp_if_constexpr >= 201606
+// It's easier with C++17 and if constexpr...
+template <class OuterType, class ... InnerTypes>
+void throw_nest(OuterType &&outer, InnerTypes&& ... rest){
+    if constexpr(sizeof ... (rest) == 0)
+        throw std::forward<OuterType>(outer);
+    else {
+        try{
+            throw_nest(std::forward<InnerTypes>(rest)...);
+        }catch(std::exception& e){
+            std::throw_with_nested(std::forward<OuterType>(outer));
+        }
+    }
+}
+
+#else // __cpp_if_constexpr
+// But it's not *that* hard without...
+template <class OneType>
+void throw_nest(OneType&& inner){
+    throw std::forward<OneType>(inner);
+}
+
+template <class OuterType, class InnerType, class ... MoreInnerTypes>
+void throw_nest(OuterType&& outer, InnerType&& inner, MoreInnerTypes&& ... rest){
+    try{
+        throw_nest(std::forward<InnerType>(inner), std::forward<MoreInnerTypes>(rest)...);
+    }catch(std::exception&){
+        std::throw_with_nested(std::forward<OuterType>(outer));
+    }
+}
+#endif // __cpp_if_constexpr
 
 } // namespace core123

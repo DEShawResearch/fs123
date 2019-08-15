@@ -5,6 +5,7 @@
 
 using core123::exnest;
 using core123::rexnest;
+using core123::throw_nest;
 
 void foo(){
     throw std::runtime_error("thrown by foo()");
@@ -35,6 +36,33 @@ void check_nest() try {
     }
  }
 
+void check_throw_nest() try {
+    std::cout << "\nChecking that throw_nest 'works'\n";
+    throw_nest(std::overflow_error("outer"), std::logic_error("inner"));
+ }catch(std::overflow_error& oe){
+    std::vector<std::string> expected  {"outer", "inner"};
+    assert(oe.what() == std::string("outer"));
+    int i = 0;
+    for(auto& a : exnest(oe)){
+        std::cout << a.what() << "\n";
+        assert(a.what() == expected[i++]);
+    }
+ }
+
+void check_throw_nest3() try {
+    std::cout << "\nChecking that throw_nest 'works'\n";
+    throw_nest(std::overflow_error("outer"), std::invalid_argument("middle"), std::logic_error("inner"));
+ }catch(std::overflow_error& oe){
+    std::vector<std::string> expected  {"outer", "middle", "inner"};
+    assert(oe.what() == std::string("outer"));
+    int i = 0;
+    for(auto& a : exnest(oe)){
+        std::cout << a.what() << "\n";
+        assert(a.what() == expected[i++]);
+    }
+ }
+
+
 void justone() try{
     std::cout << "\nChecking that unnested exceptions 'work'\n";
     throw std::runtime_error("this is the original error");
@@ -57,5 +85,7 @@ void justone() try{
 int main(int, char **){
     justone();
     check_nest();
+    check_throw_nest();
+    check_throw_nest3();
     return 0;
 }
