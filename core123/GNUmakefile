@@ -41,6 +41,7 @@ libs:=libcore123.a
 pylibs:=threeroe.py py_threeroe.so
 
 unit_tests:=\
+	ut_stacktrace \
 	ut_histogram \
 	ut_lguniformhist \
 	ut_nonuniformhist \
@@ -142,15 +143,18 @@ ut_configparser: ut_configparser.sh
 	cp -av $< $@
 
 ut_diagtime_flood: ut_diagtime_flood.o
-
 ut_diagtime_flood.o: ut_diagtime.cpp
 	$(CXX) -c $(CPPFLAGS) -DDIAG_FLOOD_ENABLE $(CXXFLAGS) $(TARGET_ARCH) -MD -MP -MF $*.d -MT "$@" $< -o "$@" || (rm -f $*.d $*.o  && false)
 
 ut_diagstatic_initializers : ut_diagstatic_initializersB.o
 
 ut_stats.o ut_stats2.o : CPPFLAGS+=-I$(top/)ut
-
 ut_stats : ut_stats2.o
+
+#ut_stacktrace.o : CPPFLAGS += -DBACKWARD_HAS_BFD=1
+#ut_stacktrace : LDLIBS += -lbfd -ldl
+ut_stacktrace.o : CPPFLAGS += -DBACKWARD_HAS_DW=1
+ut_stacktrace : LDLIBS += -ldw
 
 .PHONY: runtests
 runtests: $(libs) $(exe) $(shunit_tests)

@@ -115,13 +115,11 @@
 //    was called outside of a catch handler.  Don't do that.
 //
 //  - Finally, what if you want to initiate a 'throw', but you have
-//    two (or more) exceptions that you'd like to nest together?
-//    Maybe you've got a 'backtracer' object derived from
-//    std::exception whose what() method prints a stack backtrace.
-//    Then use throw_nest:
+//    two (or more) exceptions that you'd like to nest together, e.g.,
+//    a specific error and a stacktrace_error.  Then use throw_nest:
 //
 //    if(errno)
-//        throw_nest(some_error("outer, but there's a nested backtrace!"), backtracer());
+//        throw_nest(specific_error("match this with a catch expr"), stacktrace_error("Backtrace"));
 //
 //    The arguments are outermost to innermost from left to right.
 

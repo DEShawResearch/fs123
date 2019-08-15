@@ -83,6 +83,8 @@ make -f ../GNUmakefile check
 * throwutils.hpp
 * nested_exception.hpp
 * syslog_number.hpp
+* stacktrace.hpp
+* backward.hpp        (MIT license)
 * diag.hpp            (requires linkage)
 * complaints.hpp      (requires linkage)
 * log_channel.hpp     (requires linkage)
