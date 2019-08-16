@@ -99,7 +99,7 @@ diskcache::do_scan(unsigned dirnum) const{
     while( sew::readdir_r(dp, entryp, &result), result ){
         std::string fname = entryp->d_name;
         struct stat sb;
-        DIAGfkey(_evict, "readdir -> %x/%s\n", dirnum, fname.c_str());
+        DIAGfkey(_evict>1, "readdir -> %x/%s\n", dirnum, fname.c_str());
         try{
             sew::fstatat(dirfd(dp), fname.c_str(), &sb, 0);
         }catch(std::system_error& se){
@@ -252,9 +252,14 @@ diskcache::read_status() {
 // of cache directories.  Thus, under unloaded conditions, the entire
 // cache will be scanned in evict_period_minutes, and more frequently
 // when the cache is under pressure.
-std::chrono::duration<float>
+std::chrono::system_clock::duration
 diskcache::evict_once() try {
-    std::chrono::duration<float> sleepfor;;
+    // It's easier to work with sleepfor in a floating point
+    // representation.  We'll duration_cast it before returning.  And
+    // in an abundance of caution, we'll use duration<double> instead
+    // of <float>, because we've learnd that duration<float> and
+    // system_clock::duration don't mix.
+    std::chrono::duration<double> sleepfor;
     float inj_prob;
     if(custodian_check()){
         auto scan = do_scan(dir_to_evict_);
@@ -265,6 +270,7 @@ diskcache::evict_once() try {
         double bytefraction = scan.nbytes / maxbytes_per_dir;
         double usage_fraction = std::max( filefraction, bytefraction );
         size_t Nevict = 0;
+        DIAG(_evict, str("Usage fraction:", usage_fraction, "in directory", reldirname(dir_to_evict_)));
         if(usage_fraction > 1.0)
             complain(LOG_WARNING, "Usage fraction %g > 1.0 in directory: %zx.  Disk cache may be dangerously close to max-size",
                      usage_fraction, dir_to_evict_);
@@ -300,16 +306,18 @@ diskcache::evict_once() try {
             write_status(inj_prob);
         sleepfor = std::chrono::minutes(vols_.evict_period_minutes);
         sleepfor *= inj_prob / Ndirs_;
+        DIAG(_evict, str("evict_once: Custodian: sleepfor after *=:", sleepfor, sleepfor.count(), "inj_prob:", inj_prob));
     }else{
         inj_prob = read_status();
         sleepfor = std::chrono::seconds(10);
+        DIAG(_evict, str("evict_once: Non-custodian: sleepfor:", sleepfor, "inj_prob:", inj_prob));
     }
     if(inj_prob < 1.0)
         complain(LOG_NOTICE, "Injection probability set to %g", inj_prob);
     else if(injection_probability_ < 1.0)
         complain(LOG_NOTICE, "Injection probability restored to 1.0");
     injection_probability_.store(inj_prob);
-    return sleepfor;
+    return std::chrono::duration_cast<std::chrono::system_clock::duration>(sleepfor);
  }catch(std::exception& e){
     // We're the thread's entry point, so the buck stops here.  If we
     // rethrow, we terminate the core123::periodic, which seems

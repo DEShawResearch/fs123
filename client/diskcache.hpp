@@ -67,7 +67,7 @@ protected:
     void evict(size_t Nevict, size_t dir_to_evict, scan_result& sr);
     void check_root();
     std::string reldirname(unsigned i) const;
-    std::chrono::duration<float> evict_once();
+    std::chrono::system_clock::duration evict_once();
     scan_result do_scan(unsigned dir_to_evict) const;
 
     // Members and methods for 'fancy_sharing':
