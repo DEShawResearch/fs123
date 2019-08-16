@@ -266,11 +266,17 @@ void handle_all_signals(){
     sa.sa_handler = fuseful_handler;
     for(int sig=1; sig<32; ++sig){
         switch(sig){
-        case SIGKILL:
-        case SIGSTOP:
+        case SIGKILL: // We're powerless to change it.  Don't try.
+        case SIGSTOP: //    ditto
         case SIGALRM: // We *hope* nobody's using it, but don't count on it.
         case SIGCHLD: // Let's not interfere with this one either...
         case SIGPIPE: // fuse_set_signal_handlers set this to a no-op. Leave it alone.
+#ifdef SIGWINCH
+        case SIGWINCH:// Normally Ignored.  Do not change.
+#endif      
+#ifdef SIGURG
+        case SIGURG:  // Normally Ignored.  Do not change.
+#endif
             break;
         default:
             // The fuseful_handler will call the libfuse_handler,
