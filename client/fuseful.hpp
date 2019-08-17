@@ -105,8 +105,8 @@ void my_close_failure_handler(const std::string& msg);
 
 // fuse_main_ll - lifted from examples/hello_ll.c in the fuse 2.9.2 tree.
 int fuseful_main_ll(fuse_args* args, const fuse_lowlevel_ops& llops,
-                    bool single_threaded_only, void (*crash_handler)(),
-                    const char *signal_report_filename);
+                    const char *signal_report_filename,
+                    void (*crash_handler)());
 
 // fuseful_teardown - gracefully bring down the lowlevel fuse
 // infrastructure: sessions are destroyed, channels are closed,

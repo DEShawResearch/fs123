@@ -32,6 +32,7 @@ fuseful_stats_t stats;
 
 struct fuse_chan *g_channel;
 void (*crash_handler)();
+void (*g_ll_destroy)(void*);
 
 // It's illegal to call the fuse_lowlevel_notify_inval_{entry,inode} functions
 // from a filesystem 'op' callback.  So we need to background them somehow.
@@ -134,23 +135,34 @@ void complain_and_abort(){
     abort();
 }
 
-void fuseful_still_connected(fuse_chan* ch){
-    // this is how libfuse decides whether to call umount in
-    // fuse_kern_unmount!
-    int fd = ch ? fuse_chan_fd(ch) : -1;
-    if (fd != -1) {
+void do_fuse_unmount(){
+    if(!g_channel){
+        complain(LOG_NOTICE,  "do_fuse_unmount:  g_channel==nullptr.  Assume it's already unmounted.");
+        return;
+    }
+    // <diagnostic only>
+    // follow/report the logic that fuse_unmount will use internally in libfuse-2.9.2.
+    int fd = fuse_chan_fd(g_channel);
+    const char *what_to_call = geteuid()? "fuse_mnt_umount" : "umount2 or exec(fusermount)";
+    if(fd != -1){
         struct pollfd pfd = {};
         pfd.fd = fd;
         int ret = poll(&pfd, 1, 0);
         /* If file poll returns POLLERR on the device file descriptor,
            then the filesystem is already unmounted */
         if (1 == ret && (pfd.revents & POLLERR))
-            complain(LOG_NOTICE, "fuseful_still_connected: no - This is often the result of an external fusermount -u.  POLERR is set in pfd.revents.  fuse_unmount will not call fusermount -u.");
+            complain(LOG_NOTICE, "do_fuse_unmount:  Not connected: This is often the result of an external fusermount -u. fuse_unmount will close fuse_chan_fd=%d but will not call %s.", fd, what_to_call);
         else
-            complain(LOG_NOTICE, "fuseful_still_connected: yes - This often follows a call to fuse_session_exit, possibly via a signal handler.  poll returned %d pfd.revents = %d.  fuse_unmount will close pfd and call fusermount -u", ret, pfd.revents);
+            complain(LOG_NOTICE, "do_fuse_unmount:  Still connected:  This often follows a call to fuse_session_exit, possibly via a signal handler. fuse_unmount will close fuse_chan_fd=%d (twice!) and call %s", fd, what_to_call);
     }else{
-        complain(LOG_NOTICE, "fuseful_still_connected(ch=nullptr):  no - This is rare, and not the typical result of either a signal or a fusermount -u.  fuse_unmount will call fusermount -u");
+        complain(LOG_NOTICE, "do_fuse_unmount:  fuse_chan_fd == -1: This is rare, and not the typical result of either a signal or a fusermount -u.  It's not clear what will happen now");
     }
+    // </diagnostic only>
+    // N.B.  fuse_unmount will free(g_channel), so we null it out
+    // before to avoid dereferencing it afterwards.
+    auto tmp_channel = g_channel;
+    g_channel = nullptr;
+    fuse_unmount(g_mountpoint.c_str(), tmp_channel);
 }
 
 static void (*libfuse_handler)(int);
@@ -222,11 +234,7 @@ void fuseful_handler(int signum){
     case SIGEMT:
 #endif
     case SIGSYS:
-        if(g_channel){
-            auto tmp_channel = g_channel;
-            g_channel = nullptr;
-            fuse_unmount(g_mountpoint.c_str(), tmp_channel);
-        }
+        do_fuse_unmount();
         if(crash_handler){
             auto tmp_hndlr = crash_handler;
             crash_handler = nullptr;
@@ -406,8 +414,8 @@ std::string fuseful_report(){
 
 // fuseful_main_ll - inspired by examples/hello_ll.c in the fuse 2.9.2 tree.
 int fuseful_main_ll(fuse_args *args, const fuse_lowlevel_ops& llops,
-                    bool single_threaded_only, void (*crash_handler_arg)(),
-                    const char *_signal_filename) try {
+                    const char *_signal_filename,
+                    void (*crash_handler_arg)()) try {
         signal_filename = _signal_filename;
         char *mountpoint = nullptr;
 	int err = -1;
@@ -446,10 +454,6 @@ int fuseful_main_ll(fuse_args *args, const fuse_lowlevel_ops& llops,
         if(g_channel == nullptr)
             throw se(EINVAL, fmt("fuse_mount(mountpoint=%s, args) failed.  No channel.  Bye.", g_mountpoint.c_str())); 
         fprintf(stderr, "mountpoint=%s, multithreaded=%d, foreground=%d\n", g_mountpoint.c_str(), multithreaded, foreground);
-        if(single_threaded_only && multithreaded){
-            fuse_unmount(g_mountpoint.c_str(), g_channel);
-            throw se(EINVAL, "This implementation does not support multi-threaded operation.  Please add a -s command line option");
-        }
 
         // fuse_daemonize will do chdir("/") which makes sense for a
         // production daemon.  But for development, it's far more
@@ -485,7 +489,13 @@ int fuseful_main_ll(fuse_args *args, const fuse_lowlevel_ops& llops,
         // even its --help output to stderr.  So unless we also add
         // -f, we daemonize and we never see its error messages or the
         // --help message from fuse_lowlevel_new.  Sigh...
-        g_session = fuse_lowlevel_new(args, &llops, sizeof(llops), nullptr);
+        //
+        // llops_no_destroy: we will take responsibility for calling the
+        // lowlevel destroy op.  See the comments in fuse_teardown for why.
+        auto llops_no_destroy = llops;
+        llops_no_destroy.destroy = nullptr;
+        g_ll_destroy = llops.destroy;
+        g_session = fuse_lowlevel_new(args, &llops_no_destroy, sizeof(llops_no_destroy), nullptr);
         fuse_opt_free_args(args);
         // It seems that we don't detect bad command line args until
         // here!
@@ -530,36 +540,44 @@ void fuseful_teardown() try {
     //    fuse_unmount(mountpoint, ch)
     //    fuse_opt_free_args(&args)
     //
-    // The problem is that the channel was fuse_chan_destroy()-ed
-    // in fuse_session_destroy().  With a destroyed channel as its
-    // second argument, fuse_unmount always calls fusermount -u,
-    // which unmounts whatever is mounted at mountpoint.  But if
+    // The problem is that session_destroy closes the channel.  With a
+    // destroyed channel as its second argument, fuse_unmount always
+    // kernel-unmounts whatever is mounted at mountpoint.  But if
     // 'this' process has been umount -l'ed, some *other* process
-    // might be managing that mount-point, and it's wrong for
-    // us to unmount it.
+    // might be managing that mount-point, and it's wrong for us to
+    // unmount it.  On the other hand, if fuse_unmount is called with
+    // a still-intact channel, it carefully avoids unmounting too
+    // soon.
     //
-    // It turns out that libfuse has logic to prevent this in
-    // fuse_kern_unmount().  We follow the same logic, (but purely for
-    // diagnostic purposes) in fuseful_still_connected.  But it only
-    // works if we call fuse_unmount with a not-yet-destroyed channel.
+    // So it looks like the solution is to call fuse_unmount before
+    // fuse_session_destroy.  Almost ...
+    //
+    // In libfuse-4.9.2 (and earlier, probably fixed in 4.9.3)
+    // fuse_unmount *incorrectly* closes the fuse_chan_fd twice: once
+    // in fuse_kern_unmount and then a second time in
+    // fuse_kern_chan_destroy.  If there are other threads running
+    // (e.g., maintenance threads, eviction threads, etc.), they might
+    // open an fd, and then find it closed "behind their back" by the
+    // second, erroneous close in fuse_kern_chan_destroy.  If we
+    // followed the conventional sequence this wouldn't be a problem
+    // because fuse_session_destroy would have called the
+    // fuse_lowlevel_ops destroy callback and we wouldn't have any
+    // other threads running that could be confused by this bug.  To
+    // work around, we arrange to call the destroy callback,
+    // g_ll_destroy, *before* calling fuse_unmount.  We avoid calling
+    // it again by nulling it out of the callback in the lowlevel_ops
+    // structure we pass to fuse_lowelevel_new.
     invaltp.reset();
     if(g_session)
         fuse_remove_signal_handlers(g_session);
     libfuse_handler = nullptr;
-    if(g_channel){
-        fuseful_still_connected(g_channel); // DIAGNOSTIC ONLY!!!
-        fuse_unmount(g_mountpoint.c_str(), g_channel);
-        g_channel = nullptr;
+    if(g_ll_destroy){
+        auto tmp = g_ll_destroy;
+        g_ll_destroy = nullptr;
+        complain(LOG_NOTICE, "fuseful_teardown:  calling llops->destroy directly");
+        (*tmp)(nullptr);
     }
-    // So far so good - all that remains is to gracefully
-    // free/destroy/close/shutdown all the pieces:
-    //   fuse_unmount close()-ed the fd associated with /dev/fuse.
-    //   fuse_session_destroy will call fuse_chan_destroy
-    //   which will call the channel's associated 'op.destroy'
-    //   which will *again* call close() on the fd and then
-    //   free() the memory assocated with g_channel.  Close()-ing
-    //   the fd a second time is unfortunate  but not really harmful.
-    //   Working around it would be considerably harder.
+    do_fuse_unmount();
     if(g_session){
         fuse_session_destroy(g_session);
         g_session = nullptr;

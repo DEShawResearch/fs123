@@ -5,7 +5,7 @@
 #include <string>
 
 struct fs123_autoclose_err_handler{
-    void operator()(const std::exception& e){
+    void operator()(const std::exception& e) noexcept {
         // use LOG_CRIT so it won't be rate-limited.
         core123::complain(LOG_CRIT, std::string("unexpected descriptor autoclose failure: ") + e.what());
     }

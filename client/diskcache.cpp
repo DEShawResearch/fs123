@@ -96,6 +96,7 @@ diskcache::do_scan(unsigned dirnum) const{
     // Yikes.  readdir_r really is a pain...
     struct dirent* entryp = (struct dirent*)&space[0];
     struct dirent* result;
+    DIAGf(_evict, "do_scan with dirfd(dp)=%d", dirfd(dp));
     while( sew::readdir_r(dp, entryp, &result), result ){
         std::string fname = entryp->d_name;
         struct stat sb;
@@ -104,7 +105,7 @@ diskcache::do_scan(unsigned dirnum) const{
             sew::fstatat(dirfd(dp), fname.c_str(), &sb, 0);
         }catch(std::system_error& se){
             // rethrow everything but ENOENT
-            DIAGfkey(_evict, "fstatat threw se.code().value() = %d\n", se.code().value());
+            DIAGfkey(_evict, "fstatat(%d) threw se.code().value() = %d\n", dirfd(dp), se.code().value());
             if(se.code().category() != std::system_category() || se.code().value() != ENOENT)
                 throw;
             continue;

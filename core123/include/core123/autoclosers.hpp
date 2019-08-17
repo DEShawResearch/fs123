@@ -180,6 +180,7 @@
 //  Can we do the same with our xFOO_t-ypes?
 
 #include "core123/throwutils.hpp"
+#include "core123/strutils.hpp"
 #include <exception>
 #include <iostream>
 #include <stdexcept>
@@ -192,8 +193,15 @@
 
 namespace core123 {
 
+// This is the default value of the CEH template parameter for the
+// autoclosing classes.  It is called when from the autocloser's
+// destructor when the close operation fails.  Since it's called from
+// a destructor, it may not throw.  Autoclosers can be instantiated
+// with a non-default handler.  A non-default handler must be a
+// nothrow functor taking a const std::exception& argument and
+// returning void.  Alternatives might 'complain', and/or 'abort'.
 struct default_close_err_handler{
-    void operator()(std::exception& e){
+    void operator()(const std::exception& e) noexcept{
         std::cerr << "core123::~autocloser_t threw an exception: " << e.what() << "\n";
     }
 };
@@ -213,8 +221,7 @@ public :
         }catch(std::exception& e){
             E()(e);
         }catch(...){
-            std::runtime_error re("close threw something not matched by std::exception&");
-            E()(re);
+            E()(std::runtime_error("close threw something not matched by std::exception&"));
         }
     }
     // Since we've defined a destructor, we have to explicitly state
@@ -237,15 +244,15 @@ namespace detail{
 // N.B.  Don't call sew::xxclose because we want autoclosers.hpp
 // to be independent of sew.hpp.
 struct fclose_may_throw{
-    void operator()(::FILE* p){ if(::fclose(p)) throw se(strfunargs("ac::fclose", p)); }
+    void operator()(::FILE* p){ auto fd{fileno(p)}; if(::fclose(p)) throw se(strfunargs("ac::fclose", p) + " fileno(p)=" + str(fd)); }
 };
 
 struct pclose_may_throw{
-    void operator()(::FILE* p){ if(::pclose(p)) throw se(strfunargs("ac::pclose", p)); }
+    void operator()(::FILE* p){ auto fd{fileno(p)}; if(::pclose(p)) throw se(strfunargs("ac::pclose", p) + " fileno(p)=" + str(fd)); }
 };
 
 struct closedir_may_throw{
-    void operator()(::DIR* p){ if(::closedir(p)) throw se(strfunargs("ac::closedir", p)); }
+    void operator()(::DIR* p){ auto fd{dirfd(p)}; if(::closedir(p)) throw se(strfunargs("ac::closedir", p) + " dirfd(p)=" + str(fd)); }
 };
 
 template <typename T, typename Closer>
@@ -264,12 +271,6 @@ struct fdcloser{
         if(::close(fd))
             throw se(fmt("autocloser::detail::fdcloser(%d)",  fd));
     }
-    void nothrow(const int* fdp) {
-        int fd = *fdp;
-        delete fdp;
-        if(::close(fd))
-            std::cerr << "FAILED:  autocloser::detail::fdcloser(" <<  fd << ") errno=" << errno;
-    }        
 };
 }  // namespace detail
     
