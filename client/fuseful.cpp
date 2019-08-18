@@ -552,7 +552,7 @@ void fuseful_teardown() try {
     // So it looks like the solution is to call fuse_unmount before
     // fuse_session_destroy.  Almost ...
     //
-    // In libfuse-4.9.2 (and earlier, probably fixed in 4.9.3)
+    // In libfuse-2.9.2 (and earlier, probably fixed in 2.9.3)
     // fuse_unmount *incorrectly* closes the fuse_chan_fd twice: once
     // in fuse_kern_unmount and then a second time in
     // fuse_kern_chan_destroy.  If there are other threads running
