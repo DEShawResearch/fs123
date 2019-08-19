@@ -4,6 +4,7 @@
 #include <chrono>
 #include <future>
 #include "fwd_capture.hpp"
+#include "datetimeutils.hpp" // for is_duration and is_time_point
 
 // periodic - Periodically call a function (or any other callable).
 
@@ -12,11 +13,12 @@
 // template <typename Function>
 // periodic(Function&& function) :  The constructor starts an
 //     asynchronous thread which repeatedly calls the function, which
-//     must return a std::chrono::duration.  Each time the function
-//     returns, the asynchronous thread sleeps for the returned
-//     duration (which may vary from one invocation to the next).  If
-//     the function throws, the loop terminates silently and the
-//     function will not be called again.
+//     must return either a std::chrono::duration or a
+//     std::chrono::time_point.  Each time the function returns, the
+//     asynchronous thread sleeps for the returned duration or until
+//     the returned time_point (the value of which may vary from one
+//     invocation to the next).  If the function throws, the loop
+//     terminates silently and the function will not be called again.
 
 //     If function is an rvalue reference, it will be
 //     std::move()-ed into the asynchronous thread.  But if it is an
@@ -75,8 +77,8 @@ namespace core123{
 
 class periodic{
 public:
-    template <typename Function>
-    periodic(Function&& F){
+    template <typename FType>
+    periodic(FType&& F, std::enable_if_t<  is_duration<std::result_of_t<FType()>>::value  >* = nullptr){
         fut = std::async(std::launch::async,
                          [this, Ftuple = fwd_capture(FWD(F))]() mutable {
                              std::unique_lock<std::mutex> lk(mtx);
@@ -113,6 +115,17 @@ public:
                                  // we'll get an extra "spurious" call
                                  // to F().  It doesn't seem worth
                                  // adding more code to prevent that.
+                             }while(!done);
+                        });
+    }
+
+    template <typename FType>
+    periodic(FType&& F, std::enable_if_t<  is_time_point<std::result_of_t<FType()>>::value  >* = nullptr){
+        fut = std::async(std::launch::async,
+                         [this, Ftuple = fwd_capture(FWD(F))]() mutable {
+                             std::unique_lock<std::mutex> lk(mtx);
+                             do{
+                                 cv.wait_until(lk, std::get<0>(FWD(Ftuple))());
                              }while(!done);
                         });
     }

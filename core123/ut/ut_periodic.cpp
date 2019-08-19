@@ -6,6 +6,7 @@
 // segfaults!
 
 using core123::periodic;
+using core123::ins;
 
 // A plain-old function:
 auto foo(){
@@ -40,7 +41,9 @@ int main(int, char **){
     }
 
     // Code from the "documentation" in periodic.hpp
-    auto how_long = std::chrono::seconds(1);
+    // Use duration<float> to confirm that we've worked around
+    // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=68519
+    auto how_long = std::chrono::duration<float>(1.0f);
     std::string message = "Every second";
     periodic plref([&](){ std::cerr << message << std::endl; return how_long; });
 
@@ -50,7 +53,7 @@ int main(int, char **){
     // Change a variable captured by reference in the lambda.
     {
         std::lock_guard<std::mutex> lg(plref.mutex());
-        how_long = std::chrono::seconds(2);
+        how_long = std::chrono::duration<float>(2.0f);
         message = "Every two seconds";
     }
     // plref now prints "Every two seconds" every two seconds ...
@@ -70,7 +73,18 @@ int main(int, char **){
     std::cerr << "pb.trigger()\n";
     pb.trigger();
 
-    // Let's watch.
+    // Let's test periodic threads that work with time_points
+    // rather than durations.  It's a bit contrived...
+    periodic pluntil([&](){
+                         using sc = std::chrono::system_clock;
+                         auto now = sc::now();
+                         std::cerr << "Should be close to an integral number of seconds (except the first time): " << ins(now) << "\n";
+                         auto now_timet = sc::to_time_t(now);
+                         now_timet++;
+                         return sc::from_time_t(now_timet);
+                     });
+
+    // Let's watch for a little longer
     std::this_thread::sleep_for(std::chrono::seconds(10));
 
     return 0;

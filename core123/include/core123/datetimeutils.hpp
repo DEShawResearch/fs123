@@ -81,6 +81,19 @@ inline time_t httpdate_to_timet(const char *http_date){
 #endif
 }
 
+// traits classes to test whether a template arg is a duration or a time_point:
+template <class T>
+struct is_duration : std::false_type{};
+
+template<class Rep, class Period>
+struct is_duration<std::chrono::duration<Rep, Period>> : std::true_type{};
+
+template <class T>
+struct is_time_point : std::false_type{};
+
+template<class Clk, class Dur>
+struct is_time_point<std::chrono::time_point<Clk, Dur>> : std::true_type{};
+
 } // namespace core123
 
 // ostream inserter for timespec
