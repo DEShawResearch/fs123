@@ -94,6 +94,39 @@ struct is_time_point : std::false_type{};
 template<class Clk, class Dur>
 struct is_time_point<std::chrono::time_point<Clk, Dur>> : std::true_type{};
 
+// time_point_{plus,minus}: The standard rules for adding a time_point
+// to a duration are surprising enough that I think 'duration<float>
+// considered harmful' is a good rule to follow.  But that rule is not
+// widely recognized, and a generic function might be required to add
+// or subtract a timepoint and a duration.  Use
+// time_point_{plus,minus}.  They return a time_point with the same
+// Dur type as the time_point argument.  They differ from the standard
+// operator+() and operator-() which return a time_point whose Dur is
+// the std::common_type of the Durs of the arguments, which is
+// terribly surprising when one is a float and the other is a much
+// larger integer, e.g.,
+//
+//    system_clock::now() + duration<float>(1.0f) // SURPRISE!
+//  time_point_plus(system_clock::now(), duration<float>(1.0f)) // closer to what you're expecting
+//
+template <class Clk, class Dur, class Rep, class Period>
+inline std::chrono::time_point<Clk, Dur>
+time_point_plus(const std::chrono::time_point<Clk, Dur>& tp, const std::chrono::duration<Rep, Period>& dur){
+    return tp + std::chrono::duration_cast<Dur>(dur);
+}
+
+template <class Clk, class Dur, class Rep, class Period>
+inline std::chrono::time_point<Clk, Dur>
+time_point_plus(const std::chrono::duration<Rep, Period>& dur, const std::chrono::time_point<Clk, Dur>& tp){
+    return time_point_plus_duration(tp, dur);
+}
+
+template <class Clk, class Dur, class Rep, class Period>
+inline std::chrono::time_point<Clk, Dur>
+time_point_minus(const std::chrono::time_point<Clk, Dur>& tp, const std::chrono::duration<Rep, Period>& dur){
+    return tp - std::chrono::duration_cast<Dur>(dur);
+}
+
 } // namespace core123
 
 // ostream inserter for timespec

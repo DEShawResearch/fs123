@@ -4,7 +4,7 @@
 #include <chrono>
 #include <future>
 #include "fwd_capture.hpp"
-#include "datetimeutils.hpp" // for is_duration and is_time_point
+#include "datetimeutils.hpp"
 
 // periodic - Periodically call a function (or any other callable).
 
@@ -84,29 +84,19 @@ public:
                              std::unique_lock<std::mutex> lk(mtx);
                              do{
                                  auto how_long = std::get<0>(FWD(Ftuple))();
-                                 // Gcc fixed:
+                                 // Gcc fixed a bug in cv.wait_for :
                                  //  https://gcc.gnu.org/bugzilla/show_bug.cgi?id=68519
                                  // in 8.0, 7.4 and 6.5, but we'd like to work with earlier
                                  // versions.
                                  //
-                                 // The fix was to be more careful about how wait_for
-                                 // adds how_long to now().  The fundamental problem is that:
-                                 //    time_point + duration
-                                 // returns a time_point whose 'Rep' is the std::common_type
-                                 // of time_point's Rep and duration's Rep.  If the former
-                                 // is 64-bit long and the latter is a 32-bit float, the
-                                 // result is a float, which catastrophically fails to
-                                 // add a small number of seconds to a time_point
-                                 // of O(1.5e9) seconds.
+                                 // The problem is that libraries implement wait_for(dur)
+                                 // roughly as:   wait_until(system_clock::now() + dur)
+                                 // but addition of time_points and duration<float> is
+                                 // problematic.
                                  //
-                                 // We apply the same fix as libstdc++.  Instead of simply calling:
-                                 //    cv.wait_for(lk, how_long)
-                                 // we do:
-                                 using namespace std::chrono;
-                                 auto _how_long = duration_cast<system_clock::duration>(how_long);
-                                 if (_how_long < how_long)
-                                     ++_how_long;
-                                 cv.wait_until(lk, system_clock::now() + _how_long);
+                                 // We use core123::time_point_plus to work around the problem.  
+                                 // See the comment in datetimeutils for details.
+                                 cv.wait_until(lk, time_point_plus(std::chrono::system_clock::now(), how_long));
                                  // either how_long has elapsed, or we
                                  // were notified by trigger(), or we
                                  // were notified by the destructor or
