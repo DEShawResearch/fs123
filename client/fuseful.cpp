@@ -9,8 +9,8 @@
 #include <core123/throwutils.hpp>
 #include <core123/envto.hpp>
 #include <core123/stats.hpp>
+#include <core123/stacktrace.hpp>
 #include <string>
-#include <cxxabi.h>
 #include <syslog.h>
 
 using namespace core123;
@@ -113,7 +113,7 @@ std::terminate_handler sys_terminate_handler = nullptr;
 // standard terminate handler (which should call abort, and might
 // also write some info to stderr).
 void complain_and_abort(){
-    complainbt(LOG_CRIT, "std::terminate handler:  Backtrace:");
+    complain(LOG_CRIT, "std::terminate handler:  Backtrace:" + str(stacktrace_from_here()));
     
     std::type_info* t = abi::__cxa_current_exception_type();
     if(t){

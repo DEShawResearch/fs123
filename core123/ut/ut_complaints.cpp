@@ -1,11 +1,11 @@
 #include <core123/complaints.hpp>
 #include <core123/sew.hpp>
+#include <core123/stacktrace.hpp>
 #include <stdexcept>
 #include <thread>
 #include <chrono>
 
 using core123::complain;
-using core123::complainbt;
 using core123::set_complaint_destination;
 using core123::set_complaint_level;
 using core123::set_complaint_max_hourly_rate;
@@ -15,6 +15,8 @@ using core123::set_complaint_averaging_window;
 using core123::get_complaint_averaging_window;
 using core123::start_complaint_delta_timestamps;
 using core123::fmt;
+using core123::str;
+using core123::stacktrace_from_here;
 
 void open_does_not_exist(){
     core123::sew::open("/does/not/exist", O_RDONLY);
@@ -39,7 +41,7 @@ void throws_a_nested_error(){
 void deep(int n){
     complain(LOG_NOTICE, "deep(%d)", n);
     if(n<=0)
-        complainbt(LOG_NOTICE, "Calling complainbt at the bottom of a stack of recursive calls to deep:");
+        complain(LOG_NOTICE, "Calling complainbt at the bottom of a stack of recursive calls to deep:\n" + str(stacktrace_from_here()));
     else
         deep(n-1);
 }

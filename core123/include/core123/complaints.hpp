@@ -6,9 +6,6 @@
 #include <vector>
 #include <cstdarg>
 #include <syslog.h>
-#if __has_include(<execinfo.h>)
-#include <execinfo.h> // glibc backtrace and backtrace_symbol
-#endif
 
 // How to complain?  Use one of:
 // 
@@ -31,9 +28,6 @@
 //   vcomplain(priority, fmt, va_list)
 //   vcomplain(exception, fmt, va_list)
 //   vcomplain(priority, exception, fmt, va_list)
-//
-//   complainbt(priority, string) - send a string followed by a stack
-//       backtrace to the complaint channel.
 //
 //  There is also a wildly incomplete set of additional convenience
 //  functions:
@@ -181,22 +175,6 @@ inline void vcomplain(int priority, const char *fmt, va_list ap){
 inline void complain(int priority, const std::exception& e, const std::string& msg){
     if((priority&0x7) <= _complaint_level)
         _do_complaint(priority, _whatnest(priority, msg, &e));
-}
-
-inline void complainbt(int priority, const std::string& msg){
-#if __has_include(<execinfo.h>)
-    if(!((priority&0x7) <= _complaint_level))
-        return;
-    const size_t maxtrace = 50;
-    void *bt[maxtrace];
-    size_t ntrace = backtrace(bt, maxtrace);
-    char **strings = backtrace_symbols(bt, ntrace);
-    _do_complaint(priority, _whatnest(priority, msg, strings, strings+ntrace));
-    free(strings);
-#else
-    const char *strings[1] = {"No backtrace available"};
-    _do_complaint(priority,_whatnest(priority,  msg, strings, strings+1));
-#endif
 }
 
 // Methods that don't specify priority (assume it's LOG_ERR)
