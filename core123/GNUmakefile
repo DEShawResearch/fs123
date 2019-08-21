@@ -41,6 +41,7 @@ libs:=libcore123.a
 pylibs:=threeroe.py py_threeroe.so
 
 unit_tests:=\
+	ut_demangle \
 	ut_stacktrace \
 	ut_histogram \
 	ut_lguniformhist \
