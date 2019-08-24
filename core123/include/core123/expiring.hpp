@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <unordered_map>
 #include <mutex>
+#include <core123/datetimeutils.hpp>
 
 // Mark an object of type T with an expiration time.
 //
@@ -28,7 +29,7 @@ struct expiring : public T{
     // can be used to construct a T...
     template<class Rep, class Period>
     expiring(std::chrono::duration<Rep, Period> ttl, T _t) : 
-        expiring(clk_t::now() + ttl,  std::move(_t))
+        expiring(time_point_plus(clk_t::now(), ttl),  std::move(_t))
     {}
 
     expiring(const typename clk_t::time_point& _good_till, T _t) :
