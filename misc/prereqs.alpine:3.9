@@ -1,5 +1,5 @@
 #!/bin/sh
-set -xe
+set -x
 OPWD=`pwd -P`
 cd `mktemp -d`
 
@@ -21,6 +21,12 @@ apk add --no-cache attr
 apk add --no-cache e2fsprogs
 apk add --no-cache valgrind
 apk add --no-cache python3
+# Alpine's libc is libmusl, not glibc.  It doesn't have backtrace, so
+# we have to jump through a few extra hoops to get stacktrace.hpp and
+# backward.hpp to work.
+apk add --no-cache libdwarf libdwarf-dev libelf-dev
+export LDLIBS="-ldwarf -lelf"
+export CPPFLAGS="-DBACKWARD_HAS_DWARF -I/usr/include/libdwarf -I/usr/include/libelf"
 # This is sufficient to run make -f .../GNUmakefile check
 # valgrind will report a couple of false positives.
 #

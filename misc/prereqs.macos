@@ -1,5 +1,5 @@
 #!/bin/sh
-set -xe
+set -x
 # WARNING!  fs123 does NOT pass its own regressions on MacOS with MacPorts and OSXfuse.
 
 # It does compile and provide some basic functionality.  These notes are a starting point,

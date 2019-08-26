@@ -1,5 +1,5 @@
 #!/bin/sh
-set -xe
+set -x
 yum -y groups install "Development Tools"
 yum -y groups install "C Development Tools and Libraries"
 yum -y install fuse fuse-devel
