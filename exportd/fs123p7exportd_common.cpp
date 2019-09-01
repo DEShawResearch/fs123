@@ -7,6 +7,7 @@
 #include <core123/sew.hpp>
 #include <core123/http_error_category.hpp>
 #include <core123/log_channel.hpp>
+#include <event2/listener.h>
 #include <fstream>
 
 using namespace core123;
@@ -354,7 +355,7 @@ void sync_http_cb(evhttp_request* evreq, void *arg) {
 };
 
 
-struct evhttp_bound_socket *setup_evhttp(struct evhttp *eh, 
+struct evhttp_bound_socket *setup_evhttp(struct event_base *eb, struct evhttp *eh, 
 					 void (*http_cb)(struct evhttp_request *, void *),
 					 ProcState *tsp,
 					 struct evhttp_bound_socket *ehsock) {
@@ -366,29 +367,24 @@ struct evhttp_bound_socket *setup_evhttp(struct evhttp *eh,
 	    throw se(errno, "evhttp_bind_socket failed");
 	evutil_make_listen_socket_reuseable(evhttp_bound_socket_get_fd(ehsock));
     } else {
-	// additional thread, existing socket
-        auto bound =
-            evhttp_accept_socket_with_handle(eh, evhttp_bound_socket_get_fd(ehsock));
-        if(bound == NULL)
-	    throw se("thread failed in evhttp_accept_socket");
-#if 0
-        // N.B.  we're playing fast and loose with threads here.
-        // There is one global ehsock, but eh is thread-local. But
-        // when we call evhttp_accept_socket, libevent creates a new
-        // 'listener' with flags = ... | LEV_OPT_CLOSE_ON_FREE.  Then
-        // it calls evhttp_bind_listener(eh, new_listener), so that
-        // the new listener is bound to this eh.  When it comes time
-        // to evhttp_free(eh), this thread will try to close the
-        // listener.  When multiple threads do the same thing, we get
-        // warnings from the ThreadSanitizer about data races on the
-        // closing fd, but no other (known) adverse consequences.
-        // Theoretically, we could silence these warnings with code
-        // like this, but we'd need complete (as opposed to
-        // incomplete) type definitions of evhttp_bound_socket and
-        // evconnlistener, which are hidden from public view in
-        // libevent's 'internal' header files.
-        bound->listener->flags &= ~LEV_OPT_CLOSE_ON_FREE;
-#endif
+	// additional thread, existing socket.
+        //
+        // We can't call evhttp_accept_socket_with_handle because it
+        // creates a listener with the LEV_OPT_CLOSE_ON_FREE flag set,
+        // and that introduces a race condition when the thread shuts
+        // down and tries to close the common socket.  So we do
+        // exactly what evhttp_accept_socket_with_handle would have
+        // done - except that we don't set LEV_OPT_CLOSE_ON_FREE in
+        // flags.
+        const int flags = LEV_OPT_REUSEABLE|LEV_OPT_CLOSE_ON_EXEC; // |LEV_OPT_CLOSE_ON_FREE;
+        auto listener = evconnlistener_new(eb, NULL, NULL, flags, 0, evhttp_bound_socket_get_fd(ehsock));
+        if(!listener)
+            throw se("thread failed in evconnlistener_new");
+        auto bound = evhttp_bind_listener(eh, listener);
+        if(!bound){
+            evconnlistener_free(listener);
+	    throw se("thread failed in evhttp_bind_listener");
+        }
     }
     setup_evhttp_params(eh);
 

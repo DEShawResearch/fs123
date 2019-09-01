@@ -42,7 +42,7 @@ int main(int argc, char **argv) try
     if (!ehac)
 	throw se(errno, "evhttp_new failed");
 
-    auto ehsock = setup_evhttp(ehac, sync_http_cb, ts.back().get());
+    auto ehsock = setup_evhttp(ebac, ehac, sync_http_cb, ts.back().get());
 
     // Start additional http listener/server threads if needed
     std::vector<std::thread> threads;
@@ -68,7 +68,7 @@ int main(int argc, char **argv) try
 		auto ehthr = make_autocloser(evhttp_new(ebthr.get()), evhttp_free);
 		if (!ehthr)
 		    throw se("thread failed to create evhttp");
-		setup_evhttp(ehthr, sync_http_cb, tsp, ehsock);
+		setup_evhttp(ebthr, ehthr, sync_http_cb, tsp, ehsock);
 		// timer callback to check done periodically and if done, kick
 		// us out of main event dispatch loop
 		auto timecb = [] (evutil_socket_t, short, void *arg) -> void {

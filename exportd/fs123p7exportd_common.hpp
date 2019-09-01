@@ -55,7 +55,7 @@ extern void sync_http_cb(evhttp_request* evreq, void *arg);
 extern void setup_common(const char *progname, int *argcp, char ***argvp);
 extern void teardown_common();
 extern void setup_evtimersig(struct event_base *eb, ProcState *tsp);
-extern struct evhttp_bound_socket *setup_evhttp(struct evhttp *eh, 
+extern struct evhttp_bound_socket *setup_evhttp(struct event_base *eb, struct evhttp *eh, 
 					 void (*http_cb)(struct evhttp_request *, void *),
 					 ProcState *tsp,
 					 struct evhttp_bound_socket *ehsock = nullptr);
