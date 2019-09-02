@@ -12,6 +12,12 @@
 # in ...rpmnew or call fs123p7export --help to get an up-to-date list
 # of flags and default values.
 
+# If chroot is empty neither chdir nor chroot is called.   The process
+# stays in its original cwd, relative paths are relative to cwd, etc.
+# If --chroot is non-empty, then chdir first and, if chroot
+# is not "/", then chroot(".").  Thus it's possible to say
+# --chroot=/ even without cap_sys_chroot, but
+# --chroot=/anything/else requires cap_sys_chroot.
 #--chroot=/exports123
 # export_root and cache_control_file are opened *post-chroot*.
 # I.e., even if they start with a /, they're relative to the --chroot

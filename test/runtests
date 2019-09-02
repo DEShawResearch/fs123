@@ -151,7 +151,7 @@ echo 99 > $RCroot/secrets.d/encoding.keyid
 cat > $etc/fs123p7exportd.gflags <<- EOF
 --port=$SERVPORT
 # can't do chroot until exe has ben setpcap'ed
---chroot=/
+--chroot=
 --export_root=$EXPORT_ROOT
 --cache_control_file=$cache_control
 --estale_cookie_src=$cookie_src
