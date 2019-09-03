@@ -13,6 +13,7 @@ using core123::str_sep;
 using core123::ins;
 using core123::insbe;
 using core123::ins_sep;
+using core123::ostream_size;
 
 struct nocopy{
     int i;
@@ -145,6 +146,23 @@ int main(int, char **){
     std::ostringstream oxx;
     oxx << (int *)0;
     EQSTR(str("foo", (int*)0, "bar"), "foo " + oxx.str() + " bar");
+
+    // Since this is basically the unit test for streamutils, also
+    // test ostream_size here.
+    size_t szbefore = ostream_size(oxx);
+    oxx << "kaboom";
+    size_t szafter = ostream_size(oxx);
+    EQUAL(szafter-szbefore, 6);
+
+    std::stringstream ss;
+    ss << "ab cd" << 99 << "\n";
+    EQUAL(ostream_size(ss), 8);
+    
+    // What happens if we call it on cout??
+    auto coutsz = ostream_size(std::cout);
+    std::cout << "ostream_size(cout) (differs according to whether cout is seekable) : " << coutsz << "\n";
+    coutsz = ostream_size(std::cout);
+    std::cout << "ostream_size(cout) (again) : " << coutsz << "\n";
 
     return utstatus();
 }

@@ -55,6 +55,29 @@ DOCUMENTATION_END*/
 
 namespace core123{
 
+// ostream_size - returns the 'pubseekoff' of the 'end' of the
+// stream's underlying rdbuf.  For stringstreams, this is the length
+// of the string you'd get by calling os.str() - but *without having
+// to construct or copy the string*.  For file streams, it's the
+// length of the underlying file (or -1 if the underlying file is not
+// seekable).  For other streams (are there other streams?), it's
+// whatever is returned by pubseekoff(0, os.end, os.out).
+//
+// It works by temporarily modifying the underlying rdbuf.  It would
+// be permissible by const-rules to do this even on a const ostream,
+// but it would be thread-unsafe, so the stream argument is a
+// non-const reference to emphasize to the caller that (temporary)
+// modifications are happening.
+inline auto ostream_size(std::ostream& os){
+    std::streambuf* buf = os.rdbuf();
+    if(!buf)
+        throw std::ios_base::failure("ostream_size:  stream argument has a null rdbuf()");
+    auto orig = buf->pubseekoff(0, os.cur, os.out);
+    auto end = buf->pubseekoff(0, os.end, os.out);
+    buf->pubseekpos(orig, os.out);
+    return end;
+}
+
 // The insertone struct is in the public core123:: namespace so that
 // callers can define their own specializations for types for which it
 // is  impossible or undesirable to add a stream inserter.
