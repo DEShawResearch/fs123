@@ -34,7 +34,8 @@ LINK.o = $(CXX) $(LDFLAGS) $(TARGET_ARCH)
 objs:=diag.o \
 	complaints.o \
 	log_channel.o \
-	http_error_category.o
+	http_error_category.o \
+	opt.o
 
 libs:=libcore123.a
 
@@ -85,7 +86,8 @@ unit_tests:=\
 	ut_envto \
 	ut_netstring \
 	ut_addrinfo_cache \
-	ut_addrinfo_cache2
+	ut_addrinfo_cache2 \
+	ut_opt
 
 pyunit_tests:=ut_pythreeroe.py
 
