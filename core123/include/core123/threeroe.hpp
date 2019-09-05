@@ -17,7 +17,8 @@
 // The public API was initially inspired by Jenkins' Spooky hash, but
 // it has evolved significantly.  Basic usage is to construct a
 // threeroe object, possibly call Update to add data to it, and call
-// Final() to obtain the hash (as a pair uint64_t).  threeroe.hpp is
+// Final() to obtain the hash (as a pair uint64_t) or Final64() to
+// obtain the first uint64_t bits of the pair.  threeroe.hpp is
 // header-only code.  Just #include and go.  E.g.,
 //
 //    #include <core123/threeroe.hpp>
@@ -53,6 +54,7 @@
 //    auto h2 = hasher.Final();     // same as hash, above
 //    hasher.Update(yetmoredata, len); 
 //    auto h3 = hasher.Final();   // different from h2
+//    uint64_t h3x = hasher.Final64() // equal to h3.first
 // 
 // Final() returns a threeroe::result_type
 //
@@ -64,6 +66,8 @@
 //
 // which are independent "random" (not cryptographic!) hashes of the
 // inputs.
+//
+// Final64() is equivalent to Final().first.
 //
 // The result_type::digest() methods format *this as 16
 // endian-independent bytes:
@@ -310,6 +314,7 @@ public:
     //  insertion operator<<() that uses hexdigest.
     struct result_type : public std::pair<uint64_t, uint64_t>{
         result_type(uint64_t f, uint64_t s) : std::pair<uint64_t, uint64_t>(f, s){}
+        result_type() = default; // std::pair's ctor value-initializes to 0.
 
         // digest_size - how big is the std::array returned by digest.  (16)
         static const size_t digest_size = 16;
@@ -496,6 +501,10 @@ public:
             
         return finish(len, s);
     }
+
+    // Final64() returns the 'first' 64 bits of Final().  Saves
+    // the caller from thinking about what's in a result_type.  
+    uint64_t Final64() const { return Final().first; }
 
     // In threeroe/0.08 we changed the way SMHasher calls threeroe: it
     // calls the new, endian-independent digest() method, rather than

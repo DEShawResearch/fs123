@@ -72,6 +72,7 @@ uint32_t verifier ( )
     }
     h2.Update(&key[seen], i-seen);
     auto p = h2.Final();
+    EQUAL(p.first, h2.Final64());
     // Also verify that hexdigest and str() (which calls ostream<<(result_type))
     // look the same
     std::string hexdigest = core123::str(h.Final());
@@ -166,5 +167,8 @@ int main(int,  char **){
     trbench(1000000);
     trbench(100000000);
 
+    threeroe::result_type r;
+    EQUAL(r.first, 0);
+    EQUAL(r.second, 0);
     return utstatus();
 }
