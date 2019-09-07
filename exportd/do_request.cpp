@@ -174,9 +174,9 @@ struct ReplyPlus {
         // brute-force:  just try plausible values mtim and st_size
         // until one works.
         return threeroe(mtim64, estale_cookie).
-            Update(&sb.st_size, sizeof(sb.st_size)).
-            Update(secretid).
-            Final().first;
+            update(&sb.st_size, sizeof(sb.st_size)).
+            update(secretid).
+            hash64();
 #else
         unsigned char inputs[secretid.size() + 24];
         unsigned char *p = &inputs[0];
@@ -895,7 +895,7 @@ void ReplyPlus::do_request() {
             // If we're authenticating with secretbox threeroe(ciphertext) adds no value
             // and we definitely don't want to send threeroe(plaintext) because threeroe
             // is definitely not cryptographic.
-            add_out_hdr(HHTRSUM, threeroe(content_).Final().hexdigest());
+            add_out_hdr(HHTRSUM, threeroe(content_).hexdigest());
         }
 	add_out_hdr("Content-Length", std::to_string(content_.size()));
     }

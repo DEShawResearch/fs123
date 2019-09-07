@@ -217,7 +217,7 @@ void massage_attributes(struct stat* sb, fuse_ino_t ino){
 }
 
 fuse_ino_t genino(uint64_t estale_cookie, fuse_ino_t pino, const str_view name){
-    return threeroe(name, pino, estale_cookie).Final().first;
+    return threeroe(name, pino, estale_cookie).hash64();
 }
 
 bool cookie_mismatch(fuse_ino_t ino, uint64_t estale_cookie){
@@ -500,7 +500,7 @@ std::string fullname(fuse_ino_t pino, str_view lastcomponent){
 // hash function would be fine - the fact that it's the same as
 // genino(estale_cookie=0) is "mere coincidence".
 uint64_t attrcache_key(fuse_ino_t pino, str_view lastcomponent){
-    return threeroe(lastcomponent, pino).Final().first;
+    return threeroe(lastcomponent, pino).hash64();
 }
 
 // The content of an /a/ reply  (protocol 7.1) is:
@@ -958,7 +958,7 @@ void fs123_init(void *, struct fuse_conn_info *conn_info) try {
         // it possible for multiple clients to share the same cache.
         // Requests made to different baseurls will (with high probability)
         // not collide.
-        be = std::make_unique<diskcache>(std::move(be), cache_dir, threeroe(baseurl).Final().first,
+        be = std::make_unique<diskcache>(std::move(be), cache_dir, threeroe(baseurl).hash64(),
                                          envto<bool>("Fs123CacheFancySharing", false), *volatiles);
     }
     auto attrcachesz = envto<size_t>("Fs123AttrCacheSize", 100000);

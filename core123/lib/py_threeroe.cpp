@@ -18,26 +18,28 @@ void tr_free(void *p) {
 
 void tr_update(void *p, const char *s, size_t sz) {
     auto t = static_cast<threeroe *>(p);
-    t->Update(s, sz);
+    t->update(s, sz);
 }
 
 // digest must point to at least sz (16) bytes of allocated memory
-void tr_digest(void *p, char *digest, size_t sz) {
+// See the caller in threeroe.py.
+void tr_digest(void *p, char *digest) {
     auto t = static_cast<threeroe *>(p);
-    t->Final().digest(reinterpret_cast<unsigned char*>(digest), sz);
+    using d_t = decltype(t->digest());
+    *(d_t*)digest = t->digest();
 }
 
-// hexdigest must point to at least sz (33) bytes of allocated memory
-void tr_hexdigest(void *p, char *hexdigest, size_t sz) {
-    if(sz==0) return;
+// hexdigest must point to at least 33 bytes of allocated memory.
+// See the caller in threeroe.py.
+void tr_hexdigest(void *p, char *hexdigest) {
     auto t = static_cast<threeroe *>(p);
-    auto nwritten = t->Final().hexdigest(hexdigest, sz);
-    hexdigest[nwritten] = '\0'; // make sure it's NUL-terminated
+    std::string s = t->hexdigest();
+    ::memcpy(hexdigest, s.data(), s.size()+1);
 }
 
 void *tr_copy(void *p) {
     auto ret = new threeroe("", 0);
-    memcpy((void *)ret, p, sizeof(threeroe));
+    ::memcpy((void *)ret, p, sizeof(threeroe));
     return ret;
 }
 }

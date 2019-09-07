@@ -37,11 +37,11 @@ _tr_digest = m_.tr_digest
 _tr_digest.restype = None
 # N.B.  the C++ _tr_digest would prefer ctypes.c_ubyte, but ctypes.create_string_buffer
 # gives us a POINTER(ctypes.c_char), and it's easier to cast in C++.
-_tr_digest.argtypes = ctypes.c_void_p, ctypes.POINTER(ctypes.c_char), ctypes.c_size_t
+_tr_digest.argtypes = ctypes.c_void_p, ctypes.POINTER(ctypes.c_char)
 
 _tr_hexdigest = m_.tr_hexdigest
 _tr_hexdigest.restype = None
-_tr_hexdigest.argtypes = ctypes.c_void_p, ctypes.POINTER(ctypes.c_char), ctypes.c_size_t
+_tr_hexdigest.argtypes = ctypes.c_void_p, ctypes.POINTER(ctypes.c_char)
 
 _bempty = bytes()
 _btype = type(_bempty)
@@ -73,11 +73,11 @@ class ThreeRoe:
     def hexdigest(self):
         thirtythree = 2*self.digest_size+1
         r = ctypes.create_string_buffer(thirtythree)
-        _tr_hexdigest(self._tr, r, thirtythree)
+        _tr_hexdigest(self._tr, r)
         return r.value.decode('ascii')
     def digest(self):
         r = ctypes.create_string_buffer(self.digest_size)
-        _tr_digest(self._tr, r, self.digest_size)
+        _tr_digest(self._tr, r)
         return r.value
     def copy(self):
         t = ThreeRoe()

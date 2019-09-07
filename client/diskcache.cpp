@@ -669,7 +669,7 @@ diskcache::report_stats(std::ostream& os) {
 
 std::string 
 diskcache::hash(const std::string& s){
-    auto hd = threeroe(s, hashseed_.first, hashseed_.second).Final().hexdigest();
+    auto hd = threeroe(s, hashseed_.first, hashseed_.second).hexdigest();
     DIAGkey(_diskcache, "diskcache::hash(" + s + ") -> " + hd + "\n");
     return hd.substr(0, hexdigits_) + "/" + hd.substr(hexdigits_);
 }
@@ -782,9 +782,9 @@ diskcache::deserialize_no_unlink(int rootfd, const std::string& path,
     // ret.content_threeroe is not NUL-terminated, so we have to use the
     // four-argument string::compare.
     static const size_t thirtytwo = sizeof(ret.content_threeroe);
-    if(threeroe(ret.content).Final().hexdigest().compare(0, thirtytwo, ret.content_threeroe, thirtytwo) != 0){
+    if(threeroe(ret.content).hexdigest().compare(0, thirtytwo, ret.content_threeroe, thirtytwo) != 0){
         throw se(EINVAL, fmt("diskcache::deserialize:  threeroe mismatch:  threeroe(data): %s, threeroe(stored_in_header): %.32s.\n",
-                             threeroe(ret.content).Final().hexdigest().c_str(), ret.content_threeroe));
+                             threeroe(ret.content).hexdigest().c_str(), ret.content_threeroe));
     }
     return ret;
 }

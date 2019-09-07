@@ -106,7 +106,8 @@ struct reply123{
     bool fresh() const { return valid() && clk123_t::now() < expires; }
 private:
     void fill_content_threeroe(){
-        core123::threeroe(content).Final().hexdigest(content_threeroe, 32);
+        auto hd = core123::threeroe(content).hexdigest();
+        ::memcpy(content_threeroe, hd.data(), 32);
     }
 
     // set_times's arguments are chosen so it's easy to call it while

@@ -41,7 +41,7 @@ int main(int, char **){
     std::cout << oss.str();
 
     // Make it a "unit test" by verifying that the output never changes...
-    auto hash = threeroe(oss.str()).Final().hexdigest();
+    auto hash = threeroe(oss.str()).hexdigest();
     EQSTR(hash, "eb44dc9a444e7a30fc0a2a0d5ed60ce9");
 
     return utstatus();

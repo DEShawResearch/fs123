@@ -14,18 +14,30 @@
 
 // threeroe - A 128-bit non-cryptographic hash function loosely based
 // on threefy, and therefore, by inheritance, threefish and skein.
-// The public API was initially inspired by Jenkins' Spooky hash, but
-// it has evolved significantly.  Basic usage is to construct a
-// threeroe object, possibly call Update to add data to it, and call
-// Final() to obtain the hash (as a pair uint64_t) or Final64() to
-// obtain the first uint64_t bits of the pair.  threeroe.hpp is
-// header-only code.  Just #include and go.  E.g.,
+// Basic usage is to construct a threeroe object, possibly call the
+// update method to add data to it, and finally obtain a hash digest
+// of the data with one of the methods:
+//   hashpair64() -> std::pair<uint64_t, uint64_t>
+//   hash64()     -> uint64_t
+//   digest()     -> std::array<unsigned char, 16>
+//   hexdigest()  -> std::string  // length 32
+//   bytedigest() -> std::array<std::byte, 16> // only if __cpp_lib_byte is defined
+//
+// These produce different representations of the same 128 bits.  hash64()
+// is equivalent to hashpair64().first.  The
+// first 8 bytes of digest() are the bytes of hashpair64().first in
+// bigendian order; the last 8 bytes of digest are the bytes of
+// hashpair64.second in bigendian order.  The bytes in digest() are
+// identical to those in bytedigest() and they correspond to pairs of
+// characters in the hexdigest().
+//
+// threeroe.hpp is header-only code.  Just #include and go.  E.g.,
 //
 //    #include <core123/threeroe.hpp>
 //
 //    void *data = ...;
 //    size_t len = ...;
-//    auto hash = threeroe(data, len).Final();
+//    auto hash = threeroe(data, len).hashpair64();
 //
 // The constructor may be called with a single argument, as long
 // as that argument has data() and size() methods.  E.g.,
@@ -38,64 +50,27 @@
 //    threeroe tr3(adata);
 //
 // If you don't have all (or even any) of the data at construction
-// time, more data can be added with the Update() method, e.g.,
+// time, more data can be added with the update() method, e.g.,
 //
 //    threeroe hasher;
-//    hasher.Update(data, len);
-//    hasher.Update(moredata, morelen);
+//    hasher.update(data, len);
+//    hasher.update(moredata, morelen);
 //
-// Like the constructor, Update() has overloads for any type
+// Like the constructor, update() has overloads for any type
 // that supplies data() and size() methods.
 //
-// The hash itself is obtained by calling Final().  Final() is const,
-// so it's permissible to call it more than once or to add more data
-// with Update after calling Final.  E.g.,
+// The output functions (hashpair64, digest, hash64, hexdigest,
+// bytedigest) are all const, so it's permissible to call them more
+// than once or to add more data with update after calling them.
+// E.g.,
 //
-//    auto h2 = hasher.Final();     // same as hash, above
-//    hasher.Update(yetmoredata, len); 
-//    auto h3 = hasher.Final();   // different from h2
-//    uint64_t h3x = hasher.Final64() // equal to h3.first
+//    auto hp = hasher.hashpair64();  // std::pair<uint64_t, uint64_t>
+//    auto d = hasher.digest();       // array<uchar,16> "same" bits as hp
+//    uint64_t u1 = hasher.hash64();  // equal to hp.first
+//    std::string hd = hasher.hexdigest(); // len=32, "same" bits as d
+//    hasher.update(yetmoredata, len); 
+//    auto d2 = hasher.digest();   // different from d
 // 
-// Final() returns a threeroe::result_type
-//
-// The result_type is publicly derived from std::pair<uint64_t, uint64_t>.
-// Callers can simply use the first and second members:
-//
-//    uint64_t a = h3.first;
-//    uint64_t b = h3.second.
-//
-// which are independent "random" (not cryptographic!) hashes of the
-// inputs.
-//
-// Final64() is equivalent to Final().first.
-//
-// The result_type::digest() methods format *this as 16
-// endian-independent bytes:
-//
-//    unsigned char hash[16];
-//    h3.digest(hash);
-// or
-//    std::array<16, unsigned char> ahash = h3.digest();
-//
-// The result_type::hexdigest() methods format *this as an
-// endian-independent string:
-//
-//    char buf[33];
-//    h3.hexdigest(buf);
-// or
-//    std::string hexdig = h3.hexdigest();
-//
-// The ostream insertion operator sends the output of hexdigest to the
-// stream:
-//
-//    oss << h3;
-//
-// so the result_type also "works" with core123::str:
-//
-// Calling Init on an existing threeroe object leaves the object as if
-// it had been newly constructed.  Init() has the same overloads as
-// the constructor.
-//
 
 // Quality:
 //  - threeroe passes all of SMHasher's tests.
@@ -104,7 +79,7 @@
 //    count=2^45 (pairs=2^78).
 
 // Performance: 
-//   ut/ut_threeroe.cpp reports that threeroe::Update does bulk
+//   ut/ut_threeroe.cpp reports that threeroe::update does bulk
 //   conversion of 1MB data blocks at more than 16GiB/s, i.e., about
 //   0.2 cycles per byte on a 3.50GHz Xeon ES-1650 (Sandy Bridge).
 //   Short strings (0-32 bytes) take 10-16ns or about 35 to 50 cycles
@@ -123,11 +98,7 @@
 //   and with ILP for integer ops like xor and add (i.e., Intel).
 //
 //   It is not x86-specific, but it *is* untested on any other
-//   architecture.  In order to avoid surprises, there are #ifdefs
-//   that prevent it from building on anything other than x86_64.  It
-//   wouldn't be hard to make it endian-agnostic, but I don't have the
-//   need, nor do I have the machines to test on.  So that effort is
-//   deferred till another day.
+//   architecture.
 //
 //   A static constant uint32_t member threeroe::SMHasher_Verifier is
 //   set to the value computed by SMHasher's 'VerificationTest'.  (see
@@ -138,45 +109,48 @@
 // Endian sensitivity:
 //
 //   The threeroe hash is defined to map two unsigned 64-bit seeds and
-//   a sequence of bytes to two 64-bit unsigned integers.  Two correct
-//   implementations of threeroe will produce the same numerical
-//   64-bit values when given the same inputs, regardless of the
-//   endianness of the hardware they run on.
+//   a sequence of bytes to two 64-bit unsigned integers, i.e., the
+//   value returned by digest<uint64_t>.  Two correct implementations
+//   of threeroe will produce the same numerical 64-bit values when
+//   given the same inputs, regardless of the endianness of the
+//   hardware they run on.
 //
-//   In addition, threeroe defines a 'digest' form and a 'hexdigest'
-//   form that are also endian-agnostic.  The digest form consists of
-//   the 8 bytes of result.first, followed by the 8 bytes of
-//   result.second, *both in big-endian order*.  The result of digest
-//   is always the same, regardless of the hardware endianness, but a
-//   high-performance implementation of digest will probably use
-//   instructions or intrinsics that are aware of the hardware's
-//   endianness to convert from hardware-native unsigned 64-bit
-//   integers to bytes.
+//   In addition, threeroe defines a 'digest<unsigned char>' form and
+//   a 'hexdigest' form that are also endian-agnostic.  The
+//   digest<unsigned char> form consists of the 8 bytes of
+//   digest<uint64_t>()[0], followed by the 8 bytes of
+//   digest<uint64_t>[1] *both in big-endian order*.  The result of
+//   digest<unsigned char> is always the same, regardless of the
+//   hardware endianness, but a high-performance implementation of
+//   digest will probably use instructions or intrinsics that are
+//   aware of the hardware's endianness to convert from
+//   hardware-native unsigned 64-bit integers to bytes.
 //
-//   The hexdigest form is digest form mapped to an ascii string.  The
-//   2*j'th and 2*j+1'st characters of the hexdigest are the hex
-//   digits ('0'-'9', 'a'-'f') corresponding to the j'th byte of the
-//   digest form.  The result of hexdigest is always the same,
-//   regardless of hardware endianness.
+//   The hexdigest form is digest<unsigned char> form mapped to an
+//   ascii string.  The 2*j'th and 2*j+1'st characters of the
+//   hexdigest are the hex digits ('0'-'9', 'a'-'f') corresponding to
+//   the j'th byte of the digest<unsigned char> form.  The result of
+//   hexdigest is always the same, regardless of hardware endianness.
 //
 //   Finally, note that passing the address of anything other than a
-//   char buffer to threeroe will make the result dependent on the
-//   endianness of the data stored at that address.  E.g., given
+//   char or byte buffer to threeroe will make the result dependent on
+//   the endianness of the data stored at that address.  E.g., given
 //
 //     std::vector<int>  vi{3, 1, 4, 1, 5};
-//     auto h = threeroe(vi).Final();
+//     auto h = threeroe(vi).digest();
 //
 //   h will depend on the endian-ness of the hardware's int.  But
 //   given:
 //
 //     std::vector<char> vc{'\3', '\1', '\4', '\1', '\5'};
-//     auto h2 = threeroe(vc).Final();
+//     auto h2 = threeroe(vc).diges();
 //
 //   h2 will be different from h, but it will not depend on the
 //   endian-ness of the hardware.
 //
 //     John Salmon  Jun 6, 2014
-//       modified   Dec, 2018
+//       modified   Dec, 2018,
+//       modified   Sep, 2019
 // DOCUMENTATION_END
 
 namespace core123{
@@ -187,8 +161,6 @@ private:
     // Everything "unique" to threeroe is in the private methods:
     // mixoneblock() and finish() and the constants.  Everything else
     // is just boilerplate to support the API.
-
-    // The public API, which follows Jenkins' Spooky is below.
 
     // Rotation constants from threefry.h.  See
     // http://deshawresearch.com/resources_random123.html and also
@@ -270,8 +242,17 @@ private:
     // mixing.  It may be wise to pay a slight penalty
     // in short-string performance to get a little
     // more mixing here...
-    static result_type
-    finish(uint64_t len, const uint64_t s[4]){
+    std::pair<uint64_t, uint64_t>
+    finish() const{
+        // finish is const, so make a copy of this->state
+        uint64_t s[] = {state[0], state[1], state[2], state[3]};
+        // mix any deferred bytes into s.
+        if(bytes_deferred){
+            char zeros[CHARS_PER_INBLK] = {};
+            memcpy(zeros, deferred, bytes_deferred);
+            mixoneblock(zeros, s);
+        }
+
         uint64_t s0 = s[0]+s[2];
         uint64_t s1 = s[1]+s[3];
         uint64_t s2 = s[2];
@@ -302,153 +283,34 @@ private:
     }
 
 public:
-    // The public API was inspired by Jenkins' Spooky... with several
-    // "improvements".
-
-    // The methods from here on could easily be abstracted into a
-    // common framework for a wide class of hash functions.
-
-    // result_type - (almost) a pair of uint64_t, but with hexdigest
-    //  members that format 32 hex digits ('0'-'9','a'-'f'), digest
-    //  methods that return or write 16 bytes, and an ostream
-    //  insertion operator<<() that uses hexdigest.
-    struct result_type : public std::pair<uint64_t, uint64_t>{
-        result_type(uint64_t f, uint64_t s) : std::pair<uint64_t, uint64_t>(f, s){}
-        result_type() = default; // std::pair's ctor value-initializes to 0.
-
-        // digest_size - how big is the std::array returned by digest.  (16)
-        static const size_t digest_size = 16;
-
-        // digest - there are two overloads of the digest methods.
-        //   When called with no arguments, it returns a
-        //   std::array<unsigned char, digest_size>.  When called as
-        //   digest(unsigned char* p, size_t sz), it writes
-        //   std::min(sz, digest_size) bytes to p and returns the number of
-        //   bytes written.
-        //
-        //   The first 8 bytes are the bigendian  bytes of first.
-        //   The last 8 bytes are the bigendian bytes of second.
-        //   The choice to use 'bigendian' makes digest() consistent
-        //   with the hexdigest(), and the insertion operator<<(),
-        //   which are, in turn, consistent with earlier versions of
-        //   trsum.
-        //
-        //   FIXME - when we fully commit to C++17, digest should work
-        //   with std::byte rather than unsigned char.
-
-        size_t
-        digest(unsigned char *p, size_t sz) const{
-            auto a16 = digest();
-            if(sz>digest_size)
-                sz = digest_size;
-            ::memcpy(p, a16.data(), sz);
-            return sz;
-        }
-        
-        std::array<unsigned char, digest_size>
-        digest() const{
-            union{
-                uint64_t u64[2];
-                std::array<unsigned char, digest_size> ac16;
-            } u;
-            static_assert(sizeof(u.u64) == sizeof(u.ac16), "Uh oh.  This is *very* surprising");
-            u.u64[0] = nativetobe(first);
-            u.u64[1] = nativetobe(second);
-            return u.ac16;
-        }        
-
-        // hexdigest - there are two overloads of hexdigest.  When
-        //   called with no arguments it returns a std::string of
-        //   length 32.  When called as hexdigest(char* dest, size_t sz)
-        //   it writes std::min(sz, 33) bytes to dest.  The
-        //   destination is NUL-terminated only if sz>=33.  The number
-        //   of bytes written is returned.
-        //
-        //   Bytes 2*i and 2*i+1 in the output of hexdigest() are the hex
-        //   digits corresponding to byte i in the output of digest().
-        size_t
-        hexdigest(char *buf, size_t sz) const{
-            // premature optimization?  Using ostream takes about
-            // 500ns on a 2018 x86 with gcc8.
-            // sprintf("%016llx%016llx", ...)  takes about 150ns.
-            // This takes about 37ns, doing it one nibble-at-a-time,
-            // starting at the right.
-            char *p;
-            unsigned i;
-            if(sz>32){
-                buf[32] = '\0';
-                i = 32;
-                sz = 33;
-            }else{
-                i = sz;
-            }
-            p = buf+i;
-            if(i>16){ // avoid right-shift by negative!
-                uint64_t v64 = second >> ((32-i)*4);
-                for(; i>16; --i){
-                    unsigned nibble = v64&0xf;
-                    v64>>=4;
-                    *--p = ((nibble>9)? ('a'-10) : '0') + nibble;
-                }
-            }
-            uint64_t v64 = first >> ((16-i)*4);
-            for(; i>0; --i){
-                unsigned nibble = v64&0xf;
-                v64>>=4;
-                *--p = ((nibble>9)? ('a'-10) : '0') + nibble;
-            }
-            return sz;
-        }
-        
-        std::string
-        hexdigest() const{
-            char buf[32];
-            hexdigest(buf, 32);
-            return {buf, 32};
-        }
-
-        friend std::ostream& operator<<(std::ostream& os, const result_type& v){
-            char hd[32];
-            v.hexdigest(hd, 32);
-            return os.write(hd, 32);
-        }
-    };
-
     // threeroe - the constructor takes two optional seed arguments.
     threeroe(uint64_t seed1=0, uint64_t seed2 = 0){
-        Init(seed1, seed2);
-    }
-
-    // Taking inspiration from python's hashlib, the constructor
-    // also takes initial data.
-    threeroe(const void *data, size_t n, uint64_t seed1=0, uint64_t seed2=0){
-        Init(data, n, seed1, seed2);
-    }
-
-    // Init() is only needed to *re*-initialize a threeroe.
-    // A newly constructed threeroe has already been Init'ed.
-    // (Unlike Jenkins, Init returns *this, and there's an
-    // overload that takes initial data. )
-    threeroe& Init(uint64_t seed1 = 0, uint64_t seed2 = 0){
         state[0] = seed1;
         state[1] = 0x3243F6A8885A308Dull; // pi<<60
         state[2] = seed2;
         state[3] = 0;
         bytes_deferred = 0;
         len = 0;
-        return *this;
     }
 
-    // An overload of Init that also Update's the object with some initial data.
-    threeroe& Init(const void *data, size_t n, uint64_t seed1=0, uint64_t seed2=0){
-        Init(seed1, seed2);
-        return Update(data, n);
+    // Taking inspiration from python's hashlib, the constructor
+    // also takes initial data.
+    threeroe(const void *data, size_t n, uint64_t seed1=0, uint64_t seed2=0) : threeroe(seed1, seed2){
+        update(data, n);
     }
 
-    // Update - add N bytes of data to the state.
-    //  (unlike Jenkins, we return a reference to this, to
-    //  facilitate chaining, e.g., h.Update('he').Update('llo')
-    threeroe& Update(const void *data, size_t n){
+    // Templated constructor and and Init methods that also take
+    // an argument of any type, V, with data() and size() members.
+    //
+    template<typename V, typename _dummy=decltype(std::declval<V>().data())>
+    threeroe(const V& v, uint64_t seed1=0, uint64_t seed2 = 0) : threeroe(seed1, seed2){
+        update<V>(v);
+    }
+
+    // update - add N bytes of data to the state.
+    //  Return a reference to this, to
+    //  facilitate chaining, e.g., h.update('he').update('llo')
+    threeroe& update(const void *data, size_t n){
         const char *cdata = (const char *)data;
         const char *end = cdata+n;
         cdata = catchup(cdata, end);
@@ -459,53 +321,78 @@ public:
         return *this;
     }
 
-    // Too-clever-by-half? - A templated Update method that works for
+    // Too-clever-by-half? - A templated update method that works for
     // any type, V, with data() and size() members, e.g., std::vector,
     // std::string, std::array.
     template<typename V>
-    threeroe& Update(const V& v){
-        return Update((void*)v.data(), v.size()*sizeof(*v.data()));
+    threeroe& update(const V& v){
+        return update((void*)v.data(), v.size()*sizeof(*v.data()));
     }    
 
+    // Output functions and types
 
-    // Templated constructor and and Init methods that also take
-    // an argument of any type, V, with data() and size() members.
-    //
-    template<typename V, typename _dummy=decltype(std::declval<V>().data())>
-    threeroe(const V& v, uint64_t seed1=0, uint64_t seed2 = 0){
-        Init<V>(v, seed1, seed2);
+    typedef std::pair<uint64_t, uint64_t> hashpair64_type;
+    hashpair64_type
+    hashpair64() const {
+        return finish();
     }
 
-    template<typename V, typename _dummy=decltype(std::declval<V>().data())>
-    threeroe& Init(const V& v, uint64_t seed1=0, uint64_t seed2=0){
-        Init(seed1, seed2);
-        return Update<V>(v);
+    typedef uint64_t hash64_type;
+    hash64_type
+    hash64() const {
+        return finish().first;
     }
 
-    // Final() returns the hash, (a result_type) of the data Updated
-    // so-far.  Final is const, so it can be called more than once
-    // without suprise.  Note that it's a silent error to call
-    // Jenkins' Spooky::Final more than once, or to call
-    // Spooky::Update after Spooky::Final without an intervening Init.
-    // Both are ok with threeroe.
-    result_type
-    Final() const{
-        uint64_t s[] = {state[0], state[1], state[2], state[3]};
-        // pad any deferred data with zeros and mix it in
-        // with mixoneblock.
-        if(bytes_deferred){
-            char zeros[CHARS_PER_INBLK] = {};
-            memcpy(zeros, deferred, bytes_deferred);
-            mixoneblock(zeros, s);
+    typedef std::array<unsigned char, 16> digest_type;
+    digest_type
+    digest() const{
+        union{
+            uint64_t u64[2];
+            digest_type d;
+        } u;
+        static_assert(sizeof(u.u64) == sizeof(u.d), "Uh oh.  This is *very* surprising");
+        auto f = finish();
+        u.u64[0] = nativetobe(f.first);
+        u.u64[1] = nativetobe(f.second);
+        return u.d;
+    }
+
+#if __cpp_lib_byte >= 201603 // std::byte is a C++17-ism
+    typedef std::array<std::byte, 16> bytedigest_type;
+    bytedigest_type
+    bytedigest() const{
+        union{
+            digest_type d;
+            bytedigest_type bd;
+        } u{digest()};
+        static_assert(sizeof(u.bd) == sizeof(u.d), "Uh oh.  This is *very* surprising");
+        return u.bd;
+    }
+#endif
+
+    // hexdigest - Bytes 2*i and 2*i+1 in the output of hexdigest()
+    //   are the hex digits corresponding to byte i in the output of
+    //   digest().
+    std::string
+    hexdigest() const{
+        // premature optimization?  Using ostream takes about
+        // 500ns on a 2018 x86 with gcc8.
+        // sprintf("%016llx%016llx", ...)  takes about 150ns.
+        // This takes about 37ns, doing it one nibble-at-a-time,
+        // starting at the right.
+        std::string ret(32, '\0');
+        char *p = &ret[32];
+        auto f = finish();
+        for(auto v64 : {f.second, f.first}){
+            for(int i=0; i<16; ++i){
+                unsigned nibble = v64&0xf;
+                v64>>=4;
+                *--p = ((nibble>9)? ('a'-10) : '0') + nibble;
+            }
         }
-            
-        return finish(len, s);
+        return ret;
     }
-
-    // Final64() returns the 'first' 64 bits of Final().  Saves
-    // the caller from thinking about what's in a result_type.  
-    uint64_t Final64() const { return Final().first; }
-
+        
     // In threeroe/0.08 we changed the way SMHasher calls threeroe: it
     // calls the new, endian-independent digest() method, rather than
     // doing endian-dependent type-punning of the values returned by
@@ -580,4 +467,5 @@ private:
         return (char *)b;
     }
 };
+
 } // namespace core123

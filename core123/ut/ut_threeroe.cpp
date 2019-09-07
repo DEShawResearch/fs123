@@ -48,10 +48,11 @@ uint32_t verifier ( )
 
   for(int i = 0; i < 256; i++)
   {
-    h.Init(256-i);
-    h.Update(key);
+    h = threeroe(256-i);
+    h.update(key);
     key.push_back(i);
-    h.Final().digest(&hashes[16*i], 16);
+    threeroe::digest_type* pi = (threeroe::digest_type*)&hashes[16*i];
+    *pi = h.digest();
     //printf("i=%d ", i);
     //od((uint8_t*)&hashes[2*i], 16);
 
@@ -59,46 +60,42 @@ uint32_t verifier ( )
     // but it verifies a few threeroe member functions.
 
     // One day, we'll have extensive unit tests of the
-    // Init/Update/Final logic.  Until then, we'll satisfy ourselves
-    // with some code here that confirms that one-big-Update (above)
-    // is the same as a-bunch-of-small-Updates (below).
+    // Init/update/Final logic.  Until then, we'll satisfy ourselves
+    // with some code here that confirms that one-big-update (above)
+    // is the same as a-bunch-of-small-updates (below).
     int j=0;
     int seen=0;
-    h2.Init(256-i);
+    h2 = threeroe(256-i);
     while(seen + j < i){
-        h2.Update(&key[seen], j);
+        h2.update(&key[seen], j);
         seen += j;
         j += 1;
     }
-    h2.Update(&key[seen], i-seen);
-    auto p = h2.Final();
-    EQUAL(p.first, h2.Final64());
+    h2.update(&key[seen], i-seen);
     // Also verify that hexdigest and str() (which calls ostream<<(result_type))
     // look the same
-    std::string hexdigest = core123::str(h.Final());
-    std::string hexdigest2 = p.hexdigest();
-    if(hexdigest != hexdigest2)
-        throw std::runtime_error("Uh oh.  core123::str(threeroe_result) != threeroe_result.hexdigest()");
+    std::string hexdigest = h2.hexdigest();
     // and that the digits in hexdigest correspond to the bytes in hashes (from digest())
+#if __cpp_lib_byte > 201603
+    std::cout << "Testing cpp_lib_byte\n";
+    std::array<std::byte, 16> bd = h2.bytedigest();
+    if(!memcmp(bd.data(), pi->data(), 16))
+        throw std::runtime_error("mismatch between bytedigest and digest");
+#endif
     for(int j=0; j<16; ++j){
         // convert the j'th pair of hex digits in hexdigest into uc:
         unsigned char uc;
         core123::scanint<unsigned char, 16, false>(hexdigest.substr(2*j, 2), &uc);
         // compare uc with the j'th byte in hashes
         if(uc != hashes[16*i + j])
-            throw std::runtime_error("mismatch testing Update/hexdigest functionality!");
+            throw std::runtime_error("mismatch testing update/hexdigest functionality!");
     }
   }
 
   // Then hash the result array.
 
-  unsigned char answer[16];
-#if __cplusplus >= 201103
   // Use the fancy C++11 constructor if we can:
-  threeroe(hashes).Final().digest(answer, 16);
-#else
-  threeroe(hashes.data(), hashes.size()*sizeof(*hashes.data())).digest(answer);
-#endif
+  auto answer = threeroe(hashes).digest();
   //printf("Verifier final: 0x%016lx 0x%016lx\n", final, ignored);
 
 
@@ -115,7 +112,7 @@ void trbench(size_t nbytes){
 
     uint64_t sum = 0;
     auto timing = timeit(std::chrono::seconds(1), [&](){
-                                 auto h = threeroe(v).Final();
+                                 auto h = threeroe(v).hashpair64();
                                  sum += h.first + h.second;
                              });
     if(sum==0)
@@ -125,21 +122,6 @@ void trbench(size_t nbytes){
     std::cout << std::setprecision(2) << std::fixed;
     std::cout << "threeroe(" << nbytes << " bytes): " << (nhash/1e6)/sec << " Mhashes/sec, "
               << (sec*1.e9)/nhash << "nsec/hash, " << (nbytes*nhash/1.e6)/sec << " Mbytes/sec\n";
-}
-
-void chk_hexdigest(){
-    auto h = threeroe(std::string("hello world")).Final();
-    std::string hdstr = h.hexdigest();
-    char buf[40];
-    char xbuf[40];
-    memset((void*)xbuf, 'x', sizeof(buf));
-    for(unsigned n=0; n<sizeof(xbuf); ++n){
-        ::memset((void*)buf, 'x', sizeof(buf));
-        size_t nwrote = h.hexdigest(buf, n);
-        EQUAL(nwrote, std::min(33u, n));
-        EQUAL(memcmp((void*)buf, hdstr.data(), nwrote), 0);
-        EQUAL(memcmp(buf+nwrote, xbuf+nwrote, sizeof(xbuf)-nwrote), 0);
-    }
 }
 
 int main(int,  char **){
@@ -153,8 +135,6 @@ int main(int,  char **){
         errs++;
     }
 
-    chk_hexdigest();
-
     trbench(0);
     trbench(0);
     trbench(1);
@@ -167,8 +147,5 @@ int main(int,  char **){
     trbench(1000000);
     trbench(100000000);
 
-    threeroe::result_type r;
-    EQUAL(r.first, 0);
-    EQUAL(r.second, 0);
     return utstatus();
 }

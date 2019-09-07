@@ -16,7 +16,7 @@ struct Int{
 };
 
 int scramble(int i){
-    return threeroe(&i, sizeof(i)).Final().first;
+    return threeroe(&i, sizeof(i)).hashpair64().first;
 }
 
 int main(int argc, char **argv){
