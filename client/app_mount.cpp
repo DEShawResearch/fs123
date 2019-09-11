@@ -73,11 +73,17 @@
 #elif __has_include(<sys/sysctl.h>) // BSD and MacOS
 #include <sys/sysctl.h>
 #endif
+#if __has_include(<mcheck.h>) // GLIBC
+#include <mcheck.h>
+#endif
 #ifndef ENOATTR
 # define ENOATTR ENODATA
 #endif
 
 // #include <google/heap-profiler.h>
+
+extern char **fs123p7_argv;
+extern int fs123p7_argc;
 
 using namespace core123;
 
@@ -845,6 +851,12 @@ void regular_maintenance(){
     // it's better to take the hit in the maintenance thread than to
     // take it in a content-serving thread.
     http_be->regular_maintenance();
+
+#if __has_include(<mcheck.h>)
+    if(getenv("MALLOC_CHECK_")){
+        mcheck_check_all();
+    }
+#endif
 }
 
 auto once_per_minute_maintenance() try {
@@ -1774,6 +1786,27 @@ void fs123_ioctl(fuse_req_t req, fuse_ino_t ino, int cmd, void *arg, struct fuse
         set_diag_names(rdo->buf, /*clear_before_set*/ false);
         complain(LOG_NOTICE, "turning on diagnostic key: %s", rdo->buf);
         fuse_reply_ioctl(req, 0, nullptr, 0);
+#ifdef INTENTIONAL_HEAP_CORRUPTION
+        if(startswith(rdo->buf, "CAUSE_FATAL_buffer_overrun")){
+            complain(LOG_ERR, "Intentionally writing past the end of a malloced block!");
+            volatile char *p = (volatile char*)::malloc(9999);
+            p[9999] ^= 'x';
+            complain(LOG_ERR, "The heap is now dangerously corrupted by a buffer overrun near address %p!", p+9999);
+        }
+        if(startswith(rdo->buf, "CAUSE_FATAL_buffer_underrun")){
+            complain(LOG_ERR, "Intentionally writing before the beginning of a malloced block!");
+            volatile char *p = (volatile char*)::malloc(9999);
+            p[-1] ^= 'x';
+            complain(LOG_ERR, "The heap is now dangerously corrupted by a buffer underrun near address %p!", p);
+        }
+        if(startswith(rdo->buf, "CAUSE_FATAL_double_free")){
+            complain(LOG_ERR, "Intentionally double-freeing a pointer!");
+            volatile char *p = (volatile char*)::malloc(9999);
+            ::free((void *)p);
+            ::free((void *)p);
+            complain(LOG_ERR, "The heap is now dangerously corrupted by a double-free of %p!", p);
+        }
+#endif
         return;
     case DIAG_OFF_IOC:
         if( in_bufsz != sizeof(fs123_ioctl_data) )
@@ -2136,6 +2169,8 @@ std::ostream& report_config(std::ostream& os){
         Prt(https_proxy, "<unset>")
         // Hacks to run under valgrind
         Prt(Fs123Valgrind, "false")
+        Prt(Fs123MallocCheck, "")
+        Prt(Fs123LdPreload, "")
         ;
     return os;
 }
@@ -2222,21 +2257,50 @@ try {
                                     "https_proxy=",
                                     // Hacks to run under valgrind
                                     "Fs123Valgrind=",
+                                    "Fs123MallocCheck=",
+                                    "Fs123LdPreload=",
                                     }
                             );
 
     // First, some sleight-of-hand that allows us to get autofs or
-    // mount to run fs123 under valgrind by providing -o
-    // Fs123Valgrind=1.  Use with caution!
-    if(envto<bool>("Fs123Valgrind", false) && !getenv("Fs123AlreadyUnderValgrind")){
-        setenv("Fs123AlreadyUnderValgrind", "1", 1);
-        std::vector<const char*> vargs = {"valgrind", "--log-file=/tmp/fs123.vg"};
-        vargs.insert(vargs.end(), argv, argv+argc);
+    // mount to run fs123 under valgrind and/or MALLOC_CHECK_ by
+    // providing -o Fs123Valgrind=1 -o Fs123MallocCheck=N.  Use with caution!
+    std::string mcheck = envto<std::string>("Fs123MallocCheck", "");
+    bool vg = envto<bool>("Fs123Valgrind", false);
+    std::string ldpreload = envto<std::string>("Fs123LdPreload", "");
+    if((vg || !mcheck.empty() || !ldpreload.empty())&& !getenv("Fs123AlreadyReExeced")){
+        std::vector<const char*> vargs;
+        if(vg){
+            vargs.push_back("valgrind");
+            vargs.push_back(::strdup(fmt("--log-file=/tmp/fs123.vg.%d", sew::getpid()).c_str()));
+            vargs.push_back("--trace-children=yes");
+        }
+        if(!mcheck.empty()){
+            fprintf(stderr, "setenv MALLOC_CHECK_=%s\n", mcheck.c_str());
+            ::setenv("MALLOC_CHECK_", mcheck.c_str(), 1);
+        }
+        if(!ldpreload.empty()){
+            fprintf(stderr, "setenv LDPRELOAD=%s\n", ldpreload.c_str());
+            ::setenv("LDPRELOAD", ldpreload.c_str(), 1);
+        }            
+        vargs.insert(vargs.end(), fs123p7_argv, fs123p7_argv+fs123p7_argc);
         vargs.push_back(nullptr);
+        ::setenv("Fs123AlreadyReExeced", "1", 1);
         execvp(vargs[0], const_cast<char * const *>(vargs.data()));
-        std::cerr << "Uh oh.  execvp returned trying to run under valgrind:   errno=" << errno << std::endl;
+        std::cerr << "Uh oh.  execvp returned trying to run under valgrind or with MALLOC_CHECK_:   errno=" << errno << std::endl;
         return 99;
     }
+    // It's tempting to do something like:
+    //
+    // if(getenv("MALLOC_CHECK_")) mcheck(&complain_and_abort);
+    //
+    // But the heap is corrupted when mcheck's argument is called!
+    // Calling complain() might just make it worse.  I think we're
+    // best served by letting the default mcheck() handler do its
+    // thing: write a message to stderr and abort()).  Even if stderr
+    // has been closed, we'll still see the core dump, and, if
+    // Fs123SignalFile is enabled, we'll see a backtrace.
+
     // Work around for buggy automount.  There's a race condition
     // in the Linux automount code that sometimes leaves us with
     // spurious open file descriptors and can result in locking up
@@ -2295,7 +2359,7 @@ try {
 #ifdef __linux__
     executable_path = sew::str_readlink("/proc/self/exe");
 #else
-    executable_path = argv[0];
+    executable_path = fs123p7_argv[0];
 #endif
     complain(LOG_NOTICE, "Parent process starting at %.9f",
            std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count());

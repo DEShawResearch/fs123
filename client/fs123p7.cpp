@@ -104,10 +104,22 @@ extern int app_mount(int argc, char **argv);
 extern int app_ctl(int argc, char **argv);
 extern int app_setxattr(int argc, char **argv);
 
+// The original, unmodified argc and argv are sometimes useful for
+// the 'apps'.  E.g., to re-exec the whole thing under a debugger
+// (valgrind) or with an environment variable (MALLOC_CHECK_).
+int fs123p7_argc;
+char** fs123p7_argv;
+
+void (* volatile vfree)(void *) = &::free;
 int main(int argc, char *argv[]) try {
+    fs123p7_argc = argc;
+    fs123p7_argv = argv;
     char **args = argv;
     auto op = pathsplit(argv[0]).second;
-    if (op == mountprog) {
+    if (startswith(op, mountprog)) {
+        // Hack so we can copy or link the binary to
+        // /sbin/mount.fs123p7[xxx] so that automount and fstab will
+        // recognize fs123p7[xxx] as a filesystem type.
         op = "mount";
     }else if (argc > 1) {
         op = argv[1];
