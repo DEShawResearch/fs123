@@ -1786,7 +1786,7 @@ void fs123_ioctl(fuse_req_t req, fuse_ino_t ino, int cmd, void *arg, struct fuse
         set_diag_names(rdo->buf, /*clear_before_set*/ false);
         complain(LOG_NOTICE, "turning on diagnostic key: %s", rdo->buf);
         fuse_reply_ioctl(req, 0, nullptr, 0);
-#ifdef INTENTIONAL_HEAP_CORRUPTION
+#if defined(INTENTIONAL_HEAP_CORRUPTION)
         if(startswith(rdo->buf, "CAUSE_FATAL_buffer_overrun")){
             complain(LOG_ERR, "Intentionally writing past the end of a malloced block!");
             volatile char *p = (volatile char*)::malloc(9999);
@@ -2168,9 +2168,7 @@ std::ostream& report_config(std::ostream& os){
         Prt(http_proxy, "<unset>")
         Prt(https_proxy, "<unset>")
         // Hacks to run under valgrind
-        Prt(Fs123Valgrind, "false")
-        Prt(Fs123MallocCheck, "")
-        Prt(Fs123LdPreload, "")
+        Prt(Fs123Trampoline, "")
         ;
     return os;
 }
@@ -2255,39 +2253,35 @@ try {
                                     // can be set on the command line.
                                     "http_proxy=",
                                     "https_proxy=",
-                                    // Hacks to run under valgrind
-                                    "Fs123Valgrind=",
-                                    "Fs123MallocCheck=",
-                                    "Fs123LdPreload=",
+                                    // Hacks to re-exec with env-vars, instrumentation, etc.
+                                    "Fs123Trampoline=",
                                     }
                             );
 
-    // First, some sleight-of-hand that allows us to get autofs or
-    // mount to run fs123 under valgrind and/or MALLOC_CHECK_ by
-    // providing -o Fs123Valgrind=1 -o Fs123MallocCheck=N.  Use with caution!
-    std::string mcheck = envto<std::string>("Fs123MallocCheck", "");
-    bool vg = envto<bool>("Fs123Valgrind", false);
-    std::string ldpreload = envto<std::string>("Fs123LdPreload", "");
-    if((vg || !mcheck.empty() || !ldpreload.empty())&& !getenv("Fs123AlreadyReExeced")){
+    // The 'trampoline' is the path to a command that will be exece'ed
+    // as if you had written in a shell:
+    //    exec "$Fs123Trampoline" "$0" "$@"
+    //
+    // It allows an administrator to create a script that re-execs
+    // fs123p7 in a modified environment and/or under a debugger.  This
+    // is particularly useful when it's difficult to directly control
+    // fs123p7's environment, e.g., when it is started via fstab or
+    // autofs.
+    std::string trampoline = envto<std::string>("Fs123Trampoline", "");
+    if(!trampoline.empty() && !getenv("Fs123AlreadyReExeced")){
         std::vector<const char*> vargs;
-        if(vg){
-            vargs.push_back("valgrind");
-            vargs.push_back(::strdup(fmt("--log-file=/tmp/fs123.vg.%d", sew::getpid()).c_str()));
-            vargs.push_back("--trace-children=yes");
-        }
-        if(!mcheck.empty()){
-            fprintf(stderr, "setenv MALLOC_CHECK_=%s\n", mcheck.c_str());
-            ::setenv("MALLOC_CHECK_", mcheck.c_str(), 1);
-        }
-        if(!ldpreload.empty()){
-            fprintf(stderr, "setenv LDPRELOAD=%s\n", ldpreload.c_str());
-            ::setenv("LDPRELOAD", ldpreload.c_str(), 1);
-        }            
+        vargs.push_back(trampoline.c_str());
         vargs.insert(vargs.end(), fs123p7_argv, fs123p7_argv+fs123p7_argc);
         vargs.push_back(nullptr);
         ::setenv("Fs123AlreadyReExeced", "1", 1);
+        // N.B.  It would be *very bad* if the trampoline were to
+        // remove Fs123p7AlreadyExeced from the environment before
+        // re-exec-ing.  GARDEN_OVERRIDE_ENV_KEEP_ALWAYS defends
+        // against one way that might happen accidentally if the
+        // trampoline uses 'env-keep-only' from the 'desres garden'.
+        ::setenv("GARDEN_OVERRIDE_ENV_KEEP_ALWAYS", "Fs123AlreadyReExeced", 1);
         execvp(vargs[0], const_cast<char * const *>(vargs.data()));
-        std::cerr << "Uh oh.  execvp returned trying to run under valgrind or with MALLOC_CHECK_:   errno=" << errno << std::endl;
+        std::cerr << "Uh oh.  execvp of trampoline returned:   errno=" << errno << std::endl;
         return 99;
     }
     // It's tempting to do something like:
