@@ -76,6 +76,9 @@
 #if __has_include(<mcheck.h>) // GLIBC
 #include <mcheck.h>
 #endif
+#if __has_include(<malloc.h>) // GLIBC
+#include <malloc.h>
+#endif
 #ifndef ENOATTR
 # define ENOATTR ENODATA
 #endif
@@ -2137,6 +2140,9 @@ std::ostream& report_config(std::ostream& os){
         //Prt(Fs123RetrySaturate)
         Prt(Fs123EnhancedConsistency, "true")
         Prt(Fs123SignalFile, "fs123signal")
+#ifdef M_ARENA_MAX
+        Prt(Fs123MallocArenaMax, 0)
+#endif
         // In backend123
         Prt(Fs123SO_RCVBUF, 1024 * 24)
         Prt(Fs123SSLNoVerifyPeer, "<unset>") // default in backend123_http.cpp
@@ -2219,6 +2225,9 @@ try {
 				    "Fs123SupportXattr=",
                                     "Fs123EnhancedConsistency=",
                                     "Fs123SignalFile=",
+#ifdef M_ARENA_MAX
+                                    "Fs123MallocArenaMax=",
+#endif
                                     // Retry configuration
                                     "Fs123RetryTimeout=",
                                     "Fs123RetryInitialMillis=",
@@ -2284,6 +2293,13 @@ try {
         std::cerr << "Uh oh.  execvp of trampoline returned:   errno=" << errno << std::endl;
         return 99;
     }
+
+#ifdef M_ARENA_MAX
+    // See docs/Notes.Vm
+    int arena_max = envto<int>("Fs123MallocArenaMax", 0);
+    if(arena_max)
+        mallopt(M_ARENA_MAX, arena_max);
+#endif
     // It's tempting to do something like:
     //
     // if(getenv("MALLOC_CHECK_")) mcheck(&complain_and_abort);

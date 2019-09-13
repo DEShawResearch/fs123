@@ -1,0 +1,75 @@
+When linked with glibc's malloc (version 2.17), the fs123 client's
+VmSize can get quite large.  For example, an fs123 client process
+on a four-core machine under fairly heavy load had:
+
+nyctestgardenclient1$ grep Vm /proc/27923/status
+VmPeak:	 2259924 kB
+VmSize:	 2214844 kB
+VmLck:	       0 kB
+VmPin:	       0 kB
+VmHWM:	   51040 kB
+VmRSS:	   51040 kB
+VmData:	 2124956 kB
+VmStk:	     136 kB
+VmExe:	    1548 kB
+VmLib:	   11760 kB
+VmPTE:	     556 kB
+VmSwap:	       0 kB
+
+The VmHWM and VmRSS (physical memory) are quite modest, but VmSize and
+VmData are well above 2GB.
+
+In many circumstances, a large VmSize isn't a problem, as it consumes
+only addresses, which are far less scarce than physical memory.
+
+*If* multi-gigabyte VmSize is a problem, it can be mitigated by
+tuning glibc's M_ARENA_MAX parameter (see mallopt(3)).  The
+fs123p7 client has an option:
+
+   -oFs123MallocArenaMax=N
+   
+which limits the number of 64MB "arenas" mmap'ed by malloc.  If the
+option is unspecified, N is effectively 8 times the number of
+processors which allows the large VmSize shown above.
+
+After handling a similar load, an fs123 client with
+-oFs123MallocArenaMax=4 reported these statistics:
+
+nyctestgardenclient1$ grep Vm /proc/23226/status
+VmPeak:	  406056 kB
+VmSize:	  387300 kB
+VmLck:	       0 kB
+VmPin:	       0 kB
+VmHWM:	   39108 kB
+VmRSS:	   39092 kB
+VmData:	  297412 kB
+VmStk:	     136 kB
+VmExe:	    1548 kB
+VmLib:	   11760 kB
+VmPTE:	     476 kB
+VmSwap:	       0 kB
+
+N.B.  It's possible that setting M_ARENA_MAX too small will cause
+threads to contend for locks and adversely affect performance.  We
+haven't seen performance degrade with M_ARENA_MAX=4, but our testing
+has been very limited.
+
+Another alternative is to use a different malloc implementation.
+E.g., tcmalloc in the gperftools library can be linked at build time
+or dynamically linked with LD_PRELOAD.  When dynamically linked with
+tcmalloc, a similar workload results in Vm usage:
+
+nyctestgardenclient1$ grep Vm /proc/36548/status
+VmPeak:	  245840 kB
+VmSize:	  239648 kB
+VmLck:	       0 kB
+VmPin:	       0 kB
+VmHWM:	   40364 kB
+VmRSS:	   35128 kB
+VmData:	  140164 kB
+VmStk:	     136 kB
+VmExe:	    1548 kB
+VmLib:	   13108 kB
+VmPTE:	     492 kB
+VmSwap:	       0 kB
+
