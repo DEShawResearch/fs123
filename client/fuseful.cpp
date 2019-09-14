@@ -175,6 +175,7 @@ void fuseful_handler(int signum){
     // 'signal_filename' (which was specified as an argument to
     // fuseful_main_ll).  If open() or write() fails, we just carry
     // on.  It's too late to try anything else...
+    auto eno = errno;  // glibc docs advise that we restore errno before returning.
     int fd = -1;
     if(signal_filename)
         fd = ::open(signal_filename, O_CREAT|O_WRONLY|O_APPEND, 0666);
@@ -183,16 +184,6 @@ void fuseful_handler(int signum){
         msg[sizeof(msg)-4] = '0' + (signum/10)%10;  // Tens-digit
         msg[sizeof(msg)-3] = '0' + signum%10;       // Ones-digit
         unused(::write(fd, msg, sizeof(msg)-1));
-#ifdef __GLIBC__
-        // glibc has backtrace_symbols_fd, which is allegedly async-signal-safe...
-        void* bt[50];
-        int n = backtrace(&bt[0], 50);
-#define MSG "Backtrace from backtrace_symbols_fd\n"
-        unused(::write(fd, MSG, sizeof(MSG)-1));
-        backtrace_symbols_fd(bt, n, fd); // too bad this isn't more useful...
-#undef MSG
-#endif // __GLIBC__
-        ::close(fd);
     }
 
     // N.B.  the tmp_xxx idiom is so we call the function no more than
@@ -235,6 +226,20 @@ void fuseful_handler(int signum){
 #endif
     case SIGSYS:
         do_fuse_unmount();
+#ifdef __GLIBC__
+        // backtrace() is async-signal *un*safe.  But it's worth the
+        // risk when we're handling a "Program Error Signal".
+        if(fd >= 0){
+            void* bt[50];
+            int n = backtrace(&bt[0], 50);
+#define MSG "Backtrace from backtrace_symbols_fd\n"
+            unused(::write(fd, MSG, sizeof(MSG)-1));
+            backtrace_symbols_fd(bt, n, fd);
+#undef MSG
+            ::close(fd);
+            fd = -1;
+        }
+#endif // __GLIBC__
         if(crash_handler){
             auto tmp_hndlr = crash_handler;
             crash_handler = nullptr;
@@ -246,6 +251,9 @@ void fuseful_handler(int signum){
         ::sigaction(signum, &sa, nullptr);
         ::raise(signum);
     }
+    if(fd>=0)
+        ::close(fd);
+    errno = eno;
 }
 
 void handle_all_signals(){

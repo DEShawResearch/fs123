@@ -1,0 +1,16 @@
+#!/bin/bash
+
+eval "$(/usr/bin/garden-exec)"
+. $(garden scriptdir)/dmk-common
+
+garden load \
+       gcc/8.1.0-01c7/bin 
+garden append-path DESRES_MODULE_LDFLAGS -pie
+garden strip-colons
+
+echo Entering directory \`"$OBJ"\'
+
+export CC=gcc
+export CXX=g++
+export TARGET_ARCH="-fsanitize=thread -fPIE"
+exec make -f $TOP/GNUmakefile "$@"
