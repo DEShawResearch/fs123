@@ -1809,6 +1809,12 @@ void fs123_ioctl(fuse_req_t req, fuse_ino_t ino, int cmd, void *arg, struct fuse
             ::free((void *)p);
             complain(LOG_ERR, "The heap is now dangerously corrupted by a double-free of %p!", p);
         }
+        if(startswith(rdo->buf, "CAUSE_FATAL_undefined_behavior")){
+            complain(LOG_ERR, "Intentionally cause a signed integer overflow!");
+            int i = std::numeric_limits<int>::min();
+            int j = -i;
+            complain(LOG_ERR, "v = %d (as a result of integer overflow)!", j);
+        }
 #endif
         return;
     case DIAG_OFF_IOC:

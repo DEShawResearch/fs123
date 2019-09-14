@@ -5,7 +5,7 @@ eval "$(/usr/bin/garden-exec)"
 
 garden unload libevent/2.1.8-stable-01c7/lib-static
 garden load libevent/2.1.8-stable-01c7/lib
-
+       
 garden load \
        gcc/8.1.0-01c7/bin 
 garden append-path DESRES_MODULE_LDFLAGS -pie
@@ -16,5 +16,5 @@ echo Entering directory \`"$OBJ"\'
 
 export CC=gcc
 export CXX=g++
-export TARGET_ARCH="-fsanitize=thread -fPIE"
+export TARGET_ARCH="-fsanitize=address,undefined -fPIE"
 exec make -f $TOP/GNUmakefile "$@"

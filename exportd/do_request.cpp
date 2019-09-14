@@ -322,6 +322,9 @@ private:
     }
 };
 
+ /*static*/ const size_t ReplyPlus::max_ckib_;
+ /*static*/ const time_t ReplyPlus::max_max_age;
+ 
 // remove_envelope:  replace req->{path_info_, query_ and function_} with the
 // values obtained by opening the encrypted envelope.
 void ReplyPlus::remove_envelope_(fs123Req* req) try{
