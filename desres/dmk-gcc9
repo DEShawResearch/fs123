@@ -1,0 +1,14 @@
+#!/bin/bash
+
+eval "$(/usr/bin/garden-exec)"
+. $(garden scriptdir)/dmk-common
+
+garden load \
+       gcc/9.2.0-02c7/bin 
+garden strip-colons
+
+echo Entering directory \`"$OBJ"\'
+
+export CC=gcc
+export CXX=g++
+exec make -f $TOP/GNUmakefile "$@"
