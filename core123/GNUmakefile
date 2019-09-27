@@ -34,8 +34,7 @@ LINK.o = $(CXX) $(LDFLAGS) $(TARGET_ARCH)
 objs:=diag.o \
 	complaints.o \
 	log_channel.o \
-	http_error_category.o \
-	opt.o
+	http_error_category.o
 
 libs:=libcore123.a
 
