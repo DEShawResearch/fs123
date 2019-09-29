@@ -233,7 +233,7 @@ public:
     void setopts_from_istream(std::istream& inpf){
         for (std::string line; getline(inpf, line);) {
             auto s = strip(line);
-            if (!s.empty())
+            if (!s.empty() && !startswith(s, "#"))
                 set(s.c_str());
         }
     }        
