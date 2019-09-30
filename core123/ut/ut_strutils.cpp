@@ -82,7 +82,7 @@ int main(int argc, char **argv) {
     EQUALV(svsplit_any("  ", ""), {"  "});
 
     EQSTR (str(12345), "12345");
-    EQSTR (str(3.14159), "3.14159");
+    EQUAL (atof(str(3.14159).c_str()), 3.14159);
 
     EQUAL (startswith("foo", "foobar"), false);
     EQUAL (startswith("foobar", "f"), true);

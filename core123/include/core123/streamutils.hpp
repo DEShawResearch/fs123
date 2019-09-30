@@ -39,6 +39,19 @@
   from an argument intended for insertion, so they have  _sep variants
   that always take a separator as their first argument.
 
+  Also in this file:
+
+  stream_{flags,precision,width}_saver : RAII objects inspired by
+    boost that restore a stream's characteristics when they go out of
+    scope.  Note that there are other stream characteristics that are
+    a little trickier to save, because they're templated on the
+    stream's CharT: iostate, exception, tie, rdbuf, fill, locale, and
+    user-defined state.  We'll get to them one day.
+
+  ostream_size : A function that returns the size of an ostream (e.g.,
+    a stringstream) without having to allocate space for and copy 
+    bytes into its 'str()' method.
+
 DOCUMENTATION_END*/      
 
 #include <tuple>
@@ -47,6 +60,7 @@ DOCUMENTATION_END*/
 #include <sstream>
 #include <iterator>
 #include <type_traits>
+#include <limits>
 #include <cstdio>
 #include <cstdarg>
 
@@ -78,6 +92,60 @@ inline auto ostream_size(std::ostream& os){
     return end;
 }
 
+class stream_precision_saver{
+    ::std::ios_base& stream;
+    ::std::streamsize const saved;
+public:
+    stream_precision_saver(::std::ios_base& stream_):
+        stream(stream_), saved(stream_.precision())
+    {}
+    stream_precision_saver(::std::ios_base& stream_, ::std::streamsize newprec_):
+        stream(stream_), saved(stream_.precision(newprec_))
+    {}
+    // Non-copyable
+    stream_precision_saver(const stream_precision_saver&) = delete;
+    stream_precision_saver& operator=(const stream_precision_saver&) = delete;
+    ~stream_precision_saver(){
+        stream.precision(saved);
+    }
+};
+
+class stream_width_saver{
+    ::std::ios_base& stream;
+    ::std::streamsize const saved;
+public:
+    stream_width_saver(::std::ios_base& stream_):
+        stream(stream_), saved(stream_.width())
+    {}
+    stream_width_saver(::std::ios_base& stream_, ::std::streamsize newwidth_):
+        stream(stream_), saved(stream_.width(newwidth_))
+    {}
+    // Non-copyable
+    stream_width_saver(const stream_width_saver&) = delete;
+    stream_width_saver& operator=(const stream_width_saver&) = delete;
+    ~stream_width_saver(){
+        stream.width(saved);
+    }
+};
+
+class stream_flags_saver{
+    ::std::ios_base& stream;
+    ::std::ios_base::fmtflags const saved;
+public:
+    stream_flags_saver(::std::ios_base& stream_):
+        stream(stream_), saved(stream_.flags())
+    {}
+    stream_flags_saver(::std::ios_base& stream_, ::std::ios_base::fmtflags newflags_):
+        stream(stream_), saved(stream_.flags(newflags_))
+    {}
+    // Non-copyable
+    stream_flags_saver(const stream_flags_saver&) = delete;
+    stream_flags_saver& operator=(const stream_flags_saver&) = delete;
+    ~stream_flags_saver(){
+        stream.flags(saved);
+    }
+};
+    
 // The insertone struct is in the public core123:: namespace so that
 // callers can define their own specializations for types for which it
 // is  impossible or undesirable to add a stream inserter.
@@ -130,12 +198,41 @@ struct insertone<char*>{
     }
 };
 
+
 template <>
 struct insertone<char const *>{
     static std::ostream& ins(std::ostream& os, char const * const& t){
         return os << ((t==0)?"<(const char*)0>": t);
     }
 };
+
+// N.B.  One could do write out some fancy arithmetic that
+// inevitably boils down to 9, 17 and 21 for the number of
+// roundtrip digits required for floating point types...
+template<>
+struct insertone<float>{
+    static std::ostream& ins(std::ostream& os, float t){
+        stream_precision_saver raii(os, std::numeric_limits<float>::max_digits10); // 9
+        return os << t;
+    }
+};
+
+template<>
+struct insertone<double>{
+    static std::ostream& ins(std::ostream& os, double t){
+        stream_precision_saver raii(os, std::numeric_limits<double>::max_digits10); // 17
+        return os << t;
+    }
+};
+
+template<>
+struct insertone<long double>{
+    static std::ostream& ins(std::ostream& os, long double t){
+        stream_precision_saver raii(os, std::numeric_limits<long double>::max_digits10); // 21
+        return os << t;
+    }
+};
+
 
 namespace detail{
 
