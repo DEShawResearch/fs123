@@ -232,9 +232,12 @@ public:
     // unpredictable ways if the operation throws.
     void setopts_from_istream(std::istream& inpf){
         for (std::string line; getline(inpf, line);) {
-            auto s = strip(line);
-            if (!s.empty() && !startswith(s, "#"))
-                set(s.c_str());
+            std::string s = strip(line); // remove leading and trailing(?) whitespace
+            if(startswith(s, "#") || s.empty())
+                continue;
+            if(startswith(s, "--"))
+                s = s.substr(2);
+            set(s.c_str());
         }
     }        
     
