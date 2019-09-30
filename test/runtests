@@ -149,7 +149,7 @@ echo 99 > $RCroot/secrets.d/encoding.keyid
 # it's a little weird to put the config in the EXPORT_ROOT, but
 # nothing forbids it...
 cat > $etc/fs123p7exportd.gflags <<- EOF
---port=$SERVPORT
+port=$SERVPORT
 # can't do chroot until exe has ben setpcap'ed
 --chroot=
 --export_root=$EXPORT_ROOT
@@ -163,14 +163,14 @@ cat > $etc/fs123p7exportd.gflags <<- EOF
 --diag_destination=$diag_file
 --sharedkeydir=$RCroot/secrets.d
 --sharedkeydir_refresh=1
---allow_unencrypted_requests
---allow_unencrypted_replies
+--allow_unencrypted_requests=true
+--allow_unencrypted_replies=true
 --max_age_long=20
 --max_age_short=3
 --stale_while_revalidate_long=10
 --stale_while_revalidate_short=3
 --cache_control_regex=max-age=55,stale-while-revalidate=44:max-age=33,stale-while-revalidate=22:.*\.dms
---decentralized_cache_control
+--decentralized_cache_control=true
 EOF
 
 # set up a various commands to make it easier to repeat tests

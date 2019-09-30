@@ -6,7 +6,7 @@
 #include "fs123/stat_serializev3.hpp"
 #include "fs123/content_codec.hpp"  // see FIXME near sizeof(fs123_secretbox_hdr)
 #include "fs123/acfd.hpp"
-#include <gflags/gflags.h>
+#include "options.hpp"
 #include <core123/complaints.hpp>
 #include <core123/http_error_category.hpp>
 #include <core123/threeroe.hpp>
@@ -29,18 +29,12 @@
 
 using namespace core123;
 
-DEFINE_bool(allow_unencrypted_replies, false, "allow unencrypted replies to clients that don't have Accept-encodings: fs123-secretbox.  WARNING - this defeats the use of a --sharedkeydir");
-
 namespace{
 auto _http = diag_name("http");
 auto _secretbox = diag_name("secretbox");
 
 constexpr size_t KiB = 1024;
  
-DEFINE_bool(fake_ino_in_dirent, false, "if true, readir replies set each entry's estale-cookie to 0.");
-DEFINE_uint64(mtim_granularity_ns, uint64_t(4000000), "the granularity (in nanoseconds) of values recorded in a struct stat's st_mtim.");
-DEFINE_bool(allow_unencrypted_requests, true, "if false, then only accept requests encoded in the /e/ envelope");
-
 // validate_path_info - throw an exception if the path_info "looks
 //   bad" Note that this is an essential "security" component - we
 //   reject any path_info that has a '/..' in it to prevent requests
@@ -135,7 +129,7 @@ struct ReplyPlus {
         struct timespec now_ts;
         sew::clock_gettime(CLOCK_REALTIME, &now_ts);
         uint64_t now64 = timespec2ns(now_ts);
-        return std::min(mtim64, now64 - 2*FLAGS_mtim_granularity_ns); 
+        return std::min(mtim64, now64 - 2*gopts.mtim_granularity_ns); 
     }
     uint64_t compute_etag(const struct stat& sb, uint64_t estale_cookie, const std::string& secretid){
         // Hash the estale_cookie, the nanosecond st_mtim, st_size and
@@ -250,7 +244,7 @@ struct ReplyPlus {
 
         // Deal with encrypted /e requests.  
         auto e_request = (req->function_ == "e");
-        if(!FLAGS_allow_unencrypted_requests && !e_request)
+        if(!gopts.allow_unencrypted_requests && !e_request)
             httpthrow(400, "Requests must be encrypted");
         if(e_request)
             remove_envelope_(req);
@@ -677,7 +671,7 @@ void ReplyPlus::do_dir_() try {
 	// N.B.  The third field is *not* d_ino.  It's the file's estale_cookie.
         uint64_t estale_cookie;
         try{
-            estale_cookie = FLAGS_fake_ino_in_dirent ? 0 : do_estale_cookie_(full_path_ + "/" + de->d_name, de->d_type);
+            estale_cookie = gopts.fake_ino_in_dirent ? 0 : do_estale_cookie_(full_path_ + "/" + de->d_name, de->d_type);
         }catch(std::exception& e){
             // This might happen if the file was removed or replaced
             // between the readdir and whatever syscall we use to
@@ -882,7 +876,7 @@ void ReplyPlus::do_request() {
         if(!content_encoding.empty()){
             add_out_hdr("Content-encoding", content_encoding);
         }
-        if(FLAGS_allow_unencrypted_replies){
+        if(gopts.allow_unencrypted_replies){
             // As long as we allow unencrypted replies, we might
             // return different content to different clients,
             // according to the Accept-encoding header.  So it makes

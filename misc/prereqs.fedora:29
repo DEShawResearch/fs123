@@ -7,5 +7,4 @@ yum -y install libsodium-devel
 yum -y install zlib-devel
 yum -y install curl-devel openssl-devel
 yum -y install libevent-devel
-yum -y install gflags-devel
 yum -y install time attr e2fsprogs

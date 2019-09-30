@@ -19,7 +19,7 @@
 struct per_selector;
 struct selector_manager{
     // constructor: Called once in main.  Before any threads have had
-    // a chance to call selector_match, but after GFLAGS have been
+    // a chance to call selector_match, but after options have been
     // parsed.  May assume that no other threads are calling
     // regular_maintenance or selector_match concurrently
     selector_manager(){}

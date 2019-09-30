@@ -2,12 +2,12 @@
 
 #include "fs123request.hpp"
 #include "do_request.hpp"
+#include "options.hpp"
 #include "selector_manager111.hpp"
 #include <core123/complaints.hpp>
 #include <core123/scoped_nanotimer.hpp>
 #include <core123/diag.hpp>
 #include <core123/stats.hpp>
-#include <gflags/gflags.h>
 #include <event2/event.h>
 #include <event2/http.h>
 #include <event2/keyvalq_struct.h>
@@ -32,21 +32,6 @@ struct ProcState {
     core123::scoped_nanotimer snt;
     ProcState(unsigned n = 0) : tnum{n}, tctr{0}, snt{} {}
 };
-
-
-DECLARE_bool(tcp_nodelay);
-DECLARE_bool(sendfile);
-DECLARE_bool(threeroe);
-DECLARE_uint64(nprocs);
-DECLARE_string(bindaddr);
-DECLARE_int32(port);
-DECLARE_string(diag_names);
-DECLARE_bool(daemonize);
-DECLARE_string(pidfile);
-DECLARE_uint64(heartbeat);
-DECLARE_uint64(max_http_headers_size);
-DECLARE_uint64(max_http_body_size);
-DECLARE_uint64(max_http_timeout);
 
 // singleton selector_manager
 extern std::unique_ptr<selector_manager> the_selmgr;

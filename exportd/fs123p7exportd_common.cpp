@@ -42,15 +42,15 @@ void dup_suppress_log(int severity, const char *msg) {
 void setup_evhttp_params(struct evhttp *eh) {
     // some default settings for all http listeners
     // max_http_headers_size should be enough for typical headers
-    evhttp_set_max_headers_size(eh, FLAGS_max_http_headers_size);
+    evhttp_set_max_headers_size(eh, gopts.max_http_headers_size);
     // max http_body_size can be small since fs123 has no incoming body
-    evhttp_set_max_body_size(eh, FLAGS_max_http_body_size);
+    evhttp_set_max_body_size(eh, gopts.max_http_body_size);
     // if unspecified, libevent times out connections after 50
     // seconds.  To avoid 'AH01102: error reading status line'
     // problems with httpd ProxyPass, it's necessary to make exportd's
     // timeout longer than httpd's.  httpd defaults to 60, so we
     // default to 120.
-    evhttp_set_timeout(eh, FLAGS_max_http_timeout);
+    evhttp_set_timeout(eh, gopts.max_http_timeout);
     evhttp_set_allowed_methods(eh, EVHTTP_REQ_GET|EVHTTP_REQ_HEAD);
 }
 
@@ -58,46 +58,18 @@ void setup_evhttp_params(struct evhttp *eh) {
 
 std::unique_ptr<selector_manager> the_selmgr;
 
-DEFINE_uint64(nprocs, 4, "run with this many listening processes");
-DEFINE_string(bindaddr, "127.0.0.1", "bind to this address");
-DEFINE_int32(port, -1, "(required) bind to this port");
-DEFINE_string(diag_names, "", "string passed to diag_names");
-DEFINE_string(diag_destination, "", "file to append diag output to");
-DEFINE_bool(daemonize, false, "call daemon(3) before doing anything substantive");
-DEFINE_string(pidfile, "", "name of the file in which to write the lead process' pid.  Opened *before* chroot.");
-DEFINE_uint64(heartbeat, 60, "number of seconds between each heartbeat to syslog");
-DEFINE_uint64(max_http_headers_size, 2000, "maximum bytes in incoming request HTTP headers");
-DEFINE_uint64(max_http_body_size, 500, "maximum bytes in incoming request HTTP body");
-DEFINE_uint64(max_http_timeout, 120, "http timeout on incoming request being complete");
-DEFINE_string(chroot, "/exports123", "chroot and cd to this directory.  The --export-root and --cache-control-file are opened in the chrooted context.  If empty, then neither chroot nor cd will be attempted");
-DEFINE_string(log_destination, "%syslog%LOG_USER", "destination for log records.  Format:  \"filename\" or \"%syslog%LOG_facility\" or \"%stdout\" or \"%stderr\" or \"%none\"");
-DEFINE_string(log_min_level, "LOG_NOTICE", "only send complaints of this severity level or higher to the log_destination");
-DEFINE_double(log_max_hourly_rate, 3600., "limit log records to approximately this many per hour.");
-DEFINE_double(log_rate_window, 3600., "estimate log record rate with an exponentially decaying window of this many seconds.");
-DEFINE_bool(syslog_perror, false, "add LOG_PERROR to the syslog openlog options at program startup.");
-DEFINE_string(accesslog_destination, "%none", "access logs will be sent to a log_channel set to this destination.");
-
-DECLARE_string(cache_control_file);
-DECLARE_string(export_root);
-DECLARE_bool(tcp_nodelay);
-
-// N.B.  other sharedkeydir options are DEFINE'ed in selector_manager111.cpp.
-// The sharedkeydir is here so we can open it before chroot.
-DEFINE_string(sharedkeydir, "", "path to directory containing shared secrets (pre-chroot!)");
-
 void setup_common(const char *progname, int *argcp, char ***argvp) {
-    gflags::SetUsageMessage("Usage: " +std::string(progname)+ " [--options]");
-    gflags::ParseCommandLineFlags(argcp, argvp, true);
+    gopts.populate(*argcp, *argvp);
 
     // any inconsistencies in "args"?
-    if(FLAGS_daemonize && FLAGS_pidfile.empty())
+    if(gopts.daemonize && gopts.pidfile.empty())
         throw se(EINVAL, "You must specify a --pidfile=XXX if you --daemonize");
-    if(FLAGS_port <= 0)
+    if(gopts.port <= 0)
         throw se(EINVAL, "You must specify a positive --port");
-    if(uint16_t(FLAGS_port) != FLAGS_port)
+    if(uint16_t(gopts.port) != gopts.port)
         throw se(EINVAL, "--port out of range");
     
-    if(FLAGS_daemonize){
+    if(gopts.daemonize){
         // FIXME - daemon should be in sew.
         // We'll do the chdir ourselves after chroot.
         // and we'll keep stdout open for diagnostics.
@@ -106,38 +78,38 @@ void setup_common(const char *progname, int *argcp, char ***argvp) {
     }
 
     unsigned logflags = LOG_PID|LOG_NDELAY;  // LOG_NDELAY essential for chroot!
-    if(FLAGS_syslog_perror)
+    if(gopts.syslog_perror)
         logflags  |= LOG_PERROR;
     // N.B.  glibc's openlog(...,0) leaves the default facility alone
     // if it was previously set, and sets it to LOG_USER if it wasn't.
     openlog(progname, logflags, 0);
-    auto level = syslog_number(FLAGS_log_min_level);
-    set_complaint_destination(FLAGS_log_destination, 0666);
+    auto level = syslog_number(gopts.log_min_level);
+    set_complaint_destination(gopts.log_destination, 0666);
     set_complaint_level(level);
-    set_complaint_max_hourly_rate(FLAGS_log_max_hourly_rate);
-    set_complaint_averaging_window(FLAGS_log_rate_window);
-    if(!startswith(FLAGS_log_destination, "%syslog"))
+    set_complaint_max_hourly_rate(gopts.log_max_hourly_rate);
+    set_complaint_averaging_window(gopts.log_rate_window);
+    if(!startswith(gopts.log_destination, "%syslog"))
         start_complaint_delta_timestamps();
     
-    accesslog_channel.open(FLAGS_accesslog_destination, 0666);
+    accesslog_channel.open(gopts.accesslog_destination, 0666);
 
-    if(!FLAGS_diag_names.empty()){
-        set_diag_names(FLAGS_diag_names);
-        set_diag_destination(FLAGS_diag_destination);
+    if(!gopts.diag_names.empty()){
+        set_diag_names(gopts.diag_names);
+        set_diag_destination(gopts.diag_destination);
         DIAG(true, "diags:\n" << get_diag_names() << "\n");
     }
     diag_opt_tstamp = true;
 
-    if(!FLAGS_pidfile.empty()){
-        std::ofstream ofs(FLAGS_pidfile.c_str());
+    if(!gopts.pidfile.empty()){
+        std::ofstream ofs(gopts.pidfile.c_str());
         ofs << sew::getpid() << "\n";
         ofs.close();
         if(!ofs)
             throw se("Could not write to pidfile");
     }
 
-    if(!FLAGS_sharedkeydir.empty())
-        sharedkeydir_fd = sew::open(FLAGS_sharedkeydir.c_str(), O_DIRECTORY|O_RDONLY);
+    if(!gopts.sharedkeydir.empty())
+        sharedkeydir_fd = sew::open(gopts.sharedkeydir.c_str(), O_DIRECTORY|O_RDONLY);
 
     // If --chroot is empty (not the default, but it can be set to the
     // empty string), then do neither chdir nor chroot.  The process
@@ -152,10 +124,10 @@ void setup_common(const char *progname, int *argcp, char ***argvp) {
     // There is no option to ignore chroot errors.  If there were,
     // overall behavior would depend on the presence/absence of
     // capabilities, which would be bad.
-    if(!FLAGS_chroot.empty()){
-        sew::chdir(FLAGS_chroot.c_str());
-        log_notice("chdir(%s) successful",  FLAGS_chroot.c_str());
-        if(FLAGS_chroot != "/"){
+    if(!gopts.chroot.empty()){
+        sew::chdir(gopts.chroot.c_str());
+        log_notice("chdir(%s) successful",  gopts.chroot.c_str());
+        if(gopts.chroot != "/"){
             try{
                 sew::chroot(".");
                 log_notice("chroot(.) (relative to chdir'ed cwd) successful");
@@ -195,7 +167,6 @@ void teardown_common(){
     for(auto e : events2befreed)
         event_free(e);
     events2befreed.clear();
-    gflags::ShutDownCommandLineFlags();
     sharedkeydir_fd.close(); // ok, even if bool(sharedkeydir_fd) is false.
 }
 
@@ -222,7 +193,7 @@ void setup_evtimersig(struct event_base *eb, ProcState *tsp) {
     };
     auto e = event_new(eb, -1, EV_PERSIST, timecb, tsp);
     events2befreed.push_back(e);
-    const struct timeval heartbeat{time_t(FLAGS_heartbeat), 0};
+    const struct timeval heartbeat{time_t(gopts.heartbeat), 0};
     if (e == nullptr)
 	throw se("event_new on timeout failed");
     if (event_add(e, &heartbeat) < 0)
@@ -240,13 +211,13 @@ void setup_evtimersig(struct event_base *eb, ProcState *tsp) {
     auto sigusr1 = [] (evutil_socket_t, short /*what*/, void */*arg*/) -> void {
         try{
             complain(LOG_NOTICE, "SIGUSR1 caught.  reopening logs (including this one).");
-            accesslog_channel.open(FLAGS_accesslog_destination, 0666);
-            set_complaint_destination(FLAGS_log_destination, 0666);
-            if(!startswith(FLAGS_log_destination, "%syslog"))
+            accesslog_channel.open(gopts.accesslog_destination, 0666);
+            set_complaint_destination(gopts.log_destination, 0666);
+            if(!startswith(gopts.log_destination, "%syslog"))
                 start_complaint_delta_timestamps();
             complain(LOG_NOTICE, "SIGUSR1 caught.  reopened logs %s (this one) and accesslog: %s",
-                     FLAGS_log_destination.c_str(),
-                     FLAGS_accesslog_destination.c_str());
+                     gopts.log_destination.c_str(),
+                     gopts.accesslog_destination.c_str());
         }catch(std::exception& ex){
             complain(ex, "Error caught while handling SIGUSR1");
         }
@@ -265,7 +236,7 @@ void accesslog(evhttp_request* evreq, size_t length, int status){
     // req->major and req->minor, but they're carefully hidden from
     // us.  Just write - instead of HTTP/%d.%d.
     server_stats.reply_bytes += length;
-    if(FLAGS_accesslog_destination != "%none"){
+    if(gopts.accesslog_destination != "%none"){
         auto method = evhttp_request_get_command(evreq);
         auto evcon = evhttp_request_get_connection(evreq);
         char *remote;
@@ -362,7 +333,7 @@ struct evhttp_bound_socket *setup_evhttp(struct event_base *eb, struct evhttp *e
     evhttp_set_gencb(eh, http_cb, tsp);
     if (ehsock == nullptr) {
 	// main thread, new socket
-	ehsock = evhttp_bind_socket_with_handle(eh, FLAGS_bindaddr.c_str(), FLAGS_port);
+	ehsock = evhttp_bind_socket_with_handle(eh, gopts.bindaddr.c_str(), gopts.port);
 	if (ehsock == nullptr)
 	    throw se(errno, "evhttp_bind_socket failed");
 	evutil_make_listen_socket_reuseable(evhttp_bound_socket_get_fd(ehsock));

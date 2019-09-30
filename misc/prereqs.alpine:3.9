@@ -3,16 +3,14 @@ set -x
 OPWD=`pwd -P`
 cd `mktemp -d`
 
-# 2019-04-05 gflags is only in edge/testing.
-echo http://dl-cdn.alpinelinux.org/alpine/edge/testing >> /etc/apk/repositories
-# 2019-08-11 gflags is now in edge/community (?)
-echo http://dl-cdn.alpinelinux.org/alpine/edge/community >> /etc/apk/repositories
+# Are these necessary?
+# echo http://dl-cdn.alpinelinux.org/alpine/edge/testing >> /etc/apk/repositories
+# echo http://dl-cdn.alpinelinux.org/alpine/edge/community >> /etc/apk/repositories
 apk update
 apk add --no-cache binutils make libgcc musl-dev gcc g++
 apk add --no-cache bash
 apk add --no-cache curl
 apk add --no-cache fuse-dev
-apk add --no-cache gflags-dev
 apk add --no-cache libsodium-dev
 apk add --no-cache curl-dev
 apk add --no-cache util-linux

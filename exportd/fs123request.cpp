@@ -1,4 +1,5 @@
 #include "fs123request.hpp"
+#include "options.hpp"
 #include "selector_manager.hpp"
 #include "fs123/httpheaders.hpp"
 #include <core123/complaints.hpp>
@@ -9,7 +10,6 @@
 #include <core123/diag.hpp>
 #include <core123/sew.hpp>
 #include <core123/svto.hpp>
-#include <gflags/gflags.h>
 #include <event2/http.h>
 #include <event2/buffer.h>
 #include <event2/bufferevent.h>
@@ -39,17 +39,7 @@ auto _fs123req = diag_name("fs123req");
 // bufferevent_max_single_write was introduced in libevent 2.1, so:
 #if EVENT__NUMERIC_VERSION >= 0x2020000
 #define HAVE_BUFFEREVENT_SET_MAX_SINGLE_WRITE
-DEFINE_uint64(max_single_write, 16*1024*1024, "maximum number of bytes in any single write to an http socket");
 #endif
-
-// setting TCP_NODELAY is another way to avoid the problems that arise
-// from the Nagle algorithm when write()s smaller than MSS.  Other
-// alternatives are to adjust the MTU with ifconfig or the MSS with ip
-// route.  The evhttp API in libevent doesn't give us a per-accept
-// callback, so --tcp_nodelay does a setsockopt TCP_NODELAY for every
-// request, even for keepalive connections, which seems wasteful.
-// max_single_write is definitely preferred.
-DEFINE_bool(tcp_nodelay, false, "set TCP_NODELAY on accepted sockets");
 
 using namespace core123;
 
@@ -73,10 +63,10 @@ fs123Req::fs123Req(evhttp_request* evreq) :
     auto ehbe = evhttp_connection_get_bufferevent(evcon);
 
 #ifdef HAVE_BUFFEREVENT_SET_MAX_SINGLE_WRITE
-    bufferevent_set_max_single_write(ehbe, FLAGS_max_single_write);
+    bufferevent_set_max_single_write(ehbe, gopts.max_single_write);
 #endif    
 
-    if (FLAGS_tcp_nodelay) {
+    if (gopts.tcp_nodelay) {
         int nodelay = 1;
         auto ehbesock = bufferevent_getfd(ehbe);
         sew::setsockopt(ehbesock, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));

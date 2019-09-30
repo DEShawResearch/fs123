@@ -26,7 +26,7 @@ at 40Gbps.
 
 We run fs123 in production on CentOS7 using a mix of CentOS-provided
 libraries (libfuse, libcurl, libsodium) and tools andlibraries that we
-have built and installed from sources (gcc6, libgflags, libevent)
+have built and installed from sources (gcc6, libevent)
 
 We have successfully run fs123's self-tests in docker images running
 Ubuntu 18.04(LTS) bionic, Ubuntu 16.04(LTS) xenial, Fedora 29 and
@@ -46,8 +46,6 @@ The prerequisites to compile and link the client and server are:
     1.0.17 (on Fedora29, CentOS7), 1.0.16 (on bionic), 1.0.8 (on xenial)
 - libcurl
     7.61 (on Fedora29), 7.58.0 (on bionic), 7.43.0 (on xenial), 7.19.0 (on CentOS7) have been tested
-- libgflags
-    2.2.1 (on bionic), 2.1.2 (on xenial, Fedora29), 2.1.1 (on CentOS7) have been tested
 - libevent
     2.1.8 (on Fedora29, bionic), 2.0.21 (on xenial, CentOS7) have been tested
     

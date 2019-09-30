@@ -22,7 +22,7 @@ std::vector< std::unique_ptr<ProcState> > ts;
 void heartbeat(void *) {
     for (const auto& t : ts) {
 	complain(LOG_INFO, "heartbeat: server thread %u on %s:%u handled %llu requests in %.9f secs",
-                 t->tnum, FLAGS_bindaddr.c_str(), FLAGS_port,
+                 t->tnum, gopts.bindaddr.c_str(), gopts.port,
                  t->tctr.load(), t->snt.elapsed()*1.e-9);
     }
 }
@@ -46,7 +46,7 @@ int main(int argc, char **argv) try
 
     // Start additional http listener/server threads if needed
     std::vector<std::thread> threads;
-    if (FLAGS_nprocs > 1) {
+    if (gopts.nprocs > 1) {
 	// by using a separate event base and http listener for each thread,
 	// all events for each thread are kept separate so no
 	// inter-thread synchronization is needed (other than the done atomic).
@@ -88,22 +88,22 @@ int main(int argc, char **argv) try
 	    // may be redundant, but make sure other threads all know to finish up too.
 	    done.store(true);
 	    log_notice("thread %u on %s:%u handled %llu requests in %.9f secs",
-                       tsp->tnum, FLAGS_bindaddr.c_str(), FLAGS_port,
+                       tsp->tnum, gopts.bindaddr.c_str(), gopts.port,
                        tsp->tctr.load(), tsp->snt.elapsed()*1.e-9);
 	};
 	// already running one main thread so start count at 1
-	for (decltype(FLAGS_nprocs) i = 1; !done.load() && i < FLAGS_nprocs; i++) {
+	for (decltype(gopts.nprocs) i = 1; !done.load() && i < gopts.nprocs; i++) {
 	    ts.push_back(std::make_unique<ProcState>(i));
 	    threads.emplace_back(threadrun, ts.back().get());
 	}
     }
 
     log_notice("main thread started on %s:%u at %.9f",
-               FLAGS_bindaddr.c_str(), FLAGS_port, ts[0]->snt.elapsed()*1.e-9);
+               gopts.bindaddr.c_str(), gopts.port, ts[0]->snt.elapsed()*1.e-9);
     if (event_base_dispatch(ebac) < 0)
 	complain("event_base_dispatch returned error %d : %m", errno);
     log_notice("main thread on %s:%u handled %llu requests in %.9f secs",
-               FLAGS_bindaddr.c_str(), FLAGS_port, ts[0]->tctr.load(), ts[0]->snt.elapsed()*1.e-9);
+               gopts.bindaddr.c_str(), gopts.port, ts[0]->tctr.load(), ts[0]->snt.elapsed()*1.e-9);
 
     done.store(true);
     for (auto& t : threads) {

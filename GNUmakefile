@@ -83,8 +83,8 @@ fs123p7 : $(fs123p7obj)
 backend123_http.o : CPPFLAGS += $(shell curl-config --cflags)
 
 # fs123p7exportd: the server
-serverobj := crfio.o stringtree.o selector_manager.o selector_manager111.o do_request.o fs123request.o fs123p7exportd_common.o cc_rules.o
-fs123p7exportd : LDLIBS+=-levent -lsodium -lgflags
+serverobj := crfio.o stringtree.o selector_manager.o selector_manager111.o do_request.o fs123request.o fs123p7exportd_common.o cc_rules.o options.o
+fs123p7exportd : LDLIBS+=-levent -lsodium
 fs123p7exportd : $(serverobj)
 
 # A few unit tests need a bit of extra help:

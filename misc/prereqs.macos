@@ -8,7 +8,6 @@ set -x
 # This may not be a complete set of prereqs
 
 port install curl
-port install gflags
 port install libevent
 port install osxfuse
 port install libsodium

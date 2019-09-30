@@ -1,5 +1,6 @@
 #include "selector_manager111.hpp"
 #include "crfio.hpp"
+#include "options.hpp"
 #include "cc_rules.hpp"
 #include "fs123/stat_serializev3.hpp" // for ifdef APPLE mtim
 #include "fs123/content_codec.hpp"
@@ -12,7 +13,6 @@
 #include <core123/diag.hpp>
 #include <core123/strutils.hpp>
 #include <core123/datetimeutils.hpp>
-#include <gflags/gflags.h>
 
 using namespace core123;
 
@@ -20,20 +20,6 @@ namespace{
 auto _cache_control = diag_name("cache_control");
 auto _secretbox = diag_name("secretbox");
 }
-
-DEFINE_string(export_root, "/", "root of exported tree (post-chroot)");
-DEFINE_string(estale_cookie_src, "ioc_getversion", "source for estale_cookie.  Must be one of ioc_getversion|getxattr|setxattr|st_ino|none");
-DEFINE_string(cache_control_file, "", "cache control file (post-chroot) - empty means all cache control replies will carry the short timeout");
-DEFINE_uint64(max_age_short, 60, "max-age (sec) for short-timeout objects");
-DEFINE_uint64(max_age_long, 86400, "max-age (sec) for long-timeout objects");
-DEFINE_uint64(stale_while_revalidate_short, 30, "stale-while-revalidate time (sec) for short-timeout objects");
-DEFINE_uint64(stale_while_revalidate_long, 43200, "stale-while-revalidate time (sec) for long-timeout objects");
-
-// Unless you're doing something very fancy, you can't "rotate" keys much faster than
-// max_age_long, so there's no point in refreshing much more often.
-DEFINE_uint64(sharedkeydir_refresh, 43200, "reread files in sharedkeydir after this many seconds");
-DEFINE_string(encoding_keyid_file, "encoding", "name of file containing the encoding secret. (if relative, then with respect to sharedkeydir, otherwise with respect to chroot)");
-DECLARE_bool(allow_unencrypted_replies);
 
 // SECURITY IMPLICATIONS!
 // We have always automatically prepended the 'public' directive to
@@ -49,13 +35,6 @@ DECLARE_bool(allow_unencrypted_replies);
 // FIXME - Verify that our production varnish configs "work" for
 // non-Authenticated content without "public" and then don't make
 // 'public' the default!
-DEFINE_string(cache_control_directives, "public", "extra cache-control directives to add to every reply");
-
-DEFINE_string(cache_control_regex, "", "three-part colon-separated arg CC-good:CC-enoent:regex.  CC-xx are strings, not integers and may contain either or both max-age and stale-while-revalidate directives");
-
-DEFINE_bool(decentralized_cache_control, false, "use rules found in .fs123_cc_rules files under <export_root> to construct cache-control headers.  Fall back to --cache_control_file if no rules are found");
-DEFINE_uint64(dcc_cache_size, 1000000, "maximum size of the cache of .fs123_cc_rules files");
-DEFINE_int32(dcc_rulesfile_max_age, -1, "recheck rules files after this many seconds unless explicitly specified in the rules-file itself.  Default value of -1 means same as --max-age-short");
 
 static const std::string FALLBACK = "cc-fallback";
 
@@ -69,7 +48,7 @@ selector_manager111::selector_manager111(int sharedkeydir_fd):
     // arbitrary limit of 1 year, seems pointless to have higher ages than that?
     const unsigned max_max_age = 365*86400;
 
-    if (FLAGS_max_age_long > max_max_age || FLAGS_max_age_long < FLAGS_max_age_short || FLAGS_stale_while_revalidate_long < FLAGS_stale_while_revalidate_short)
+    if (gopts.max_age_long > max_max_age || gopts.max_age_long < gopts.max_age_short || gopts.stale_while_revalidate_long < gopts.stale_while_revalidate_short)
 	throw se(EINVAL, "inconsistent FS123_CACHE_CONTROL parameters");
 }
 
@@ -78,52 +57,52 @@ per_selector111::per_selector111(int sharedkeydir_fd) :
     ltrsb{}
 {
     // validate the command line args and throw at constructor time if they don't look good.
-    validate_basepath(FLAGS_export_root);
-    validate_estale_cookie(FLAGS_estale_cookie_src);
+    validate_basepath(gopts.export_root);
+    validate_estale_cookie(gopts.estale_cookie_src);
 
-    if( !FLAGS_cache_control_regex.empty() ){
+    if( !gopts.cache_control_regex.empty() ){
         // Expect a three-part colon-separated arg, e.g.,
         //    'max-age=10,stale-while-revalidate=90:max-age=0:.*\.dms'
         try{
-            auto idx1 = FLAGS_cache_control_regex.find(':', 0);
+            auto idx1 = gopts.cache_control_regex.find(':', 0);
             if(idx1==std::string::npos) throw se(EINVAL, "didn't find first colon in --cache-control-regex option");
-            cc_good = FLAGS_cache_control_regex.substr(0, idx1);
-            auto idx2 = FLAGS_cache_control_regex.find(':', idx1+1);
+            cc_good = gopts.cache_control_regex.substr(0, idx1);
+            auto idx2 = gopts.cache_control_regex.find(':', idx1+1);
             if(idx2==std::string::npos) throw se(EINVAL, "didn't find second colon in --cache-control-regex option");
-            cc_enoent = FLAGS_cache_control_regex.substr(idx1+1, idx2-(idx1+1));
-            auto cc_re = FLAGS_cache_control_regex.substr(idx2+1);
+            cc_enoent = gopts.cache_control_regex.substr(idx1+1, idx2-(idx1+1));
+            auto cc_re = gopts.cache_control_regex.substr(idx2+1);
             cc_regex = std::unique_ptr<std::regex>(new std::regex(cc_re, std::regex::extended)); // avoid make_unique to work around https://gcc.gnu.org/bugzilla/show_bug.cgi?id=85098
             DIAGkey(_cache_control, "parsed ccre:  good: " << cc_good << " noent: " << cc_enoent << " re: " << cc_re << "\n");
         }catch(std::runtime_error& e){
-            std::throw_with_nested(std::runtime_error("failed to parse --cache-control-regex: " + FLAGS_cache_control_regex));
+            std::throw_with_nested(std::runtime_error("failed to parse --cache-control-regex: " + gopts.cache_control_regex));
         }
     }
-    if( !FLAGS_cache_control_directives.empty() && !endswith(FLAGS_cache_control_directives, ",") )
-        FLAGS_cache_control_directives += ',';
+    if( !gopts.cache_control_directives.empty() && !endswith(gopts.cache_control_directives, ",") )
+        gopts.cache_control_directives += ',';
 
     if(sharedkeydir_fd >= 0)
-        sm = std::make_unique<sharedkeydir>(sharedkeydir_fd, FLAGS_encoding_keyid_file, FLAGS_sharedkeydir_refresh);
+        sm = std::make_unique<sharedkeydir>(sharedkeydir_fd, gopts.encoding_keyid_file, gopts.sharedkeydir_refresh);
 
-    short_timeout_cc = FLAGS_cache_control_directives + "max-age=" + std::to_string(FLAGS_max_age_short);
-    if(FLAGS_stale_while_revalidate_short)
-        short_timeout_cc += ",stale-while-revalidate="+ std::to_string(FLAGS_stale_while_revalidate_short);
+    short_timeout_cc = gopts.cache_control_directives + "max-age=" + std::to_string(gopts.max_age_short);
+    if(gopts.stale_while_revalidate_short)
+        short_timeout_cc += ",stale-while-revalidate="+ std::to_string(gopts.stale_while_revalidate_short);
 
-    if( FLAGS_decentralized_cache_control ){
-        if(FLAGS_dcc_rulesfile_max_age == -1)
-            FLAGS_dcc_rulesfile_max_age = FLAGS_max_age_short;
-        DIAGkey(_cache_control, "create rule cache with cache_size:" << FLAGS_dcc_cache_size << " rulesfile_max_age: " << FLAGS_dcc_rulesfile_max_age << " max_age_short: " << FLAGS_max_age_short);
-        rule_cache = std::make_unique<cc_rule_cache>(FLAGS_export_root, FLAGS_dcc_cache_size, FLAGS_dcc_rulesfile_max_age, FALLBACK);
+    if( gopts.decentralized_cache_control ){
+        if(gopts.dcc_rulesfile_max_age == -1)
+            gopts.dcc_rulesfile_max_age = gopts.max_age_short;
+        DIAGkey(_cache_control, "create rule cache with cache_size:" << gopts.dcc_cache_size << " rulesfile_max_age: " << gopts.dcc_rulesfile_max_age << " max_age_short: " << gopts.max_age_short);
+        rule_cache = std::make_unique<cc_rule_cache>(gopts.export_root, gopts.dcc_cache_size, gopts.dcc_rulesfile_max_age, FALLBACK);
     }
 }
 
 const std::string&
 per_selector111::basepath() const{
-    return FLAGS_export_root;
+    return gopts.export_root;
 }
 
 const std::string&
 per_selector111::estale_cookie_src() const{
-    return FLAGS_estale_cookie_src;
+    return gopts.estale_cookie_src;
 }
   
 void
@@ -131,7 +110,7 @@ per_selector111::regular_maintenance() try {
     if(sm)
         sm->regular_maintenance();
     
-    if (FLAGS_cache_control_file.empty()) {
+    if (gopts.cache_control_file.empty()) {
         // longtimeoutroot was initialized in the constructor to a
         // unique_ptr to an empty longtimeoutnode.  As a result,
         // 'search()' in cachecontrol.cpp will return
@@ -140,12 +119,12 @@ per_selector111::regular_maintenance() try {
 	return;
     }
     struct stat sb;
-    sew::stat(FLAGS_cache_control_file.c_str(), &sb);
+    sew::stat(gopts.cache_control_file.c_str(), &sb);
     std::lock_guard<std::mutex> lg(ltrmtx);
     if( sb.st_ctim == ltrsb.st_ctim && sb.st_mtim == ltrsb.st_mtim && sb.st_size == ltrsb.st_size )
         return;
-    log_notice("timeout data file %s has changed.  Reading...", FLAGS_cache_control_file.c_str());
-    acFILE fp = sew::fopen(FLAGS_cache_control_file.c_str(), "r");
+    log_notice("timeout data file %s has changed.  Reading...", gopts.cache_control_file.c_str());
+    acFILE fp = sew::fopen(gopts.cache_control_file.c_str(), "r");
     std::string k;
     std::string v;
     auto newltr = std::make_unique<stringtree>();
@@ -215,9 +194,9 @@ per_selector111::get_cache_control(const std::string& func, const std::string& p
             DIAGkey(_cache_control, "get_cache_control(func=" << func << ", path_info=" << pi << ") -> matched regex eno=" << eno << "\n");
             switch(eno){
             case 0:
-                return FLAGS_cache_control_directives + cc_good;
+                return gopts.cache_control_directives + cc_good;
             case ENOENT:
-                return FLAGS_cache_control_directives + cc_enoent;
+                return gopts.cache_control_directives + cc_enoent;
             // anything else falls through, eventually returning
             // max_age_short and swr-short (see below)
             }
@@ -227,9 +206,9 @@ per_selector111::get_cache_control(const std::string& func, const std::string& p
     // Look in a "database" of "long-timeout paths" (represented by
     // the stringtree longtimeoutroot).  If any prefix of relpath is
     // in the database, then return Cache-control with max-age set to
-    // FLAGS_max_age_long or max_max_age, whichever is smaller.  If no
+    // gopts.max_age_long or max_max_age, whichever is smaller.  If no
     // prefix of relpath is in the database, return a Cache-control
-    // with max-age set to FLAGS_max_age_short (or max_max_age,
+    // with max-age set to gopts.max_age_short (or max_max_age,
     // whichever is smaller).  Note that 'path_info' generally starts
     // with '/', unless it's referring to the root, in which case it's
     // empty.  max_max_age is basically an upper-limit override, see
@@ -247,10 +226,10 @@ per_selector111::get_cache_control(const std::string& func, const std::string& p
         break;
     case stringtree::TREE_PREFIXES_PATH:
     case stringtree::PATH_TERMINATES_TREE:
-        max_age = std::min(static_cast<decltype(max_max_age)>(FLAGS_max_age_long),  max_max_age);
-        ret = FLAGS_cache_control_directives+"max-age=" + std::to_string(max_age);
-        if(FLAGS_stale_while_revalidate_long){
-            ret += ",stale-while-revalidate=" + std::to_string(FLAGS_stale_while_revalidate_long);
+        max_age = std::min(static_cast<decltype(max_max_age)>(gopts.max_age_long),  max_max_age);
+        ret = gopts.cache_control_directives+"max-age=" + std::to_string(max_age);
+        if(gopts.stale_while_revalidate_long){
+            ret += ",stale-while-revalidate=" + std::to_string(gopts.stale_while_revalidate_long);
         }
         break;
     }
@@ -276,7 +255,7 @@ per_selector111::encode_content(const fs123Req& req, const std::string& esid, st
     // N.B.  ace=CE_UNKNOWN is perfectly reasonable, e.g., when
     // a cache accepts "gzip".  Just ignore it.
     if(ace != content_codec::CE_FS123_SECRETBOX){
-        if(FLAGS_allow_unencrypted_replies)
+        if(gopts.allow_unencrypted_replies)
             return {in, ""};
         else
             httpthrow(406, "Request must specify Accept-encoding: fs123-secretbox");
