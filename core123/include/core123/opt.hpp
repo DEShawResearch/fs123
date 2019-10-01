@@ -1,16 +1,27 @@
 // Small option parsing utility class.  Only intended for name=value
 // format, which can directly come from argv via --name=value, or
 // environment variables {SOMEPREFIX}{NAME}=value, or from the caller.
-
-// Options are decalared with:
 //
-//   option_parser p;
-//   p.add_option("name", "description", "default_value", callback)
+// An option_parser is declared with:
+//
+//   option_parser p("myprog - a program for doing my stuff\nUsage:  myprog [options] foo bar\nOptions:\n");
 //   ...
 //
-// Where 'callback' is any 'Callable' with a signature like:
+// The optional string argument to the option_parser constructor will
+// appear at the beginning of helptext(), and the output of the --help
+// option.
+//
+// Individual options are declared with:
+//
+//   p.add_option("name", "description", default_value, callback)
+//
+// where callback has a signature like:
 //
 //    void callable(const std::string& newvalue, const option& before);
+//
+// Such options are set by a command line argument of the form:
+//
+//    --name=value
 //
 // The callable can do whatever it likes with the new value and the
 // previous state of the option (see option's api below).  E.g., it
@@ -18,22 +29,48 @@
 // location.  In fact, the 'opt_setter' function returns a callable
 // that does exactly that.  E.g.,
 //
-//   bool verbosity;
-//   int nthreads;
-//   p.add_option("verbose", "chattiness", "0", opt_setter(verbosity));
-//   p.add_option("nthreads", "how many threads", "4", opt_setter(nthreads));
+//    int nthreads;
+//    p.add_option("nthreads", "number of threads", 4, opt_setter(nthreads));
 //
-// When the '--verbose=true' option is parsed, the functor returned by
-// opt_setter(verbosity) will assign true to its argument, verbosity.
-// Note that opt_setter stores a reference to its argument, so its
-// argument should generally be a long-lived object.
+// When the '--nthreads=4' option is parsed, the functor returned by
+// opt_setter(nthreads) will assign 4 to its argument, nthreads.  Note
+// that the opt_setter stores a reference to its argument, so its
+// argument should generally be a long-lived objects.
 //
-// Also note that the callback is always invoked at least once, by
-// add_option itself, with newvalue equal to the specified default
-// value.
+// Options that do not require a value are declared without a default and
+// with a callback with a different signature:
+//
+//   p.add_option("name", "description", callback);
+//
+// In which case, the callback's signature is:
+//
+//     void callable(const option& before);
+//
+// The 'opt_true_setter' and 'opt_false_setter' callbacks are particularly
+// useful for value-less options that set a boolean:
+//
+//   bool verbose
+//   p.add_option("verbose", "chattiness", opt_true_setter(verbose));
+//
+// When the '--verbose' option is parsed, the functor returned by
+// opt_true_setter(verbosity) will assign true to its argument,
+// verbosity.
+//
+// There are two automatically declared options:
+//
+//   --help - invokes a callback that inserts helptext() in std::cerr
+//   --flagfile=FILENAME - invokes a callback that calls:
+//           setopts_from_istream(ifstream(FILENAME))
+//
+// To override the pre-declared options (or any existing option), use del_option before
+// calling add_option:
+//
+//   bool help;
+//   p.del_option("help");
+//   p.add_option("help", "send help text to an undisclosed location", opt_true_setter(help));
 //
 // A rudimentary, but passable usage string is produced by:
-//   std::cerr << "Options:\n" <<  p.helptext();
+//   std::cerr << p.helptext();
 //
 // Options are set in several ways:
 //
@@ -45,18 +82,17 @@
 //     p.setopts_from_istream(ifstream("foo.config"));
 // - explicitly:
 //     p.set("name", "value");
-//   or
-//     auto& to_opt = p.add_option("timeout", "how long to wait", "10", opt_setter(timeout));
-//     to_opt.set("99");
+//     p.set("verbose");  // a no-value option
 //
 // In all cases, option names are case-insensitive and hyphens and underscores
 // in option names are ignored.  So,
-//    --verbose=1
-//    --ver-bose=1
-//    --VERBOSE=1
-//    --VERBO_se=1
-//    env MYPROG_VERBOSE=1 ...
-//    env MYPROG_verbose=1 ...
+//    --max-open-files=1024
+//    --max_open_files=1024
+//    --maxopenfiles=1024
+//    --MaxOpenFiles=1024
+//    --max_OpENFil-es=1024
+//    env MYPROG_MAX_OPEN_FILES=1024 ...
+//    env MYPROG_max_open_files=1024 ...
 // are all equivalent:  they will all invoke the callback associated with the "verbose" option.
 
 // Advanced usage:  (subject to change!):
@@ -81,15 +117,6 @@
 //       ...
 //   };
 //
-// Simplicity is a virtue: Every option is initialized to an
-// explicitly specified default value.  Every option has a
-// well-defined value at all times.  Every option specification is of
-// the form --name=value.  There are no plain --name option
-// specifications.  There's no such thing as a "not yet set" option.
-// There is no such thing as 'unset'-ing an option.
-// 
-// It's not that hard to make different decisions about all of the
-// above (hint: use pointers).  But is it worth the added complexity?
 
 #pragma once
 #include <string>
@@ -120,24 +147,47 @@ template<typename T>
 detail::_setter<T>
 opt_setter(T& v){ return detail::_setter<T>(v); }
 
+class opt_true_setter{
+    bool& v;
+public:
+    void operator()(const option&){ v = true; }
+    opt_true_setter(bool& v_) : v(v_){}
+};
+
+class opt_false_setter{
+    bool& v;
+public:
+    void operator()(const option&){ v = false; }
+    opt_false_setter(bool& v_) : v(v_){}
+};
+
 struct option{
     std::string name;    // identical to the key in optmap.
     std::string desc;    // description for help text
     std::string valstr;  // current value, initialized to dflt
     std::string dflt;    // default value
-    std::function<void(const std::string&, const option&)> callback;
+    // only one of value_callback and novalue_callback will be valid
+    std::function<void(const std::string&, const option&)> value_callback;
+    std::function<void(const option&)> novalue_callback;
     friend class option_parser;
     // N.B.  the only way to construct an option is through option_parser::add_option
     option(const std::string& name_, const std::string& dflt_, const std::string& desc_, std::function<void(const std::string&, const option&)> cb_):
-        name(name_), desc(desc_), dflt(dflt_), callback(cb_)
+        name(name_), desc(desc_), dflt(dflt_), value_callback(cb_)
     { set(dflt); }
+    option(const std::string& name_, const std::string& desc_, std::function<void(const option&)> cb_):
+        name(name_), desc(desc_), novalue_callback(cb_)
+    { }
+    bool value_required() const { return bool(value_callback); }
 public:
     std::string get_name() const { return name; }
     std::string get_value() const { return valstr; }
     std::string get_default() const { return dflt; }
     std::string get_desc() const { return desc; }
+    void set(){
+        novalue_callback(*this);
+    }
     void set(const std::string& newval){
-        callback(newval, *this);
+        value_callback(newval, *this);
         valstr = newval;
     }
 };
@@ -150,6 +200,7 @@ private:
     // option *in* the optmap_.  Therefore, nothing may ever be
     // removed from optmap_!
     OptMap optmap_;
+    std::string description;
     // When parsing command-line options, we ignore hyphens, underscores
     // and case.  Canonicalize is called before keys are inserted
     // or looked up in optmap_.
@@ -162,29 +213,66 @@ private:
         }
         return ret;
     }
+
+    // utility function to set an individual option by parsing name=value
+    // or just name from nvp
+    void setarg(const char *nvp){
+        auto p = strchr(nvp, '=');
+        if (p == nullptr){
+            set(nvp);
+        }else{
+            std::string name{nvp, static_cast<size_t>(p - nvp)};
+            set(name, p+1);
+        }
+    }
+
 public:
+    option_parser(const std::string& desc = "Options:\n") : description(desc) {
+        if(!endswith(description, "\n") && !description.empty())
+            description += "\n";
+        add_option("help", "send helptext to stderr", [this](const option&){ std::cerr << helptext(); });
+        add_option("flagfile", "read flags from the named file", "",
+                   [this](const std::string& fname, const option&){
+                       if(fname.empty())
+                           return;
+                       std::ifstream ifs(fname);
+                       setopts_from_istream(ifs);
+                   });
+    }
     // creates and returns a new option.
     option& add_option(const std::string& name, const std::string& dflt, const std::string& desc, std::function<void(const std::string&, const option&)> cb){
-        // N.B.  If the name already exists, it is *NOT* overwritten and it is *NOT* an error.
-        return optmap_.emplace(std::piecewise_construct, std::forward_as_tuple(canonicalize(name)), std::forward_as_tuple(name, dflt, desc, cb)).first->second;
+        auto ibpair = optmap_.emplace(std::piecewise_construct, std::forward_as_tuple(canonicalize(name)), std::forward_as_tuple(name, dflt, desc, cb));
+        if(!ibpair.second)
+            throw std::runtime_error("opt_parser::add_option(" + name + ") already exists.");
+        return ibpair.first->second;
+    }
+
+    option& add_option(const std::string& name, const std::string& desc, std::function<void(const option&)> cb){
+
+        auto ibpair = optmap_.emplace(std::piecewise_construct, std::forward_as_tuple(canonicalize(name)), std::forward_as_tuple(name, desc, cb));
+        if(!ibpair.second)
+            throw std::runtime_error("opt_parser::add_option(" + name + ") already exists.");
+        return ibpair.first->second;
+    }
+    
+    void del_option(const std::string& name){
+        optmap_.erase(name);
     }
 
     // set one option, by name, to val, and call the option's callback.
     void set(const std::string &name, const std::string &val){
-        // throws if name is not a known option.
+        // .at throws if name is not a known option.
+        // .set throws if the name was not declared to accept a value
         optmap_.at(canonicalize(name)).set(val);
     }
        
-    // utility function to set an individual option by parsing name=value
-    // out from nvp
-    void set(const char *nvp){
-        auto p = strchr(nvp, '=');
-        if (p == nullptr)
-            throw std::runtime_error(std::string("option missing = sign, need name=value, not ") + nvp);
-        std::string name{nvp, static_cast<size_t>(p - nvp)};
-        set(name, p+1);
+    // call the novalue callback associated with name
+    void set(const std::string &name){
+        // .at throws if name is not a known option.
+        // .set throws if the name was not declared as a no-value option
+        optmap_.at(canonicalize(name)).set();
     }
-
+       
     // How much visibility should we offer into internals?  With a
     // const reference to the optmap, a determined caller can
     // enumerate the current option settings or generate its
@@ -209,14 +297,7 @@ public:
                         optind++;
                         break;
                     }
-                    set(&cp[2]);
-                } else if (cp[1] == '@') {
-                    if (cp[2] == '\0') {
-                        throw std::runtime_error(std::string("need filename containing options after ") + cp);
-                    } else {
-                        std::ifstream inf(&cp[2]);
-                        setopts_from_istream(inf);
-                    }
+                    setarg(&cp[2]);
                 } else if (cp[1] != '\0') {
                     throw std::runtime_error(std::string("single -option not supported, need --option=value, not ") + cp);
                 } else {
@@ -259,21 +340,26 @@ public:
                 continue;
             if(startswith(s, "--"))
                 s = s.substr(2);
-            set(s.c_str());
+            setarg(s.c_str());
         }
     }        
     
     // returns help text derived from names, defaults and descriptions.
     std::string helptext(size_t indent = 4) const{
-        std::string ret;
+        std::string ret = description;
         for (const auto& o : optmap_) {
+            const option& opt = o.second;
             ret.append(indent, ' ');
-            ret.append(o.second.name); // not o.first,  which is canonicalized
-            ret.append(1, '=');
-            ret.append(" (default ");
-            ret.append(o.second.dflt);
-            ret.append(" ) : ");
-            ret.append(o.second.desc);
+            ret.append(opt.name); // not o.first,  which is canonicalized
+            if(opt.value_required()){
+                ret.append(1, '=');
+                // N.B.  callback is valid only if and only if the option was created with a default.
+                ret.append(" (default ");
+                ret.append(opt.dflt);
+                ret.append(" )");
+            }
+            ret.append(" : ");
+            ret.append(opt.desc);
             ret.append(1, '\n');
         }
         return ret;
