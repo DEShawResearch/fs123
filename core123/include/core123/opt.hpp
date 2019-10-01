@@ -49,6 +49,16 @@
 //     auto& to_opt = p.add_option("timeout", "how long to wait", "10", opt_setter(timeout));
 //     to_opt.set("99");
 //
+// In all cases, option names are case-insensitive and hyphens and underscores
+// in option names are ignored.  So,
+//    --verbose=1
+//    --ver-bose=1
+//    --VERBOSE=1
+//    --VERBO_se=1
+//    env MYPROG_VERBOSE=1 ...
+//    env MYPROG_verbose=1 ...
+// are all equivalent:  they will all invoke the callback associated with the "verbose" option.
+
 // Advanced usage:  (subject to change!):
 //
 // The option class provides access to option details:
@@ -140,17 +150,29 @@ private:
     // option *in* the optmap_.  Therefore, nothing may ever be
     // removed from optmap_!
     OptMap optmap_;
+    // When parsing command-line options, we ignore hyphens, underscores
+    // and case.  Canonicalize is called before keys are inserted
+    // or looked up in optmap_.
+    std::string canonicalize(const std::string& word){
+        std::string ret;
+        for(auto letter : word){
+            if(letter == '-' || letter == '_')
+                continue;
+            ret.append(1, std::tolower(letter));
+        }
+        return ret;
+    }
 public:
     // creates and returns a new option.
     option& add_option(const std::string& name, const std::string& dflt, const std::string& desc, std::function<void(const std::string&, const option&)> cb){
         // N.B.  If the name already exists, it is *NOT* overwritten and it is *NOT* an error.
-        return optmap_.emplace(std::piecewise_construct, std::forward_as_tuple(name), std::forward_as_tuple(name, dflt, desc, cb)).first->second;
+        return optmap_.emplace(std::piecewise_construct, std::forward_as_tuple(canonicalize(name)), std::forward_as_tuple(name, dflt, desc, cb)).first->second;
     }
 
     // set one option, by name, to val, and call the option's callback.
     void set(const std::string &name, const std::string &val){
         // throws if name is not a known option.
-        optmap_.at(name).set(val);
+        optmap_.at(canonicalize(name)).set(val);
     }
        
     // utility function to set an individual option by parsing name=value
@@ -246,7 +268,7 @@ public:
         std::string ret;
         for (const auto& o : optmap_) {
             ret.append(indent, ' ');
-            ret.append(o.first);
+            ret.append(o.second.name); // not o.first,  which is canonicalized
             ret.append(1, '=');
             ret.append(" (default ");
             ret.append(o.second.dflt);
