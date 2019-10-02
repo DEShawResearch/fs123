@@ -1,5 +1,6 @@
 #include <core123/opt.hpp>
 #include <core123/diag.hpp>
+#include <core123/complaints.hpp>
 #include <string>
 #include <cinttypes>
 #include <fstream>
@@ -44,12 +45,21 @@ int main(int argc, char **argv)
     //op2.del_option("help");
     //op2.add_option("help", "print help", opt_true_setter(help));
 
-    auto optind = op2.setopts_from_argv(argc, (const char **) argv);
+    int optind = 0;
+    try{
+        optind = op2.setopts_from_argv(argc, (const char **) argv);
+    }catch(option_error& oe){
+        complain(oe, "setopts_from_argv:");
+    }
     printf("--- after argv\n");
     printopts();
     set_diag_destination("%stderr");
     set_diag_names("opt:1");
-    op2.setopts_from_env(TEST_PREFIX);
+    try{
+        op2.setopts_from_env(TEST_PREFIX);
+    }catch(option_error& oe){
+        complain(oe, "setopts_from_env:");
+    }        
     printf("--- after env\n");
     printopts();
     printf("--- optind %d argc %d\n", optind, argc);

@@ -94,7 +94,11 @@
 //    env MYPROG_MAX_OPEN_FILES=1024 ...
 //    env MYPROG_max_open_files=1024 ...
 // are all equivalent:  they will all invoke the callback associated with the "verbose" option.
-
+//
+// The option_parser methods generally throw option_parser exceptions
+// (possibly with other exceptions nested inside) if they encounter
+// any unexpected conditions.
+//
 // Advanced usage:  (subject to change!):
 //
 // The option class provides access to option details:
@@ -159,6 +163,12 @@ class opt_false_setter{
 public:
     void operator()(const option&){ v = false; }
     opt_false_setter(bool& v_) : v(v_){}
+};
+
+struct option_error : public std::runtime_error{
+    explicit option_error(const std::string& what_arg) : std::runtime_error(what_arg){}
+    explicit option_error(const char* what_arg) : std::runtime_error(what_arg){}
+    ~option_error() = default;
 };
 
 struct option{
@@ -240,38 +250,45 @@ public:
                    });
     }
     // creates and returns a new option.
-    option& add_option(const std::string& name, const std::string& dflt, const std::string& desc, std::function<void(const std::string&, const option&)> cb){
+    option& add_option(const std::string& name, const std::string& dflt, const std::string& desc, std::function<void(const std::string&, const option&)> cb) try {
         auto ibpair = optmap_.emplace(std::piecewise_construct, std::forward_as_tuple(canonicalize(name)), std::forward_as_tuple(name, dflt, desc, cb));
         if(!ibpair.second)
-            throw std::runtime_error("opt_parser::add_option(" + name + ") already exists.");
+            throw option_error("opt_parser::add_option(" + name + ") already exists.");
         return ibpair.first->second;
     }
+    catch(option_error& oe){throw;}
+    catch(std::exception& e){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, name, dflt, desc, &cb)));}
 
-    option& add_option(const std::string& name, const std::string& desc, std::function<void(const option&)> cb){
+    option& add_option(const std::string& name, const std::string& desc, std::function<void(const option&)> cb) try{
 
         auto ibpair = optmap_.emplace(std::piecewise_construct, std::forward_as_tuple(canonicalize(name)), std::forward_as_tuple(name, desc, cb));
         if(!ibpair.second)
-            throw std::runtime_error("opt_parser::add_option(" + name + ") already exists.");
+            throw option_error("opt_parser::add_option(" + name + ") already exists.");
         return ibpair.first->second;
     }
+    catch(option_error&){throw;}
+    catch(std::exception& e){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, name, desc, &cb)));}
     
-    void del_option(const std::string& name){
+    void del_option(const std::string& name)try{
         optmap_.erase(name);
     }
+    catch(std::exception& e){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, name)));}
 
     // set one option, by name, to val, and call the option's callback.
-    void set(const std::string &name, const std::string &val){
+    void set(const std::string &name, const std::string &val)try{
         // .at throws if name is not a known option.
         // .set throws if the name was not declared to accept a value
         optmap_.at(canonicalize(name)).set(val);
     }
+    catch(std::exception& e){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, name, val)));}
        
     // call the novalue callback associated with name
-    void set(const std::string &name){
+    void set(const std::string &name)try{
         // .at throws if name is not a known option.
         // .set throws if the name was not declared as a no-value option
         optmap_.at(canonicalize(name)).set();
     }
+    catch(std::exception& e){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, name)));}
        
     // How much visibility should we offer into internals?  With a
     // const reference to the optmap, a determined caller can
@@ -284,7 +301,7 @@ public:
     // that was previously add_option()-ed.
     // N.B. - only *weakly* exception-safe.  *This will have been modified in
     // unpredictable ways if the operation throws.
-    int setopts_from_argv(int argc, const char **argv, size_t startindex = 1){
+    int setopts_from_argv(int argc, const char **argv, size_t startindex = 1)try{
         int optind;
         for (optind = startindex; optind < argc; optind++) {
             auto cp = argv[optind];
@@ -299,7 +316,7 @@ public:
                     }
                     setarg(&cp[2]);
                 } else if (cp[1] != '\0') {
-                    throw std::runtime_error(std::string("single -option not supported, need --option=value, not ") + cp);
+                    throw option_error(std::string("single -option not supported, need --option=value, not ") + cp);
                 } else {
                     // bare - might mean stdin, we return on it as if non-option
                     break;
@@ -311,13 +328,15 @@ public:
         }
         return optind;
     }        
+    catch(option_error&){ throw; }
+    catch(std::exception& e){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, argc, argv, startindex)));}
 
     // sees if any environment variable names of the form opt_env_prefix
     // concatenated before the uppercase option name exist, and if so, set
     // that option to the corresp value (for all names provided in opts to init)
     // N.B. - only *weakly* exception-safe.  *This will have been modified in
     // unpredictable ways if the operation throws.
-    void setopts_from_env(const char *opt_env_prefix){
+    void setopts_from_env(const char *opt_env_prefix)try{
         std::string pfx(opt_env_prefix);
         for (const auto& o : optmap_) {
             std::string ename(opt_env_prefix);
@@ -329,11 +348,13 @@ public:
             if (ecp) set(o.first, ecp);
         }
     }
+    catch(option_error&){ throw; }
+    catch(std::exception& e){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, opt_env_prefix)));}
 
     // read options from the specified file
     // N.B. - only *weakly* exception-safe.  *This will have been modified in
     // unpredictable ways if the operation throws.
-    void setopts_from_istream(std::istream& inpf){
+    void setopts_from_istream(std::istream& inpf)try{
         for (std::string line; getline(inpf, line);) {
             std::string s = strip(line); // remove leading and trailing(?) whitespace
             if(startswith(s, "#") || s.empty())
@@ -343,9 +364,11 @@ public:
             setarg(s.c_str());
         }
     }        
+    catch(option_error&){ throw; }
+    catch(std::exception& e){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, &inpf)));}
     
     // returns help text derived from names, defaults and descriptions.
-    std::string helptext(size_t indent = 4) const{
+    std::string helptext(size_t indent = 4) const try{
         std::string ret = description;
         for (const auto& o : optmap_) {
             const option& opt = o.second;
@@ -364,6 +387,8 @@ public:
         }
         return ret;
     }
+    catch(option_error&){ throw; }
+    catch(std::exception& e){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, indent)));}
 };
 
 } // namespace core123
