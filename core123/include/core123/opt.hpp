@@ -95,6 +95,37 @@
 //    env MYPROG_max_open_files=1024 ...
 // are all equivalent:  they will all invoke the callback associated with the "verbose" option.
 //
+// When reading options from a stream, the stream is read one line at
+// a time.  Whitespace is trimmed from the beginning and end of each
+// line, and if the result is either empty or starts with a '#', the
+// line is ignored.  Otherwise, the line must match the regex:
+//
+//    std::regex re("(--)?(\\w+)\\s*(=?)\\s*(.*)");
+//
+// I.e., the line must start with an optional leading "--", followed by
+// the option name, followed by an optional "=" (surrounded by
+// optional whitespace), followed by the value.
+// 
+// If there is no "=", *and* if there is only whitespace after the
+// name, the named option must not be value_required().
+// Conversely, if there is an "=" *or* if there is non-whitespace
+// after the name, the option must not be value_required().  For
+// example:
+//
+//     --foo             // no-value
+//     --foo=bar         // with-value("bar")
+//     --foo =  bar      // with-value("bar")
+//     --foo== bar       // with-value("= bar")
+//     --foo bar         // with-value("bar")
+//     --foo     bar     // with-value("bar")
+//     --foo bar=baz     // with-value("bar=baz")
+//     --foo=bar=baz     // with-value("bar=baz")
+//     #--foo            // comment
+//     foo               // no-value
+//     foo=bar           // with-value("bar")
+//     foo    bar        // with-value("bar")
+//     #foo              // comment
+//
 // The option_parser methods generally throw option_parser exceptions
 // (possibly with other exceptions nested inside) if they encounter
 // any unexpected conditions.
@@ -109,6 +140,7 @@
 //   opt.get_value() - returns the current string value of the option
 //   opt.get_default() - returns the default value of the option
 //   opt.get_desc()  - returns the option's description
+//   opt.value_required() - returns true if the option requires a value and has a default.
 //   opt.set(const std::string&) - sets the value and calls the callback
 //
 // The option_parser class exposes the details of all options via
@@ -123,13 +155,15 @@
 //
 
 #pragma once
+#include <core123/svto.hpp>
+#include <core123/throwutils.hpp>
 #include <string>
 #include <map>
 #include <cstring>
 #include <iostream>
 #include <fstream>
-#include <core123/svto.hpp>
-#include <core123/throwutils.hpp>
+#include <regex>
+#include <stdexcept>
 
 namespace core123{
 
@@ -187,16 +221,28 @@ struct option{
     option(const std::string& name_, const std::string& desc_, std::function<void(const option&)> cb_):
         name(name_), desc(desc_), novalue_callback(cb_)
     { }
-    bool value_required() const { return bool(value_callback); }
 public:
+    bool value_required() const { return bool(value_callback); }
     std::string get_name() const { return name; }
-    std::string get_value() const { return valstr; }
-    std::string get_default() const { return dflt; }
+    std::string get_value() const {
+        if(!value_required())
+            throw option_error("option::get_value:  option --" + name + "does not support values");
+        return valstr;
+    }
+    std::string get_default() const {
+        if(!value_required())
+            throw option_error("option::get_default_value:  option --" + name + "does not support values");
+        return dflt;
+    }
     std::string get_desc() const { return desc; }
     void set(){
+        if(value_required())
+            throw option_error("option::set:  option --" + name + " requires a value");
         novalue_callback(*this);
     }
     void set(const std::string& newval){
+        if(!value_required())
+            throw option_error("option::set:  option --" + name + " does not support values");
         value_callback(newval, *this);
         valstr = newval;
     }
@@ -224,16 +270,10 @@ private:
         return ret;
     }
 
-    // utility function to set an individual option by parsing name=value
-    // or just name from nvp
-    void setarg(const char *nvp){
-        auto p = strchr(nvp, '=');
-        if (p == nullptr){
-            set(nvp);
-        }else{
-            std::string name{nvp, static_cast<size_t>(p - nvp)};
-            set(name, p+1);
-        }
+    option& at(const std::string& k) try {
+        return optmap_.at(canonicalize(k));
+    }catch(std::out_of_range&){
+        throw option_error("option_parser:  unknown option: " + k);
     }
 
 public:
@@ -241,12 +281,18 @@ public:
         if(!endswith(description, "\n") && !description.empty())
             description += "\n";
         add_option("help", "send helptext to stderr", [this](const option&){ std::cerr << helptext(); });
-        add_option("flagfile", "read flags from the named file", "",
+        static int flagfile_depth = 0;
+        add_option("flagfile", "", "read flags from the named file",
                    [this](const std::string& fname, const option&){
-                       if(fname.empty())
+                       if(flagfile_depth++ > 10)
+                           throw option_error("flagfile recursion depth exceeds limit (10) processing:" + fname);
+                       if(fname.empty()) // don't forget, we get called with the default!
                            return;
                        std::ifstream ifs(fname);
                        setopts_from_istream(ifs);
+                       if(!ifs && !ifs.eof())
+                           throw option_error("error reading from --flagfile=" + fname);
+                       flagfile_depth--;
                    });
     }
     // creates and returns a new option.
@@ -278,7 +324,7 @@ public:
     void set(const std::string &name, const std::string &val)try{
         // .at throws if name is not a known option.
         // .set throws if the name was not declared to accept a value
-        optmap_.at(canonicalize(name)).set(val);
+        at(name).set(val);
     }
     catch(std::exception& e){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, name, val)));}
        
@@ -286,7 +332,7 @@ public:
     void set(const std::string &name)try{
         // .at throws if name is not a known option.
         // .set throws if the name was not declared as a no-value option
-        optmap_.at(canonicalize(name)).set();
+        at(name).set();
     }
     catch(std::exception& e){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, name)));}
        
@@ -296,37 +342,46 @@ public:
     // own helptxt.  Sufficient?
     const OptMap& get_map() const { return optmap_; }
 
-    // parses any --foo=bar from argv[startindex] onwards after stripping off leading --
-    // stops at -- (gobbling  it) or - non-hyphen.  foo must be an option name
-    // that was previously add_option()-ed.
-    // N.B. - only *weakly* exception-safe.  *This will have been modified in
-    // unpredictable ways if the operation throws.
-    int setopts_from_argv(int argc, const char **argv, size_t startindex = 1)try{
-        int optind;
-        for (optind = startindex; optind < argc; optind++) {
-            auto cp = argv[optind];
-            if (cp[0] == '-') {
-                // might be --name=value
-                if (cp[1] == '-') {
-                    // --name=value or --
-                    if (cp[2] == '\0') {
-                        // --, gobble it and return
-                        optind++;
-                        break;
-                    }
-                    setarg(&cp[2]);
-                } else if (cp[1] != '\0') {
-                    throw option_error(std::string("single -option not supported, need --option=value, not ") + cp);
-                } else {
-                    // bare - might mean stdin, we return on it as if non-option
-                    break;
-                }
-            } else {
-                // no leading -, so first non-option, return
+    // parses any --foo=bar from argv[startindex] onwards.
+    // Stops at -- (gobbling it).  An option_error is thrown if foo
+    // was not previously add_option()-ed.  N.B. - only *weakly*
+    // exception-safe.  *This will have been modified in unpredictable
+    // ways if the operation throws.
+    std::vector<std::string>
+    setopts_from_argv(int argc, char *argv[], int startindex = 1)try{
+        std::vector<std::string> leftover;
+        for (int optind = startindex; optind < argc; optind++) {
+            std::string cp = argv[optind];
+            if(!startswith(cp, "--")){
+                leftover.push_back(cp);
+                continue;
+            }
+            if(cp == "--"){
+                // Stop when we see --.  Anything left gets pushed
+                // onto the leftover vector.
+                for( optind++ ; optind < argc; optind++)
+                    leftover.push_back(argv[optind]);
                 break;
             }
+            auto eqpos = cp.find("=", 2);
+            if(eqpos == std::string::npos){
+                // No '='.  This might be a no-value argument, or a
+                // with-value argument that consumes the next argv.
+                auto& opt = at(cp);
+                if(opt.value_required()){
+                    if(optind == argc)
+                        throw option_error("Missing argument for option:" + cp);
+                    opt.set(argv[++optind]);
+                }else{
+                    opt.set();
+                }
+            }else{
+                // --name=something
+                auto& opt = at(cp.substr(2, eqpos-2));
+                opt.set(cp.substr(eqpos+1));
+            }                    
         }
-        return optind;
+        return leftover;
     }        
     catch(option_error&){ throw; }
     catch(std::exception& e){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, argc, argv, startindex)));}
@@ -351,17 +406,31 @@ public:
     catch(option_error&){ throw; }
     catch(std::exception& e){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, opt_env_prefix)));}
 
-    // read options from the specified file
+    // read options from the specified istream
     // N.B. - only *weakly* exception-safe.  *This will have been modified in
     // unpredictable ways if the operation throws.
     void setopts_from_istream(std::istream& inpf)try{
+        // N.B. - reading to the end of inpf this way may (usually!)
+        // set inpf's failbit.
         for (std::string line; getline(inpf, line);) {
-            std::string s = strip(line); // remove leading and trailing(?) whitespace
+            std::string s = strip(line); // remove leading and trailing whitespace
             if(startswith(s, "#") || s.empty())
                 continue;
             if(startswith(s, "--"))
                 s = s.substr(2);
-            setarg(s.c_str());
+            std::regex re("(--)?(\\w+)\\s*(=?)\\s*(.*)");
+            std::smatch mr;
+            if(!std::regex_match(s, mr, re))
+                throw option_error("setopts_from_istream: failed to parse line: " +line);
+            if(mr.size() != 5)
+                throw std::logic_error("Uh oh. We're very confused about regex_match");
+            auto name = mr.str(2);
+            auto equals = mr.str(3);
+            auto rhs = mr.str(4);
+            if(!equals.empty() || !rhs.empty())
+                set(name, rhs);
+            else
+                set(name);
         }
     }        
     catch(option_error&){ throw; }

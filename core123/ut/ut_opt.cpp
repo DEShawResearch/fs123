@@ -31,7 +31,7 @@ void printopts() {
 
 #define TEST_PREFIX "TESTOPT_"
 
-int main(int argc, char **argv)
+int main(int argc, char *argv[])
 {
     option_parser op2("myprog - a program for doing my stuff\nUsage:  myprog [options] foo bar\nOptions:\n");
     op2.add_option("debug", "0", "turns on debug", opt_setter(debug));
@@ -45,9 +45,9 @@ int main(int argc, char **argv)
     //op2.del_option("help");
     //op2.add_option("help", "print help", opt_true_setter(help));
 
-    int optind = 0;
+    std::vector<std::string> leftover;
     try{
-        optind = op2.setopts_from_argv(argc, (const char **) argv);
+        leftover = op2.setopts_from_argv(argc, argv);
     }catch(option_error& oe){
         complain(oe, "setopts_from_argv:");
     }
@@ -62,9 +62,10 @@ int main(int argc, char **argv)
     }        
     printf("--- after env\n");
     printopts();
-    printf("--- optind %d argc %d\n", optind, argc);
-    for (auto i = optind; i < argc; i++) {
-	printf("%d: %s\n", i, argv[i]);
+    int i=0;
+    printf("--- leftover arguments\n");
+    for (auto& e : leftover){
+	printf("%d: %s\n", i++, e.c_str());
     }
     return 0;
 }
