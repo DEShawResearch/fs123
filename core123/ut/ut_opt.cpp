@@ -14,6 +14,7 @@ uint32_t u32, u32n;
 uint64_t u64, u64n;
 double dbl;
 std::string path1, path2;
+int foo_bar;
 //bool help;
 
 void printopts() {
@@ -26,6 +27,7 @@ void printopts() {
     prtopt(u32n);
     prtopt(u64n);
     prtopt(dbl);
+    prtopt(foo_bar);
     //prtopt(help);
 }
 
@@ -42,6 +44,7 @@ int main(int argc, char *argv[])
     op2.add_option("u32n", "0xdeadbeef", "set another 32bit unsigned", opt_setter(u32n));
     op2.add_option("u64n", "0x123456789abcdef0", "set another 64bit unsigned", opt_setter(u64n));
     op2.add_option("dbl", "0.1", "set a double", opt_setter(dbl));
+    op2.add_option("foo-bar", "77", "set an int", opt_setter(foo_bar));
     //op2.del_option("help");
     //op2.add_option("help", "print help", opt_true_setter(help));
 

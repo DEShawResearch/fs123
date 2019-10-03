@@ -100,11 +100,13 @@
 // line, and if the result is either empty or starts with a '#', the
 // line is ignored.  Otherwise, the line must match the regex:
 //
-//    std::regex re("(--)?(\\w+)\\s*(=?)\\s*(.*)");
+//    std::regex re("(--)?([-_[:alnum:]]+)\\s*(=?)\\s*(.*)");
 //
-// I.e., the line must start with an optional leading "--", followed by
-// the option name, followed by an optional "=" (surrounded by
-// optional whitespace), followed by the value.
+// I.e., the line must start with an optional leading "--", followed
+// by the option name (one or more hyphens, underscores or
+// alphanumerics), followed by an optional "=" (surrounded by optional
+// whitespace), followed by the value (everything to the end of the
+// line).
 // 
 // If there is no "=", *and* if there is only whitespace after the
 // name, the named option must not be value_required().
@@ -418,7 +420,7 @@ public:
                 continue;
             if(startswith(s, "--"))
                 s = s.substr(2);
-            std::regex re("(--)?(\\w+)\\s*(=?)\\s*(.*)");
+            static std::regex re("(--)?([-_[:alnum:]]+)\\s*(=?)\\s*(.*)");
             std::smatch mr;
             if(!std::regex_match(s, mr, re))
                 throw option_error("setopts_from_istream: failed to parse line: " +line);
