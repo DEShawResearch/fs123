@@ -51,20 +51,18 @@ int main(int argc, char *argv[])
     std::vector<std::string> leftover;
     try{
         leftover = op2.setopts_from_argv(argc, argv);
+        printf("--- after argv\n");
+        printopts();
     }catch(option_error& oe){
         complain(oe, "setopts_from_argv:");
     }
-    printf("--- after argv\n");
-    printopts();
-    set_diag_destination("%stderr");
-    set_diag_names("opt:1");
     try{
         op2.setopts_from_env(TEST_PREFIX);
+        printf("--- after env\n");
+        printopts();
     }catch(option_error& oe){
         complain(oe, "setopts_from_env:");
     }        
-    printf("--- after env\n");
-    printopts();
     int i=0;
     printf("--- leftover arguments\n");
     for (auto& e : leftover){

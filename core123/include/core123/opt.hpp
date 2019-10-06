@@ -76,6 +76,9 @@
 //
 // - from the command line:
 //     p.setopts_from_argv(int argc, const char** argv, size_t startindex=1);
+// - from a range:
+//     p.setopts_from_range(ITER b, ITER e);
+//     N.B.  the iterator's value-type must be *convertible* to std::string.
 // - from the environment:
 //     p.setopts_from_env("MYPROG_");
 // - from a stream:
@@ -304,8 +307,8 @@ public:
             throw option_error("opt_parser::add_option(" + name + ") already exists.");
         return ibpair.first->second;
     }
-    catch(option_error& oe){throw;}
-    catch(std::exception& e){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, name, dflt, desc, &cb)));}
+    catch(option_error&){throw;}
+    catch(std::exception&){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, name, dflt, desc, &cb)));}
 
     option& add_option(const std::string& name, const std::string& desc, std::function<void(const option&)> cb) try{
 
@@ -315,12 +318,12 @@ public:
         return ibpair.first->second;
     }
     catch(option_error&){throw;}
-    catch(std::exception& e){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, name, desc, &cb)));}
+    catch(std::exception&){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, name, desc, &cb)));}
     
     void del_option(const std::string& name)try{
         optmap_.erase(name);
     }
-    catch(std::exception& e){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, name)));}
+    catch(std::exception&){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, name)));}
 
     // set one option, by name, to val, and call the option's callback.
     void set(const std::string &name, const std::string &val)try{
@@ -328,7 +331,7 @@ public:
         // .set throws if the name was not declared to accept a value
         at(name).set(val);
     }
-    catch(std::exception& e){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, name, val)));}
+    catch(std::exception&){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, name, val)));}
        
     // call the novalue callback associated with name
     void set(const std::string &name)try{
@@ -336,7 +339,7 @@ public:
         // .set throws if the name was not declared as a no-value option
         at(name).set();
     }
-    catch(std::exception& e){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, name)));}
+    catch(std::exception&){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, name)));}
        
     // How much visibility should we offer into internals?  With a
     // const reference to the optmap, a determined caller can
@@ -351,9 +354,17 @@ public:
     // ways if the operation throws.
     std::vector<std::string>
     setopts_from_argv(int argc, char *argv[], int startindex = 1)try{
+        return setopts_from_range(argv+startindex, argv+argc);
+    }
+    catch(option_error&){ throw; }
+    catch(std::exception&){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, argc, argv, startindex)));}
+    
+    template <typename ITER>
+    std::vector<std::string>
+    setopts_from_range(ITER b, ITER e)try{
         std::vector<std::string> leftover;
-        for (int optind = startindex; optind < argc; optind++) {
-            std::string cp = argv[optind];
+        for (auto i=b ; i!=e; ++i){
+            std::string cp = std::string(*i);
             if(!startswith(cp, "--")){
                 leftover.push_back(cp);
                 continue;
@@ -361,8 +372,8 @@ public:
             if(cp == "--"){
                 // Stop when we see --.  Anything left gets pushed
                 // onto the leftover vector.
-                for( optind++ ; optind < argc; optind++)
-                    leftover.push_back(argv[optind]);
+                for( ++i ; i!=e; ++i)
+                    leftover.push_back(std::string(*i));
                 break;
             }
             auto eqpos = cp.find("=", 2);
@@ -371,22 +382,35 @@ public:
                 // with-value argument that consumes the next argv.
                 auto& opt = at(cp);
                 if(opt.value_required()){
-                    if(optind == argc)
+                    if(++i == e)
                         throw option_error("Missing argument for option:" + cp);
-                    opt.set(argv[++optind]);
+                    std::string arg = std::string(*i);
+                    try{
+                        opt.set(arg);
+                    }catch(std::exception& ){
+                        std::throw_with_nested(option_error(std::string(__func__) + ": error while processing " + cp + " " + arg));
+                    }
                 }else{
-                    opt.set();
+                    try{
+                        opt.set();
+                    }catch(std::exception& ){
+                        std::throw_with_nested(option_error(std::string(__func__) + ": error while processing " + cp));
+                    }
                 }
             }else{
                 // --name=something
                 auto& opt = at(cp.substr(2, eqpos-2));
-                opt.set(cp.substr(eqpos+1));
-            }                    
+                try{
+                    opt.set(cp.substr(eqpos+1));
+                }catch(std::exception& ){
+                    std::throw_with_nested(option_error(std::string(__func__) + ": error while processing " + cp));
+                }
+            }
         }
         return leftover;
     }        
     catch(option_error&){ throw; }
-    catch(std::exception& e){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, argc, argv, startindex)));}
+    catch(std::exception&){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, &*b, &*e)));}
 
     // sees if any environment variable names of the form opt_env_prefix
     // concatenated before the uppercase option name exist, and if so, set
@@ -406,7 +430,7 @@ public:
         }
     }
     catch(option_error&){ throw; }
-    catch(std::exception& e){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, opt_env_prefix)));}
+    catch(std::exception&){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, opt_env_prefix)));}
 
     // read options from the specified istream
     // N.B. - only *weakly* exception-safe.  *This will have been modified in
@@ -436,7 +460,7 @@ public:
         }
     }        
     catch(option_error&){ throw; }
-    catch(std::exception& e){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, &inpf)));}
+    catch(std::exception&){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, &inpf)));}
     
     // returns help text derived from names, defaults and descriptions.
     std::string helptext(size_t indent = 4) const try{
@@ -459,7 +483,7 @@ public:
         return ret;
     }
     catch(option_error&){ throw; }
-    catch(std::exception& e){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, indent)));}
+    catch(std::exception&){std::throw_with_nested(option_error("option_error::" + strfunargs(__func__, indent)));}
 };
 
 } // namespace core123
