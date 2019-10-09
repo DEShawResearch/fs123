@@ -281,6 +281,10 @@ private:
         throw option_error("option_parser:  unknown option: " + k);
     }
 
+    auto find(const std::string& k){
+        return optmap_.find(canonicalize(k));
+    }
+
 public:
     option_parser(const std::string& desc = "Options:\n") : description(desc) {
         if(!endswith(description, "\n") && !description.empty())
@@ -380,7 +384,12 @@ public:
             if(eqpos == std::string::npos){
                 // No '='.  This might be a no-value argument, or a
                 // with-value argument that consumes the next argv.
-                auto& opt = at(cp);
+                auto optiter = find(cp);
+                if(optiter == optmap_.end()){
+                    leftover.push_back(cp);
+                    continue;
+                }
+                auto& opt = optiter->second;
                 if(opt.value_required()){
                     if(++i == e)
                         throw option_error("Missing argument for option:" + cp);
@@ -399,7 +408,12 @@ public:
                 }
             }else{
                 // --name=something
-                auto& opt = at(cp.substr(2, eqpos-2));
+                auto optiter = find(cp.substr(2, eqpos-2));
+                if(optiter == optmap_.end()){
+                    leftover.push_back(cp);
+                    continue;
+                }
+                auto& opt = optiter->second;
                 try{
                     opt.set(cp.substr(eqpos+1));
                 }catch(std::exception& ){
