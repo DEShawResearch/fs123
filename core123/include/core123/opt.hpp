@@ -4,12 +4,8 @@
 //
 // An option_parser is declared with:
 //
-//   option_parser p("myprog - a program for doing my stuff\nUsage:  myprog [options] foo bar\nOptions:\n");
+//   option_parser p;
 //   ...
-//
-// The optional string argument to the option_parser constructor will
-// appear at the beginning of helptext(), and the output of the --help
-// option.
 //
 // Individual options are declared with:
 //
@@ -261,7 +257,6 @@ private:
     // option *in* the optmap_.  Therefore, nothing may ever be
     // removed from optmap_!
     OptMap optmap_;
-    std::string description;
     // When parsing command-line options, we ignore hyphens, underscores
     // and case.  Canonicalize is called before keys are inserted
     // or looked up in optmap_.
@@ -286,10 +281,7 @@ private:
     }
 
 public:
-    option_parser(const std::string& desc = "Options:\n") : description(desc) {
-        if(!endswith(description, "\n") && !description.empty())
-            description += "\n";
-        add_option("help", "send helptext to stderr", [this](const option&){ std::cerr << helptext(); });
+    option_parser(){
         static int flagfile_depth = 0;
         add_option("flagfile", "", "read flags from the named file",
                    [this](const std::string& fname, const option&){
@@ -478,7 +470,7 @@ public:
     
     // returns help text derived from names, defaults and descriptions.
     std::string helptext(size_t indent = 4) const try{
-        std::string ret = description;
+        std::string ret;
         for (const auto& o : optmap_) {
             const option& opt = o.second;
             ret.append(indent, ' ');

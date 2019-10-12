@@ -35,7 +35,9 @@ void printopts() {
 
 int main(int argc, char *argv[])
 {
-    option_parser op2("myprog - a program for doing my stuff\nUsage:  myprog [options] foo bar\nOptions:\n");
+    bool help = false;
+    option_parser op2;
+    op2.add_option("help", "Produce this message", opt_true_setter(help));
     op2.add_option("debug", "0", "turns on debug", opt_setter(debug));
     op2.add_option("u32",  "0", "set a 32bit unsigned", opt_setter(u32));
     op2.add_option("path1",  "", "set a string", opt_setter(path1));
@@ -45,12 +47,14 @@ int main(int argc, char *argv[])
     op2.add_option("u64n", "0x123456789abcdef0", "set another 64bit unsigned", opt_setter(u64n));
     op2.add_option("dbl", "0.1", "set a double", opt_setter(dbl));
     op2.add_option("foo-bar", "77", "set an int", opt_setter(foo_bar));
-    //op2.del_option("help");
-    //op2.add_option("help", "print help", opt_true_setter(help));
 
     std::vector<std::string> leftover;
     try{
         leftover = op2.setopts_from_argv(argc, argv);
+        if(help){
+            std::cerr << "You asked for help on the command line:\n" << op2.helptext() << "\n";
+            return 0;
+        }
         printf("--- after argv\n");
         printopts();
     }catch(option_error& oe){
