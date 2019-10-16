@@ -79,20 +79,30 @@ int app_flushfile(int argc, char **argv) {
 }
 
 int app_secretbox(int argc , char **argv) {
+    auto _secretbox = diag_name("secretbox");
     if(argc != 2){
         cerr << "Usage:  " << argv[0] << " secretfile < encoded > decoded\n";
         exit(1);
     }
     sharedkeydir sm(sew::open(argv[1], O_DIRECTORY), "encoding", 120);
     char buf[sizeof(fs123_secretbox_header)];
-    auto nread = sew::read(0, buf, sizeof(buf));
-    fs123_secretbox_header hdr(str_view(buf, nread));
+    size_t nread = sew::read(0, buf, sizeof(buf));
+    fs123_secretbox_header hdr(str_view(buf, nread)); // throws if nread too small
     
     uint32_t recordsz = ntohl(hdr.recordsz_nbo);
     string in(hdr.wiresize()+recordsz, 0);
+    DIAG(_secretbox, "nread: " << nread << " hdr.wiresize: " << hdr.wiresize() << " recordsz: " << recordsz << " in.size(): " << in.size() << "\n");
+    if(nread > in.size()){
+        complain(LOG_WARNING, "app_secretbox:  Ignoring extra bytes at end of input");
+        nread = in.size();
+    }
     ::memcpy(&in[0], buf, nread);
-    if(recordsz > hdr.wiresize() + nread)
-        sew::read(0, &in[0]+nread, recordsz - hdr.wiresize() - nread);
+    while(nread < in.size()){
+        auto nr = sew::read(0, &in[nread], in.size() - nread);
+        if(nr == 0)
+            throw std::runtime_error("app_secretbox:  Premature EOF on stdin");
+        nread += nr;
+    }
     auto ret = content_codec::decode(content_codec::CE_FS123_SECRETBOX, in, sm);
     sew::write(1, ret.data(), ret.size());
     return 0;
