@@ -556,7 +556,7 @@ void encrypt_request(req123& req){
         auto esid = secret_mgr->get_encode_sid();
         if(esid != secret_manager::DO_NOT_ENCODE_SID){
             size_t sz = req.urlstem.size();
-            const size_t leader = 48;
+            const size_t leader = sizeof(fs123_secretbox_header) + 16; // 16 == crypto_secretbox_MACBYTES
             const size_t padding = 8;
             char ws[sz + leader + padding]; // enough space for zerobytes and padding.
             char *inplace = ws+leader;

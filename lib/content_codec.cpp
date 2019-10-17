@@ -166,7 +166,7 @@ content_codec::encode(int16_t ce, const std::string& sid,
     // back of the content:
     fs123_secretbox_header hdr(sid, recordsz);
     if(workspace.data() > input.data() - hdr.wiresize() - crypto_secretbox_MACBYTES)
-        throw std::invalid_argument("content_codec::encode:  not enough space between start of workspace and start of input for header and MAC");
+        throw std::invalid_argument(fmt("content_codec::encode:  not enough space between start of workspace and start of input for header and MAC, workspace-input: %td, hdr.wiresize: %zd, MACBYTES: %d", workspace.data() - input.data(), hdr.wiresize(), crypto_secretbox_MACBYTES));
     if(input.data() + (input.size() + padding) > workspace.data() + workspace.size())
         throw std::invalid_argument("content_codec::encode:  not enough space after end for padding");
         
