@@ -13,7 +13,7 @@
 //
 //   struct addrinfo_result{
 //     int status;
-//     struct addrinfo*;
+//     struct addrinfo* aip;
 //     int eno;  // non-zero only if status==EAI_SYSTEM
 //   }
 //
@@ -315,7 +315,7 @@ private:
             ++n;
         }
         core123__assert(n == the_map.size());
-#undef core123_assert
+#undef core123__assert
     }
 public:
     void _check_invariant() const{

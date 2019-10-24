@@ -528,6 +528,7 @@ _wrap_void(setpriority);
 _wrap_void(nice);
 
 // session management and terminals
+_wrap(daemon); // not posix, but it is in glibc and BSD
 _wrap(getsid);
 _wrap_void(setsid);
 _wrap(getpgid);
@@ -725,9 +726,9 @@ _wrap_void(send);
 _wrap_void(sendto);
 _wrap_void(sendmsg);
 _wrap(sendfile);
-_wrap_void(recv);
-_wrap_void(recvfrom);
-_wrap_void(recvmsg);
+_wrap(recv);
+_wrap(recvfrom);
+_wrap(recvmsg);
 _wrap_void(getsockname);
 _wrap_void(getpeername);
 _wrap_void(getsockopt);
