@@ -70,7 +70,10 @@ struct http_error_category_t : public std::error_category{
     }
 };
 
-extern http_error_category_t& http_error_category();
+inline http_error_category_t& http_error_category(){
+    static http_error_category_t the_http_category;
+    return the_http_category;
+}
 
 inline std::error_condition make_error_condition(http_errc e){
     return std::error_condition(static_cast<int>(e), http_error_category());

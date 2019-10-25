@@ -89,12 +89,12 @@ make -f ../GNUmakefile check
 * diag.hpp            (requires linkage)
 * complaints.hpp      (requires linkage)
 * log_channel.hpp     (requires linkage)
-* http_error_category.hpp  (requires linkage)
+* http\_error\_category.hpp
 
 ## Counters and Timers
 
 * stats.hpp
-* stats_struct_builder (see stats.hpp, unconventional #include strategy)
+* stats\_struct\_builder (see stats.hpp, unconventional #include strategy)
 * scoped_timer.hpp
 * scoped_nanotimer.hpp
 * timeit.hpp
@@ -103,6 +103,6 @@ make -f ../GNUmakefile check
 ## Hashes and random numbers
 
 * threeroe.hpp
-* counter_based_urng.hpp
+* counter\_based\_urng.hpp
 * threefry.hpp
 * philox.hpp
