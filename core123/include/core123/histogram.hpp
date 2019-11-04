@@ -279,22 +279,22 @@ we get ((-1.0e-18) - (-5.)) which rounds to 5.0, not 4.9999...999.
 Hence the result lands in the wrong bin.  Setting the fp rounding mode
 to FE_DOWNWARD before calling insert appears to fix the problem, but
 at the cost of about 100 ticks (a factor of nearly 3) on an Opteron
-250 per insertion.  Also note that setting the rounding mode tto
+250 per insertion.  Also note that setting the rounding mode to
 FE_DOWNWARD might have surprising and undesirable effects on your math
 library.  In particular, log and exp may misbehave, which would be
 problematic if you're trying to create a logarithmic histogram with
 precise intervals.
 
 One could argue that the bug is in 'bottom' and 'top' rather than in
-'insert' and 'find' because they do not correctly reporting the upper
+'insert' and 'find' because they do not correctly report the upper
 and lower bounds on the values that will be inserted or found.  FIXME -
 can we fix bottom and top (at some cost)??
 
-Another possibility is to use uniform_histogram, which does a binary search
-to find bin, using a consistent comparison operator for all tests.
-With uniform_histogram, you won't get any surprises from roundouff, but since
-it's logarithmic in the number of bins, insertion will be considerably
-slower than with uniform_histogram.
+Another possibility is to use nonuniform_histogram, which does a
+binary search to find the bin, using a consistent comparison operator
+for all tests.  With nonuniform_histogram, you won't get any surprises
+from roundouff, but since it's logarithmic in the number of bins,
+insertion will be considerably slower than with uniform_histogram.
 
    DOCUMENTATION_END
 */ 
