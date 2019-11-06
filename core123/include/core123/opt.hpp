@@ -179,7 +179,7 @@ public:
 };
 
 template<>
-void _setter<std::string>::operator()(const std::string& newv, const option&){ v = newv; }
+inline void _setter<std::string>::operator()(const std::string& newv, const option&){ v = newv; }
 } // namespace detail
 
 template<typename T>
