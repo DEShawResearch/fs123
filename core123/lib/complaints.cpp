@@ -41,6 +41,11 @@ set_complaint_destination(const std::string& dest, int mode){
 }
 
 void
+reopen_complaint_destination(){
+    the_channel().reopen();
+}
+
+void
 set_complaint_max_hourly_rate(float new_rate){
     std::lock_guard<std::mutex> lg(mtx);
     // N.B.  zero or negative is suspicious but not

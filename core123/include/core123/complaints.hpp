@@ -140,6 +140,7 @@ std::vector<std::string> _whatnest (int priority, const std::string& pfx, char c
 extern std::atomic<int> _complaint_level;
 
 void set_complaint_destination(const std::string&, int mode);
+void reopen_complaint_destination();
 void set_complaint_max_hourly_rate(float rate);
 float get_complaint_max_hourly_rate();
 void set_complaint_averaging_window(float averaging_window);
