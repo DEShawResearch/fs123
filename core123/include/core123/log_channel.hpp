@@ -23,11 +23,15 @@
 // will be automatically appended to any record that does not
 // end with a newline.
 //
-// Thread-safety: send() and open() are atomic.  I.e., they may be
-// called "concurrently" by multiple threads and the effect will be as
-// if they were called in some (unspecified) order.  On the other hand
-// the caller must guarantee that the log_channel is neither destroyed
-// nor std::move-ed while any other thread is doing send() or open().
+// The reopen() method closes and then reopens the current destination.
+// It may be useful for log rotation.
+//
+// Thread-safety: send(), open() and reopen() are thread-safe.  I.e.,
+// they may be called "concurrently" by multiple threads and the
+// effect will be as if they were called in some (unspecified) order.
+// On the other hand the caller must guarantee that the log_channel is
+// neither destroyed nor std::move-ed while any other thread is doing
+// send(), open() or reopen().
 
 // See diag.hpp or complaints.hpp for usage examples.
 
@@ -43,6 +47,8 @@ struct log_channel{
     int dest_fac = 0;
     int dest_lev = 0;
     bool dest_opened = false;
+    std::string opened_dest;
+    int opened_mode;
     log_channel(){}
     // copy constructor and copy assignment would confuse the
     // semantics of dest_fd and dest_owned!
@@ -59,6 +65,7 @@ struct log_channel{
         _close();
     }catch(...){}
     void open(const std::string& dest, int mode);
+    void reopen();
 
     void close(){ open("%none", 0); }
     void send(int level, str_view) const;

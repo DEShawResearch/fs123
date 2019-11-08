@@ -103,6 +103,10 @@ void dosomething(){
             throw;
         printf("getenv correctly complained with ENOENT\n");
     }
+
+    FILE *fp = sew::tmpfile();
+    fprintf(fp, "hello world\n");
+    sew::fclose(fp);
 }
 
 int main(int argc, char** argv){
