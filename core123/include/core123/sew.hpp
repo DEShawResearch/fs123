@@ -453,9 +453,9 @@ _wrap_void(remove);
 // mkdtemp and mkstemp are POSIX:
 _wrapev(mkdtemp, (char*)0);
 _wrap(mkstemp);
-// What about the rest of the menagerie: tmpfile, tmpfile64, tempnam,
-// tmpnam, tmpnam_r, tempnam, mktemp utils?  Some are in stdio and
-// some are in unistd.
+// tmpfile is defined with the other FILE* functions.
+// tmpnam and tempnam are "obsolescent" according to POSIX-2008.
+// mktemp was removed from POSIX-2008.  "Never use mktemp"
 
 // system informational utilities
 _wrap_void(getrusage);
@@ -598,6 +598,7 @@ _wrap_void(chroot);
 
 // FILE* utilities
 _wrapev(fopen, (::FILE*)0);
+_wrapev(tmpfile, (::FILE*)0);
 // fdopen needs special handling to avoid double-close when used with xfd_t.  See below.
 //_wrapev(fdopen, (::FILE*)0); 
 _wrapev(freopen, (::FILE*)0);

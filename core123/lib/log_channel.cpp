@@ -45,6 +45,8 @@ void log_channel::open(const std::string& dest, int mode){
     // pre-conditions.  Then they turn on no more than one.
     _close();
     // And then turning at most one of them on.
+    opened_dest = dest;
+    opened_mode = mode;
     if(dest.empty() || dest == "%none"){
         return;
     }else if(core123::startswith(dest, "%syslog")){
@@ -60,6 +62,14 @@ void log_channel::open(const std::string& dest, int mode){
         dest_fd = sew::open(dest.c_str(), O_CLOEXEC|O_WRONLY|O_APPEND|O_CREAT, mode);
         dest_opened = true;
     }
+}
+
+void log_channel::reopen(){
+    std::unique_lock<std::mutex> lk(mtx);
+    auto dest = opened_dest;
+    auto mode = opened_mode;
+    lk.unlock();
+    open(dest, mode);
 }
 
 void log_channel::send(int level, str_view sv) const {
