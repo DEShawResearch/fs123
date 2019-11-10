@@ -12,6 +12,7 @@ using core123::rstrip;
 using core123::strip;
 using core123::tohex;
 using core123::quopri;
+using core123::cstr_encode;
 using core123::urlescape;
 using core123::hexdump;
 using core123::svsplit_exact;
@@ -204,5 +205,8 @@ int main(int argc, char **argv) {
         auto q = m.find(k);
         EQUAL(q, m.end());
     }
+    EQUAL(cstr_encode(""), "");
+    EQUAL(cstr_encode("x"), "x");
+    EQUAL(cstr_encode("x\ny\tz\r\n\xff"), "x\\x0ay\\x09z\\x0d\\x0a\\xff");
     return utstatus();
 }
