@@ -13,7 +13,7 @@
 // DOCUMENTATION_BEGIN
 
 // threeroe - A 128-bit non-cryptographic hash function loosely based
-// on threefy, and therefore, by inheritance, threefish and skein.
+// on threefry, and therefore, by inheritance, threefish and skein.
 // Basic usage is to construct a threeroe object, possibly call the
 // update method to add data to it, and finally obtain a hash digest
 // of the data with one of the methods:

@@ -213,7 +213,7 @@ inline auto svsplit_exact(str_view s, str_view delim, size_t start = 0)
 //         returned has length 2, containing two empty strings.
 inline auto svsplit_any(str_view s, str_view delim, size_t start = 0)
 {
-    std::vector<core123::str_view> v;
+    std::vector<str_view> v;
     while(start <= s.size()){
         auto nextdelim = s.find_first_of(delim, start);
         v.push_back(s.substr(start, nextdelim-start));
@@ -223,12 +223,11 @@ inline auto svsplit_any(str_view s, str_view delim, size_t start = 0)
 }
 
 // conveniently encode a cstring for printing using C literal conventions
-inline std::string cstr_encode(const char *s) {
+inline auto cstr_encode(str_view s) {
     std::string ret;
-    int c;
-    while ((c = *s++) != '\0') {
-        c &= 0xff; // avoid sign extension problems!
-        if (isgraph(c)) {
+    for (auto ch : s) {
+        int c = ch & 0xff; // avoid sign extension problems!
+        if (std::isgraph(c)) {
             ret.push_back(c);
         } else {
             ret += "\\x" + tohex(static_cast<unsigned char>(c));

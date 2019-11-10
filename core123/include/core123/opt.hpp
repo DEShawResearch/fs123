@@ -477,10 +477,11 @@ public:
             ret.append(opt.name); // not o.first,  which is canonicalized
             if(opt.value_required()){
                 ret.append(1, '=');
+                ret.append(opt.valstr);
                 // N.B.  callback is valid only if and only if the option was created with a default.
-                ret.append(" (default ");
+                ret.append(" (default=");
                 ret.append(opt.dflt);
-                ret.append(" )");
+                ret.append(")");
             }
             ret.append(" : ");
             ret.append(opt.desc);

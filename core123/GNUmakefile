@@ -86,7 +86,10 @@ unit_tests:=\
 	ut_netstring \
 	ut_addrinfo_cache \
 	ut_addrinfo_cache2 \
-	ut_opt
+	ut_opt \
+	ut_processlines \
+	ut_bits \
+	ut_bloom
 
 pyunit_tests:=ut_pythreeroe.py
 
