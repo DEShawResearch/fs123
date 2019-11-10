@@ -82,7 +82,7 @@ namespace core123{
 // but it would be thread-unsafe, so the stream argument is a
 // non-const reference to emphasize to the caller that (temporary)
 // modifications are happening.
-inline auto ostream_size(std::ostream& os){
+inline std::streamoff ostream_size(std::ostream& os){
     std::streambuf* buf = os.rdbuf();
     if(!buf)
         throw std::ios_base::failure("ostream_size:  stream argument has a null rdbuf()");
