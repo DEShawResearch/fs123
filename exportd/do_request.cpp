@@ -755,7 +755,7 @@ void ReplyPlus::do_link_() {
 
 void ReplyPlus::do_statfs_(){
     struct statvfs svb;
-    server_stats.v_requests++;
+    server_stats.s_requests++;
     sew::statvfs(per_selector_->basepath().c_str(), &svb);
     std::ostringstream oss;
     oss << svb << '\n';
