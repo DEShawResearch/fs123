@@ -21,8 +21,8 @@ namespace core123 {
 class bits {
 private:
     typedef uint64_t WORD;
-    WORD *b_;
-    size_t sz_, szbits_;
+    size_t szbits_, szwords_;
+    std::unique_ptr<WORD[]> b_;
     // magic constant for output serialization, used to check size
     // and endianness for deserialization, so ensure it is different
     // with different endiannness.
@@ -30,64 +30,58 @@ private:
     // ASCII "zoYN8-Eg" which will become the netstring
     // 8:gE-8NYoz, from a x86_64 (little-endian) machine.
     static constexpr WORD magic_() { return 0x7a6f594e382d4567; } 
+    static constexpr const size_t WORDBYTES = sizeof(WORD);
+    static constexpr const size_t WORDBITS = WORDBYTES*8u;
     // returns array index, mask and current value
     inline std::tuple<WORD,WORD,WORD> getidx_(size_t i) const {
         auto k = std::ldiv(i, WORDBITS);
         WORD mask = ((WORD)1 << k.rem);
         return std::make_tuple(k.quot, mask, b_[k.quot] & mask);
     }
+    static inline auto bits2words_(size_t nbits) {
+	return (nbits + WORDBITS - 1)/ WORDBITS; // roundup!
+    }
+    static size_t inline popcountword_(WORD v) {
+#ifdef __GNUC__
+	return __builtin_popcountl(v);
+#else
+	// trick variously attributed to Brian Kernighan, Peter Wegner or Derrick Lehmer
+	// only iterates as many times as there are set bits.  Lookup table might be
+	// faster, but really, this is only for platforms without a builtin popcount
+	size_t c;
+	for (c = 0; v; c++)
+	    v &= v - 1;
+	return c;
+#endif
+    }
+    // just a common idiom for construction and assignment
+    void init_(size_t nbits, size_t nwords, const WORD *wp) {
+	szbits_ = nbits;
+	szwords_ = nwords;
+	b_ = std::make_unique<WORD[]>(szwords_);
+	if (wp)
+	    ::memcpy((void *)b_.get(), wp, sizebytes());
+    }
 public:
     typedef WORD value_type;
     typedef size_t size_type;
-    static constexpr const size_t WORDBYTES = sizeof(WORD);
-    static constexpr const size_t WORDBITS = WORDBYTES*8u;
     
-    // default constructor creates an unsized bitmap, will
-    // need to call init() or load it from a stream before use.
-    bits() : b_{nullptr}, sz_{0}, szbits_{0} {}
-    // create a new, cleared bitvector of the specified size
-
-    bits(size_t nbits) : bits() {
-        init(nbits);
+    // create a new, cleared bitvector of the specified size. nbits = 0 means
+    // unusable, will need to be init(), >>, or copied into.
+    bits(size_t nbits = 0) { init(nbits); }
+    bits(const bits& b) {
+	init_(b.szbits_, b.szwords_, b.b_.get());
     }
-    ~bits() { destroy(); }
-
-    // wipe out the bitvector, return to same state as
-    // a default-constructed one
-    void destroy() {
-        if (b_) {
-            delete [] b_;
-            b_ = nullptr;
-            sz_ = szbits_ = 0u;
-        }
+    auto operator=(const bits& b) {
+	init_(b.szbits_, b.szwords_, b.b_.get());
+	return *this;
     }
-
-    // slightly tricky: either allocates a new empty bitvector
-    // (deletes any previous one) or swaps in the data from
-    // a caller-provided buffer (used when reading from a stream)
-    void init(size_t nbits, size_t newdatasizebytes = 0,
-              std::unique_ptr<char[]>* newdatap = nullptr) {
-        auto nsz = (nbits + WORDBITS - 1)/ WORDBITS; // roundup!
-        if (newdatasizebytes && nsz*WORDBYTES != newdatasizebytes)
-            throw std::runtime_error("incorrect size passed to create, expected "
-                                     +std::to_string(nsz*WORDBYTES)+" got "
-                                     +std::to_string(newdatasizebytes)+" bits="
-                                     +std::to_string(nbits));
-        destroy();
-        szbits_ = nbits;
-        sz_ = nsz;
-        if (newdatap) {
-            b_ = (WORD *)newdatap->release();
-        } else {
-            b_ = new WORD[sz_];
-            clear();
-        }
-    }
-
-    void clear() {
-        if (b_)
-            for (auto p = b_; p < b_ + sz_; p++)
-                *p = 0;
+    // explicit copy-constructor/assignment means need to ask for default moves
+    // which should work fine
+    bits(bits&&) = default;
+    bits& operator=(bits&&) = default;
+    void init(size_t nbits) {
+	init_(nbits, bits2words_(nbits), nullptr);
     }
     // like vector<bool>, this is not really a container type,
     // so we avoid most of the container-like method names,
@@ -95,10 +89,14 @@ public:
     // e.g. size() or data() would be confusing, does one
     // mean bits or bytes or words?
     size_type sizebits() const { return szbits_; }
-    size_type sizebytes() const { return sz_*WORDBYTES; }
-    const uint8_t* databytes() const { return (const uint8_t*) b_; }
+    size_type sizebytes() const { return szwords_*WORDBYTES; }
+    const uint8_t* databytes() const { return (const uint8_t*) b_.get(); }
 
+    void clear() {
+	::memset(b_.get(), 0, sizebytes());
+    }
     // set, unset, get return true if old value was set, false if it was unset
+    // all are unchecked for bounds, so undefined behaviour if i is too large
     bool set(size_t i) {
         auto t = getidx_(i);
         b_[std::get<0>(t)] |= std::get<1>(t);
@@ -116,23 +114,12 @@ public:
     // convenient for debugging/diagnostics
     size_t popcount() const {
 	size_t n = 0;
-	for (size_t i = 0u; i < sz_; i++)
-	    n +=__builtin_popcountl(b_[i]);
+	for (size_t i = 0u; i < szwords_; i++)
+	    n += popcountword_(b_[i]);
 	return n;
     }
-    std::ostream& sput(std::ostream& os) {
-        os << sz_ << " words, " << szbits_ << " bits";
-        for (size_t i = 0u; i < sz_; i++) {
-            if ((i % 4) == 0) {
-                os << fmt("\n%010zx:", i);
-            }
-            os << ' ' << tohex(b_[i]);
-        }
-	return os;
-    }
-
     friend std::ostream& operator<<(std::ostream& out, const bits& b) {
-        out << std::dec << b.sizebits() << ' ';
+        out << std::to_string(b.sizebits()) << ' '; // ensure written as decimal!
         auto m = magic_();
         sput_netstring(out, {(char *)&m, sizeof(m)});
         str_view sv((const char *)b.databytes(), b.sizebytes());
@@ -142,7 +129,7 @@ public:
     }
 
     friend std::istream& operator>>(std::istream& inp, bits& b) {
-        size_t sz, szbits;
+        size_t szbytes, szbits;
         if (!inp.good()) throw std::runtime_error("Bits istream error before reading Bits sizebits");
         inp >> szbits >> std::ws;
         if (!inp.good()) throw std::runtime_error("Bits istream error after reading sizebits "+std::to_string(szbits));
@@ -158,24 +145,30 @@ public:
         // We read this ourselves because we want to hand the buffer we read to
         // init() rather than allocate and copy a new one, since we intend this
         // for very large (multi-gigabit to terabit) bitmaps in bloom filters.
-        inp >> sz;
-        if (!inp.good()) throw std::runtime_error("Bits istream error after reading Bits length "+std::to_string(sz));
+        inp >> szbytes;
+        if (!inp.good()) throw std::runtime_error("Bits istream error after reading Bits length "+std::to_string(szbytes));
         char c;
         inp >> c;
-        if (!inp.good()) throw std::runtime_error("Bits istream error after reading length delim after "+std::to_string(sz));
-        if (c != ':') throw std::runtime_error("Bits istream error, did not get expected colon after length "+std::to_string(sz)+" got "+std::to_string(c));
-        std::unique_ptr<char[]> nb(new char[sz]);
-        inp.read((char *)&nb[0], sz);
-        if (!inp.good()) throw std::runtime_error("Bits istream error while reading data, length "+std::to_string(sz));
+        if (!inp.good()) throw std::runtime_error("Bits istream error after reading length delim after "+std::to_string(szbytes));
+        if (c != ':') throw std::runtime_error("Bits istream error, did not get expected colon after length "+std::to_string(szbytes)+" got "+std::to_string(c));
+	auto szw = bits2words_(szbits);
+	auto expbytes = szw*WORDBYTES;
+	if (expbytes != szbytes)
+	    throw std::runtime_error("Bit sistream error, szbytes "+std::to_string(szbytes)+" != expbytes "+std::to_string(expbytes));
+	auto wup = std::make_unique<WORD[]>(szw);
+        inp.read((char *)wup.get(), szbytes);
+        if (!inp.good()) throw std::runtime_error("Bits istream error while reading data, length "+std::to_string(szbytes));
         inp >> c;
-        if (!inp.good()) throw std::runtime_error("Bits istream error after reading end delim after data, length "+std::to_string(sz));
-        if (c != ',') throw std::runtime_error("Bits istream error, did not get expected comma after data, length "+std::to_string(sz)+" got "+std::to_string(c));
+        if (!inp.good()) throw std::runtime_error("Bits istream error after reading end delim after data, length "+std::to_string(szbytes));
+        if (c != ',') throw std::runtime_error("Bits istream error, did not get expected comma after data, length "+std::to_string(szbytes)+" got "+std::to_string(c));
         std::string h;
         if (!sget_netstring(inp, &h))
-            throw std::runtime_error("Bits istream error while reading data hash, length "+std::to_string(sz));
-        auto ch = threeroe(nb.get(), sz).hexdigest();
+            throw std::runtime_error("Bits istream error while reading data hash, length "+std::to_string(szbytes));
+        auto ch = threeroe(wup.get(), szbytes).hexdigest();
         if (h != ch) throw std::runtime_error("Bits istream error, file has trsum "+h+", calc on netstring says "+ch);
-        b.init(szbits, sz, &nb);
+	b.b_ = std::move(wup);
+	b.szwords_ = szw;
+	b.szbits_ = szbits;
         return inp;
     }
 };
