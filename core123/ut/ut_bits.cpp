@@ -28,7 +28,8 @@ void check(core123::bits& b, unordered_set<size_t>& testidx) {
 
 int main(int argc, char **argv) {
     core123::bits b(300);
-    if (_main) b.sput(cout) << endl;
+    auto bstr = str(b);
+    DIAG(_main, "initial bits " << core123::cstr_encode(bstr));
 
     std::pair<size_t,size_t> testranges[] = {{0,5}, {58,66}, {296,b.sizebits()}};
     unordered_set<size_t> testidx;
@@ -39,20 +40,50 @@ int main(int argc, char **argv) {
         for (auto i = r.first; i < r.second; i++) {
             testidx.insert(i);
             auto x = b.set(i);
-            DIAG(_main, "setting bit " << i << " got " << x << ' ' << b.popcount() << " bits set");
-	    if (_main) b.sput(cout) << endl;
+            DIAG(_main, "setting bit " << i << " got " << x << ' ' << b.popcount() << " bits set; " << core123::cstr_encode(str(b)));
 	    CHECK(!x);
             check(b, testidx);
         }
     }
+
+    core123::bits bnew;
+
+    stringstream oss1;
+    oss1 << b;
+    auto oss1str = oss1.str();
+    DIAG(_main, "oss1 is: " << core123::cstr_encode(oss1str));
+    oss1 >> bnew;
+    check(bnew, testidx);
+
+    core123::bits bx(bnew);
+    check(bx, testidx);
+    EQUAL(str(bx), oss1str);
+    bx.clear();
+    EQUAL(str(bx), bstr);
+    
     for (const auto& r : testranges) {
         for (auto i = r.first; i < r.second; i++) {
             testidx.erase(i);
             auto x = b.unset(i);
-            DIAG(_main, "unsetting bit " << i << " got " << x << ' ' << b.popcount() << " bits set ");
-	    if (_main) b.sput(cout) << endl;
+            DIAG(_main, "unsetting bit " << i << " got " << x << ' ' << b.popcount() << " bits set; " << core123::cstr_encode(str(b)));
             check(b, testidx);
         }
     }
+
+    stringstream oss2;
+    oss2 << b;
+    auto oss2str = oss2.str();
+    EQUAL(oss2str, bstr);
+    DIAG(_main, "oss2 is: " << core123::cstr_encode(oss2str));
+    oss2 >> bnew;
+    check(bnew, testidx);
+    auto bnstr = str(bnew);
+    EQUAL(bnstr, oss2str);
+    EQUAL(bnstr, bstr);
+
+    auto bm = std::move(b);
+    EQUAL(str(bm), bstr);
+    check(bm, testidx);
+
     return utstatus();
 }
