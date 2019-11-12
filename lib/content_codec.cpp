@@ -7,11 +7,6 @@
 #include <memory>
 #include <string>
 
-// Sigh... crypto_secretbox_MACBYTES was added some time after 0.4.5...
-#ifndef crypto_secretbox_MACBYTES
-#define crypto_secretbox_MACBYTES (crypto_secretbox_ZEROBYTES - crypto_secretbox_BOXZEROBYTES)
-#endif
-
 using namespace core123;
 
 namespace{

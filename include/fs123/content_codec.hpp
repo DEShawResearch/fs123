@@ -12,6 +12,11 @@
 #include <cstring>
 #include <arpa/inet.h>  // htonl, etc.
 
+// Sigh... crypto_secretbox_MACBYTES was added to sodium.h some time after 0.4.5...
+#ifndef crypto_secretbox_MACBYTES
+#define crypto_secretbox_MACBYTES (crypto_secretbox_ZEROBYTES - crypto_secretbox_BOXZEROBYTES)
+#endif
+
 // The header is provided for informational purposes.  Users of the
 // API generally do not see headers.
 struct fs123_secretbox_header{
