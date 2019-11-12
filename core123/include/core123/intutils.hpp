@@ -49,6 +49,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //                  work on 16, 32 and 64-bit unsigned, converting
 //                  from native to and from bigendian and littlendian.
 //
+//   popcount(n) - as close as possible to std::popcount in C++20.
+//
 //   clip(low, x, high) - return x, clipped from below by low and from
 //                  above by high.  Arguments must be comparable with
 //                  operator: x<low and high<x.  The type of x must be
@@ -63,6 +65,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <type_traits>
 #include <utility>
 #include <stdexcept>
+#if __has_include(<bit>)
+#include <bit>
+#endif
+#include <climits>
 
 namespace core123{
 
@@ -236,6 +242,36 @@ constexpr uint64_t byteswap(uint64_t x) noexcept {
         ((x & 0x000000000000ff00)<<40) |
         ((x & 0x00000000000000ff)<<56);
 }    
+
+// std::popcount will be in C++20, but until then, we use either GNUC's __builtin_popcountl,
+// or the fancy horizontal summation trick.
+
+// N.B.  popcount_nobuiltin *should* work with gcc's __uint128_t, but
+// it doesn't, at least through gcc8.1. I suspect a problem with
+// numeric_limits, but I'm not sure...
+template <class T>
+inline constexpr
+typename std::enable_if<std::numeric_limits<T>::is_specialized && !std::numeric_limits<T>::is_signed, int>::type popcount_nobuiltin(T v) noexcept{
+    // From https://graphics.stanford.edu/~seander/bithacks.html
+    static_assert( std::numeric_limits<T>::digits <= 128, "popcount_nobuiltin only works for widths up to 128");
+    v = v - ((v >> 1) & (T)~(T)0/3);                           // temp
+    v = (v & (T)~(T)0/15*3) + ((v >> 2) & (T)~(T)0/15*3);      // temp
+    v = (v + (v >> 4)) & (T)~(T)0/255*15;                      // temp
+    return (T)(v * ((T)~(T)0/255)) >> (sizeof(T) - 1) * CHAR_BIT; // count
+}
+
+template <class T>
+inline constexpr
+typename std::enable_if<std::is_unsigned<T>::value, int>::type popcount(T v) noexcept{
+#if __cplusplus > 201703L
+    return std::popcount(v);
+#elif __GNUC__
+    static_assert(std::numeric_limits<long unsigned>::digits >= std::numeric_limits<T>::digits, "popcount:  type too long for __builtin_popcountl");
+    return __builtin_popcountl(v);
+#else
+    return popcount_nobuiltin(v);
+#endif
+}
 
 // I don't see any propsals for these in C++2x.  Am I missing something?
 template <class IntegerType>
