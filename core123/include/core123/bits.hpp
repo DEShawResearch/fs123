@@ -58,9 +58,11 @@ private:
     void init_(size_t nbits, size_t nwords, const WORD *wp) {
 	szbits_ = nbits;
 	szwords_ = nwords;
-	b_ = std::make_unique<WORD[]>(szwords_);
+	b_.reset(new WORD[szwords_]);
 	if (wp)
 	    ::memcpy((void *)b_.get(), wp, sizebytes());
+	else
+	    clear();
     }
 public:
     typedef WORD value_type;
@@ -140,11 +142,9 @@ public:
         memcpy((void *)&m, magic.data(), sizeof(m));
         if (m != refm)
             throw std::runtime_error("Bits istream error, bad magic, read "+tohex(m)+", expected "+tohex(refm));
-        // XXX It would be nice to have an sget_netstring that returns a
-        // unique_ptr<char[]> and size instead of a string, or a buffer,size pair?
-        // We read this ourselves because we want to hand the buffer we read to
-        // init() rather than allocate and copy a new one, since we intend this
-        // for very large (multi-gigabit to terabit) bitmaps in bloom filters.
+        // We allocate and read our into b_ here rather than init_() to
+	// avoid extra copies since we intend this for very large
+	// (multi-gigabit to terabit) bitmaps in bloom filters.
         inp >> szbytes;
         if (!inp.good()) throw std::runtime_error("Bits istream error after reading Bits length "+std::to_string(szbytes));
         char c;
@@ -155,7 +155,7 @@ public:
 	auto expbytes = szw*WORDBYTES;
 	if (expbytes != szbytes)
 	    throw std::runtime_error("Bit sistream error, szbytes "+std::to_string(szbytes)+" != expbytes "+std::to_string(expbytes));
-	auto wup = std::make_unique<WORD[]>(szw);
+	std::unique_ptr<WORD[]> wup{new WORD[szw]};
         inp.read((char *)wup.get(), szbytes);
         if (!inp.good()) throw std::runtime_error("Bits istream error while reading data, length "+std::to_string(szbytes));
         inp >> c;
