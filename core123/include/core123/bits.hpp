@@ -15,6 +15,7 @@
 #include <core123/netstring.hpp>
 #include <core123/threeroe.hpp>
 #include <core123/strutils.hpp>
+#include <core123/intutils.hpp>
 
 namespace core123 {
 
@@ -95,11 +96,7 @@ public:
     size_t popcount() const {
 	size_t n = 0;
 	for (size_t i = 0u; i < szwords_; i++)
-#ifdef __GNUC__
-	    n += __builtin_popcountl(b_[i]);
-#else
-#error "No code to do popcount outside __GNUC__, contact maintainers"
-#endif
+            n += popcnt(b_[i]);
 	return n;
     }
     friend std::ostream& operator<<(std::ostream& out, const bits& b) {

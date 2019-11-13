@@ -49,7 +49,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //                  work on 16, 32 and 64-bit unsigned, converting
 //                  from native to and from bigendian and littlendian.
 //
-//   popcount(n) - as close as possible to std::popcount in C++20.
+//   popcnt(n) - as close as possible to std::popcount in C++20.  It's
+//                  spelled differently so we don't get name conflicts.
 //
 //   clip(low, x, high) - return x, clipped from below by low and from
 //                  above by high.  Arguments must be comparable with
@@ -246,14 +247,15 @@ constexpr uint64_t byteswap(uint64_t x) noexcept {
 // std::popcount will be in C++20, but until then, we use either GNUC's __builtin_popcountl,
 // or the fancy horizontal summation trick.
 
-// N.B.  popcount_nobuiltin *should* work with gcc's __uint128_t, but
+// N.B.  popcnt_nobuiltin *should* work with gcc's __uint128_t, but
 // it doesn't, at least through gcc8.1. I suspect a problem with
 // numeric_limits, but I'm not sure...
 template <class T>
 inline constexpr
-typename std::enable_if<std::numeric_limits<T>::is_specialized && !std::numeric_limits<T>::is_signed, int>::type popcount_nobuiltin(T v) noexcept{
+typename std::enable_if<std::numeric_limits<T>::is_specialized && !std::numeric_limits<T>::is_signed, int>::type
+popcnt_nobuiltin(T v) noexcept{
     // From https://graphics.stanford.edu/~seander/bithacks.html
-    static_assert( std::numeric_limits<T>::digits <= 128, "popcount_nobuiltin only works for widths up to 128");
+    static_assert( std::numeric_limits<T>::digits <= 128, "popcnt_nobuiltin only works for widths up to 128");
     v = v - ((v >> 1) & (T)~(T)0/3);                           // temp
     v = (v & (T)~(T)0/15*3) + ((v >> 2) & (T)~(T)0/15*3);      // temp
     v = (v + (v >> 4)) & (T)~(T)0/255*15;                      // temp
@@ -262,14 +264,15 @@ typename std::enable_if<std::numeric_limits<T>::is_specialized && !std::numeric_
 
 template <class T>
 inline constexpr
-typename std::enable_if<std::is_unsigned<T>::value, int>::type popcount(T v) noexcept{
+typename std::enable_if<std::is_unsigned<T>::value, int>::type
+popcnt(T v) noexcept{
 #if __cplusplus > 201703L
     return std::popcount(v);
 #elif __GNUC__
-    static_assert(std::numeric_limits<long unsigned>::digits >= std::numeric_limits<T>::digits, "popcount:  type too long for __builtin_popcountl");
+    static_assert(std::numeric_limits<long unsigned>::digits >= std::numeric_limits<T>::digits, "popcnt:  type too long for __builtin_popcountl");
     return __builtin_popcountl(v);
 #else
-    return popcount_nobuiltin(v);
+    return popcnt_nobuiltin(v);
 #endif
 }
 
