@@ -41,29 +41,15 @@ private:
     static inline auto bits2words_(size_t nbits) {
 	return (nbits + WORDBITS - 1)/ WORDBITS; // roundup!
     }
-    static size_t inline popcountword_(WORD v) {
-#ifdef __GNUC__
-	return __builtin_popcountl(v);
-#else
-	// trick variously attributed to Brian Kernighan, Peter Wegner or Derrick Lehmer
-	// only iterates as many times as there are set bits.  Lookup table might be
-	// faster, but really, this is only for platforms without a builtin popcount
-	size_t c;
-	for (c = 0; v; c++)
-	    v &= v - 1;
-	return c;
-#endif
-    }
     // just a common idiom for construction and assignment
-    void init_(size_t nbits, size_t nwords, const WORD *wp) {
+    void init_(size_t nbits, size_t nwords, std::unique_ptr<WORD[]> wup) {
 	szbits_ = nbits;
 	szwords_ = nwords;
-	b_.reset(new WORD[szwords_]);
-	if (wp)
-	    ::memcpy((void *)b_.get(), wp, sizebytes());
-	else
-	    clear();
+	b_ = wup ? std::move(wup) : std::make_unique<WORD[]>(szwords_); // make_unique is value-initialized
     }
+    // XXX default copy will not work (would need deep copy of unique_ptr)
+    bits(const bits& b) = delete;
+    auto operator=(const bits& b) = delete;
 public:
     typedef WORD value_type;
     typedef size_t size_type;
@@ -71,19 +57,11 @@ public:
     // create a new, cleared bitvector of the specified size. nbits = 0 means
     // unusable, will need to be init(), >>, or copied into.
     bits(size_t nbits = 0) { init(nbits); }
-    bits(const bits& b) {
-	init_(b.szbits_, b.szwords_, b.b_.get());
-    }
-    auto operator=(const bits& b) {
-	init_(b.szbits_, b.szwords_, b.b_.get());
-	return *this;
-    }
-    // explicit copy-constructor/assignment means need to ask for default moves
-    // which should work fine
+    // move constructor/assignment is useful for bits, no real use case for copy
     bits(bits&&) = default;
     bits& operator=(bits&&) = default;
     void init(size_t nbits) {
-	init_(nbits, bits2words_(nbits), nullptr);
+	init_(nbits, bits2words_(nbits), {});
     }
     // like vector<bool>, this is not really a container type,
     // so we avoid most of the container-like method names,
@@ -117,7 +95,11 @@ public:
     size_t popcount() const {
 	size_t n = 0;
 	for (size_t i = 0u; i < szwords_; i++)
-	    n += popcountword_(b_[i]);
+#ifdef __GNUC__
+	    n += __builtin_popcountl(b_[i]);
+#else
+#error "No code to do popcount outside __GNUC__, contact maintainers"
+#endif
 	return n;
     }
     friend std::ostream& operator<<(std::ostream& out, const bits& b) {
@@ -155,7 +137,7 @@ public:
 	auto expbytes = szw*WORDBYTES;
 	if (expbytes != szbytes)
 	    throw std::runtime_error("Bit sistream error, szbytes "+std::to_string(szbytes)+" != expbytes "+std::to_string(expbytes));
-	std::unique_ptr<WORD[]> wup{new WORD[szw]};
+	std::unique_ptr<WORD[]> wup{new WORD[szw]}; // uninitialized!
         inp.read((char *)wup.get(), szbytes);
         if (!inp.good()) throw std::runtime_error("Bits istream error while reading data, length "+std::to_string(szbytes));
         inp >> c;
@@ -166,9 +148,7 @@ public:
             throw std::runtime_error("Bits istream error while reading data hash, length "+std::to_string(szbytes));
         auto ch = threeroe(wup.get(), szbytes).hexdigest();
         if (h != ch) throw std::runtime_error("Bits istream error, file has trsum "+h+", calc on netstring says "+ch);
-	b.b_ = std::move(wup);
-	b.szwords_ = szw;
-	b.szbits_ = szbits;
+	b.init_(szbits, szw, std::move(wup));
         return inp;
     }
 };

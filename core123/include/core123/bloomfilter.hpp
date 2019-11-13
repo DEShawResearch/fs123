@@ -17,19 +17,19 @@ namespace core123 {
 const static auto _bloom = diag_name("bloom");
 
 // utility free functions to estimate various parameters from others
-inline constexpr size_t bloom_estimate_entries(size_t nbits, size_t nhashes,
+inline size_t bloom_estimate_entries(size_t nbits, size_t nhashes,
 					       double falseprob) {
     return ceil(nbits/(-nhashes/log(1. - exp(log(falseprob)/nhashes))));
 }
-inline constexpr double bloom_estimate_falseprob(size_t nbits, size_t nhashes,
+inline double bloom_estimate_falseprob(size_t nbits, size_t nhashes,
 						 size_t nentries) {
     return pow(1. - exp(-(double)nhashes/((double)nbits/nentries)), nhashes);
 }
-inline constexpr size_t bloom_estimate_bits(size_t nentries, double falseprob) {
+inline size_t bloom_estimate_bits(size_t nentries, double falseprob) {
     return ceil( (nentries*log(falseprob))/log(1./pow(2.,log(2.))) );
 }
 
-inline constexpr size_t bloom_estimate_hashes(size_t nbits, size_t nentries) {
+inline size_t bloom_estimate_hashes(size_t nbits, size_t nentries) {
     return round(((double) nbits / nentries) * log(2.));
 }
 

@@ -55,7 +55,7 @@ int main(int argc, char **argv) {
     oss1 >> bnew;
     check(bnew, testidx);
 
-    core123::bits bx(bnew);
+    core123::bits bx(std::move(bnew));
     check(bx, testidx);
     EQUAL(str(bx), oss1str);
     bx.clear();
