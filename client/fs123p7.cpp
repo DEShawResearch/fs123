@@ -1,6 +1,7 @@
 // Main client program
 // Invokes various apps.
 
+#include "fs123/requirements.hpp"
 #include "diskcache.hpp"
 #include "fs123/acfd.hpp"
 #include "fs123/sharedkeydir.hpp"
