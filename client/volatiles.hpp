@@ -38,7 +38,7 @@ struct volatiles_t{
     std::atomic<float> evict_target_fraction{core123::envto<float>("Fs123EvictTargetFraction", 0.8)};
     std::atomic<float> evict_throttle_lwm{core123::envto<float>("Fs123EvictThrottleLwm", 0.9)};
     std::atomic<unsigned> evict_period_minutes{core123::envto<unsigned>("Fs123EvictPeriodMinutes", 60)};
-    std::atomic<size_t> dc_maxmbytes{core123::envto<size_t>("Fs123CacheMaxMBytes", 0)};
+    std::atomic<size_t> dc_maxmbytes{core123::envto<size_t>("Fs123CacheMaxMBytes", 100)};
     std::atomic<size_t> dc_maxfiles{core123::envto<size_t>("Fs123CacheMaxFiles", dc_maxmbytes*1000000/16384)};
 
     // Timeouts are increased when the load average-per-core exceeds this in backend_http.cpp
