@@ -54,16 +54,11 @@
 //
 // There are two automatically declared options:
 //
-//   --help - invokes a callback that inserts helptext() in std::cerr
 //   --flagfile=FILENAME - invokes a callback that calls:
 //           setopts_from_istream(ifstream(FILENAME))
 //
-// To override the pre-declared options (or any existing option), use del_option before
-// calling add_option:
-//
-//   bool help;
-//   p.del_option("help");
-//   p.add_option("help", "send help text to an undisclosed location", opt_true_setter(help));
+// The pre-declared options (or any existing option), can be removed
+// with del_option.
 //
 // A rudimentary, but passable usage string is produced by:
 //   std::cerr << p.helptext();
@@ -92,20 +87,33 @@
 //    --max_OpENFil-es=1024
 //    env MYPROG_MAX_OPEN_FILES=1024 ...
 //    env MYPROG_max_open_files=1024 ...
-// are all equivalent:  they will all invoke the callback associated with the "verbose" option.
+// are all equivalent:  they will all invoke the callback associated with the "max-openfiles" option.
 //
 // When reading options from a stream, the stream is read one line at
 // a time.  Whitespace is trimmed from the beginning and end of each
 // line, and if the result is either empty or starts with a '#', the
 // line is ignored.  Otherwise, the line must match the regex:
 //
-//    std::regex re("(--)?([-_[:alnum:]]+)\\s*(=?)\\s*(.*)");
+//    std::regex re("(--)?([-_[:alnum:]]+)\\s*(=?)\\s*(\"?)(.*?)(\"?)\\s*");
 //
 // I.e., the line must start with an optional leading "--", followed
 // by the option name (one or more hyphens, underscores or
 // alphanumerics), followed by an optional "=" (surrounded by optional
-// whitespace), followed by the value (everything to the end of the
-// line).
+// whitespace), followed by an optional double-quote, the value,
+// another optional double-quote and optional whitespace.  If *both*
+// optional double-quotes are present, the value is the text between
+// the double-quotes.  Otherwise, the value is the text between the
+// optional blocks of whitespace.  Thus, if an istream contains:
+//   --foo = " abc d "
+// foo's value will be a 7-letter string that starts ends with <space>,
+// not an 9-letter string that starts and ends with double-quotes.  If
+// an istream contains:
+//   --bar =   abc d
+// bar's value will be a 5-letter string that starts with 'a' and ends with
+// 'd'.  And if an istream contains:
+//   --baz = "abc d
+// baz's value will be a six-letter string that starts with a double-quote
+// and ends with 'd'.
 // 
 // If there is no "=", *and* if there is only whitespace after the
 // name, the named option must not be value_required().
@@ -450,15 +458,19 @@ public:
                 continue;
             if(startswith(s, "--"))
                 s = s.substr(2);
-            static std::regex re("(--)?([-_[:alnum:]]+)\\s*(=?)\\s*(.*)");
+            static std::regex re("(--)?([-_[:alnum:]]+)\\s*(=?)\\s*(\"?)(.*?)(\"?)\\s*");
             std::smatch mr;
             if(!std::regex_match(s, mr, re))
                 throw option_error("setopts_from_istream: failed to parse line: " +line);
-            if(mr.size() != 5)
+            if(mr.size() != 7)
                 throw std::logic_error("Uh oh. We're very confused about regex_match");
             auto name = mr.str(2);
             auto equals = mr.str(3);
-            auto rhs = mr.str(4);
+            std::string rhs;
+            if(!mr.str(4).empty() && !mr.str(6).empty())
+                rhs = mr.str(5); // discard enclosing quotes 
+            else
+                rhs = mr.str(4) + mr.str(5) + mr.str(6);
             if(!equals.empty() || !rhs.empty())
                 set(name, rhs);
             else

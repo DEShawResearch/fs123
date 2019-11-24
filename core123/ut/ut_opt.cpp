@@ -4,7 +4,7 @@
 #include <core123/complaints.hpp>
 #include <string>
 #include <cinttypes>
-#include <fstream>
+#include <sstream>
 
 using namespace std;
 using namespace core123;
@@ -19,6 +19,7 @@ uint32_t u32;
 uint64_t u64;
 double dbl;
 std::string path1, path2;
+std::string path3, path4, path5;
 int vs;
 //bool help;
 
@@ -31,13 +32,16 @@ void printopts() {
     prtopt(path2);
     prtopt(dbl);
     prtopt(vs);
+    prtopt(path3);
+    prtopt(path4);
+    prtopt(path5);
     //prtopt(help);
 }
 
 #define TEST_PREFIX "TESTOPT_"
 } // namespace <anon>
 
-int main(int argc, char *argv[])
+int main(int argc, char *argv[]) try
 {
     bool help = false;
     option_parser op;
@@ -65,6 +69,21 @@ int main(int argc, char *argv[])
     EQUAL(path2, "");
     EQUAL(op.helptext(), refhelp);
 
+    op.add_option("path3", "", "third string", opt_setter(path3));
+    refhelp += "    path3= (default=) : third string\n";
+    EQUAL(path3, "");
+    EQUAL(op.helptext(), refhelp);
+    
+    op.add_option("path4", "", "fourth string", opt_setter(path4));
+    refhelp += "    path4= (default=) : fourth string\n";
+    EQUAL(path4, "");
+    EQUAL(op.helptext(), refhelp);
+
+    op.add_option("path5", "", "fifth string", opt_setter(path5));
+    refhelp += "    path5= (default=) : fifth string\n";
+    EQUAL(path5, "");
+    EQUAL(op.helptext(), refhelp);
+
     op.add_option("u32",  "101", "set a 32bit unsigned", opt_setter(u32));
     refhelp += "    u32=101 (default=101) : set a 32bit unsigned\n";
     EQUAL(u32, 101);
@@ -80,6 +99,7 @@ int main(int argc, char *argv[])
 
     op.add_option("verify-something", "-795", "set an int", opt_setter(vs));
     refhelp += "    verify-something=-795 (default=-795) : set an int\n";
+
     EQUAL(vs, -795);
     EQUAL(u32, 101); // default unchanged
     EQUAL(path1, "/x"); // default unchanged
@@ -233,5 +253,18 @@ int main(int argc, char *argv[])
     }
     CHECK(got_expected_exception3);
 
+    stringstream xv9ss;
+    xv9ss << "--verify-something 99\n";
+    xv9ss << "--u64= 0xfeeeeeeeeeeeeeee   \n";
+    xv9ss << "--help  \n";
+    xv9ss << "--path1 =   \" starts with a space\"\n";
+    xv9ss << "--path2 = contains  embedded spaces and ends with quote\"   \n";
+    op.setopts_from_istream(xv9ss);
+    EQUAL(path1, " starts with a space");
+    EQUAL(path2, "contains  embedded spaces and ends with quote\"");
+
     return utstatus();
-}
+}catch(std::exception& e){
+    complain(e, "Caught exception in main");
+    return 1;
+ }
