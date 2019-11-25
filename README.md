@@ -37,7 +37,7 @@ prerequisites in different distros.
 The prerequisites to compile and link the client and server are:
 
 - gcc
-    8.3.1 (Fedora29), 8.2.0 (bionic), 5.5.0 (xenial), devtoolset-8-gcc-8.2.1 (CentOS7) have been tested. Any compiler with full C++14 support should work.
+    8.3.1 (Fedora29), 8.2.0 (bionic), 9.2.1 (xenial), devtoolset-8-gcc-8.2.1 (CentOS7) have been tested. Any compiler with full C++17 support should work.
 - gmake
     3.82 has been tested.
 - libfuse

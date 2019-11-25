@@ -1,4 +1,5 @@
 #include "fs123/acfd.hpp"
+#include <random>
 #include <core123/sew.hpp>
 #include <iostream>
 #include <vector>
@@ -17,6 +18,7 @@ int main(int argc, char **argv){
     std::cout.setf(std::ios::unitbuf);
     off_t last_d_off = 0;
     std::vector<std::pair<off_t, std::string> > offmap;
+    std::mt19937 g; // default seed - always the same!
     do{
         auto off = sew::telldir(dirp);
         // check that the offsets reported by telldir
@@ -40,7 +42,7 @@ int main(int argc, char **argv){
     // we extracted above:
     for(int i=0; i<100; ++i){
         std::cout << "Shuffle " << i << "\n";
-        std::random_shuffle(offmap.begin(), offmap.end());
+        std::shuffle(offmap.begin(), offmap.end(), g);
         for(const auto& kv : offmap){
             sew::seekdir(dirp, kv.first);
             de = sew::readdir(dirp);

@@ -24,7 +24,7 @@ CPPFLAGS+=-I$(top/)include
 CXXFLAGS+=-Wno-deprecated-declarations
 CXXFLAGS+=$(OPT)
 CXXFLAGS+=-Wall
-CXXFLAGS+=-std=c++14
+CXXFLAGS+=-std=c++17
 ifndef NOLIBRT
 LDLIBS+=-lrt # needed to link core123 with glibc<2.17, not harmful otherwise
 endif

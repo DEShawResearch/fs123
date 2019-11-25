@@ -42,7 +42,7 @@ CPPFLAGS += -iquote $(top/)include
 CPPFLAGS += -I $(top/)core123/include
 CXXFLAGS += -Wno-deprecated-declarations
 CXXFLAGS += -DFUSE_USE_VERSION=26
-CXXFLAGS += -std=c++14 -ggdb -Wall -Wshadow -Werror
+CXXFLAGS += -std=c++17 -ggdb -Wall -Wshadow -Werror
 CXXFLAGS += -Wextra
 CXXFLAGS += $(OPT)
 CXXFLAGS += -D_FILE_OFFSET_BITS=64
