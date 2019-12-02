@@ -1,10 +1,10 @@
 # Core123
 
 Core123 is a motley collection useful of C++ libraries and utilities.
-Many are header-only, but a few (diag, complaints, log_channel)
-require linkage.  To use the header-only utilities, just #include the
-relevant header and go.  The only headers that require linkage are
-explicitly identified in the list below.
+Almost all are header-only, but one (complaints.hpp) require linkage.
+To use the header-only utilities, just #include the relevant header
+and go.  The only headers that require linkage are explicitly
+identified in the list below.
 
 Each header file contains a more-or-less standalone collection of
 related classes and functions.  Documentation is in comments at
@@ -58,9 +58,9 @@ make -f ../GNUmakefile check
 * json.hpp  (MIT license)
 * base64.hpp (MIT license)
 * fdstream.hpp (MIT license)
-* configparser.hpp (uses diag, requires linkage)
+* configparser.hpp
 * opt.hpp
-* processlines.hpp (uses diag, requires linkage)
+* processlines.hpp
 
 ## Threads and synchronization
 
@@ -78,7 +78,7 @@ make -f ../GNUmakefile check
 * addrinfo_cache.hpp
 * intutils.hpp
 * bits.hpp
-* bloomfilter.hpp (uses diag, requires linkage)
+* bloomfilter.hpp
 
 ## Errors, exceptions and diagnostics
 
@@ -89,7 +89,7 @@ make -f ../GNUmakefile check
 * syslog_number.hpp
 * stacktrace.hpp
 * backward.hpp        (MIT license)
-* diag.hpp            (requires linkage)
+* diag.hpp
 * complaints.hpp      (requires linkage)
 * log_channel.hpp
 * http\_error\_category.hpp

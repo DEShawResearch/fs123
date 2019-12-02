@@ -11,9 +11,9 @@
 #include <cstring>
 
 using namespace std;
+using core123::the_diag;
 using core123::diag_name;
 using core123::get_diag_names;
-using core123::diag_intermediate_stream;
 using core123::set_diag_names;
 
 auto _file = diag_name(__FILE__);
@@ -71,7 +71,7 @@ int main (int argc, char* argv[]) {
         return 2;
     }
     ofstream os;
-    diag_intermediate_stream.precision(17);
+    the_diag().diag_intermediate_stream.precision(17);
     if (!opt_diag.empty()){
         std::cerr  << "opt_diag: " << opt_diag << "\n";
         set_diag_names(opt_diag);

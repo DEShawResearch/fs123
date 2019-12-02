@@ -1913,7 +1913,7 @@ void fs123_ioctl(fuse_req_t req, fuse_ino_t ino, int cmd, void *arg, struct fuse
         rdo->buf[ sizeof(rdo->buf)-1 ] = '\0';
         diag_destination = rdo->buf;
         set_diag_destination(diag_destination);
-        diag_opt_tstamp = !startswith(diag_destination, "%syslog");
+        the_diag().opt_tstamp = !startswith(diag_destination, "%syslog");
         complain(LOG_NOTICE, "changed Fs123DiagDestination=" + diag_destination);
         fuse_reply_ioctl(req, 0, nullptr, 0);
         return;
@@ -2388,8 +2388,8 @@ try {
     diag_destination = envto<std::string>("Fs123DiagDestination", "%syslog");
     set_diag_destination(diag_destination);
     if(!startswith(diag_destination, "%syslog"))
-        diag_opt_tstamp = true;
-    diag_opt_tid = true;
+        the_diag().opt_tstamp = true;
+    the_diag().opt_tid = true;
 
     // If Fs123LocalLocks is zero, then all attempts to lock a file
     // fail with errno=ENOLCK.  This is safe and "correct", but it

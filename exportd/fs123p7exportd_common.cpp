@@ -98,7 +98,7 @@ void setup_common(const char *progname, int *argcp, char ***argvp) {
         set_diag_destination(gopts.diag_destination);
         DIAG(true, "diags:\n" << get_diag_names() << "\n");
     }
-    diag_opt_tstamp = true;
+    the_diag().opt_tstamp = true;
 
     if(!gopts.pidfile.empty()){
         std::ofstream ofs(gopts.pidfile.c_str());

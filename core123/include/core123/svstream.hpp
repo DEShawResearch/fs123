@@ -237,6 +237,9 @@ struct basic_osvstream : public std::basic_ostringstream<CharT, Traits>, private
         this->seekp(placeholder);
         return {(this->rdbuf()->*&basic_osvstream::pbase)(), len};
     }
+    // Disambiguate str() which could be inherited from either basic_ostringstream or basic_stringbuf.
+    std::basic_string<CharT, Traits> str() const { return std::basic_ostringstream<CharT, Traits>::str(); }
+    void str(const std::basic_string<CharT, Traits>& new_str) { std::basic_ostringstream<CharT, Traits>::str(new_str); }
 };
 
 using osvstream = basic_osvstream<char>;

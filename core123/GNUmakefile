@@ -31,8 +31,7 @@ endif
 
 LINK.o = $(CXX) $(LDFLAGS) $(TARGET_ARCH)
 
-objs:=diag.o \
-	complaints.o
+objs:=complaints.o
 
 libs:=libcore123.a
 
@@ -148,7 +147,7 @@ ut_configparser: ut_configparser.sh
 
 ut_diagtime_flood: ut_diagtime_flood.o
 ut_diagtime_flood.o: ut_diagtime.cpp
-	$(CXX) -c $(CPPFLAGS) -DDIAG_FLOOD_ENABLE $(CXXFLAGS) $(TARGET_ARCH) -MD -MP -MF $*.d -MT "$@" $< -o "$@" || (rm -f $*.d $*.o  && false)
+	$(CXX) -c $(CPPFLAGS) -DCORE123_DIAG_FLOOD_ENABLE $(CXXFLAGS) $(TARGET_ARCH) -MD -MP -MF $*.d -MT "$@" $< -o "$@" || (rm -f $*.d $*.o  && false)
 
 ut_diagstatic_initializers : ut_diagstatic_initializersB.o
 

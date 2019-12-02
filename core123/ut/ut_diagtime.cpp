@@ -9,9 +9,8 @@
 using core123::diag_name;
 using core123::get_diag_names;
 using core123::set_diag_names;
-using core123::get_diag_opts;
 using core123::set_diag_destination;
-using core123::diag_opt_tstamp;
+using core123::the_diag;
 
 auto _file = diag_name(__FILE__);
 
@@ -36,7 +35,7 @@ int main(int argc, char **argv){
     std::string off_s("OFF");
     printf("All loops run %d times\n", N);
     DIAG(1, "starting test: names \"" << get_diag_names(true)
-	 << "\" opts \"" << get_diag_opts());
+	 << "\" opts \"" << core123::the_diag().get_diag_opts());
     DIAG(0, "should only appear in flood");
 
     // First, let's try plain old DIAG with no initialization
@@ -108,7 +107,7 @@ int main(int argc, char **argv){
     end_timer(N, "DIAGd with just FILE:LINE to a ostringstream: ");
     printf("Wrote %zd bytes to an ostringstream\n", oss.str().length());
 
-    diag_opt_tstamp = true;
+    the_diag().opt_tstamp = true;
     i=N/10;
     begin_timer();
     while(i--){
