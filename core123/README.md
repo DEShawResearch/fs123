@@ -91,7 +91,7 @@ make -f ../GNUmakefile check
 * backward.hpp        (MIT license)
 * diag.hpp            (requires linkage)
 * complaints.hpp      (requires linkage)
-* log_channel.hpp     (requires linkage)
+* log_channel.hpp
 * http\_error\_category.hpp
 
 ## Counters and Timers
