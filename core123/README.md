@@ -1,16 +1,14 @@
 # Core123
 
 Core123 is a motley collection useful of C++ libraries and utilities.
-Almost all are header-only, but one (complaints.hpp) require linkage.
-To use the header-only utilities, just #include the relevant header
-and go.  The only headers that require linkage are explicitly
-identified in the list below.
+It is completely header-only.  To use it, just tell your compiler
+where to find it (-I...), #include the relevant header(s) and go.
 
 Each header file contains a more-or-less standalone collection of
 related classes and functions.  Documentation is in comments at
 the top of the file.
 
-They make extensive, unconditional use of C++14.  There is conditional
+They make extensive, unconditional use of C++14.  There is limited
 use of C++17.
 
 Most of the code is original, but a few libraries are available
@@ -90,7 +88,7 @@ make -f ../GNUmakefile check
 * stacktrace.hpp
 * backward.hpp        (MIT license)
 * diag.hpp
-* complaints.hpp      (requires linkage)
+* complaints.hpp
 * log_channel.hpp
 * http\_error\_category.hpp
 

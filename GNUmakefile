@@ -50,7 +50,7 @@ CFLAGS += -std=c99 -ggdb
 CFLAGS += $(OPT)
 LDFLAGS += -pthread
 LDFLAGS += -L. # so the linker can find ./libfs123.a
-LDLIBS += -lcore123 -lfs123
+LDLIBS += -lfs123
 
 # git desribe --exclude would be b
 GIT_DESCRIPTION?=$(cd $(top/) shell git describe --always --dirty || echo not-git)
@@ -59,15 +59,11 @@ CXXFLAGS += -DGIT_DESCRIPTION=\"$(GIT_DESCRIPTION)\"
 # libfs123.a:
 # code shared by client and server, and that might be useful for
 # other servers
-libs:=libfs123.a libcore123.a
+libs:=libfs123.a
 $(EXE): | $(libs)
 libobjs:=content_codec.o secret_manager.o sharedkeydir.o
 libfs123.a : $(libobjs)
 	$(AR) $(ARFLAGS) $@ $?
-
-# libcore123.a is in a sub-directory:
-libcore123.a:
-	make -f $(top/)core123/GNUmakefile libcore123.a
 
 # fs123p7: the client, linked into a single binary with a few utilities
 fs123p7obj := fs123p7.o app_mount.o app_setxattr.o app_ctl.o fuseful.o backend123.o backend123_http.o diskcache.o special_ino.o inomap.o opensslthreadlock.o openfilemap.o

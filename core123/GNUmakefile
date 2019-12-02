@@ -31,10 +31,6 @@ endif
 
 LINK.o = $(CXX) $(LDFLAGS) $(TARGET_ARCH)
 
-objs:=complaints.o
-
-libs:=libcore123.a
-
 pylibs:=threeroe.py py_threeroe.so
 
 unit_tests:=\
@@ -99,18 +95,18 @@ ut_configparser : | testconfigparser
 
 exe:=$(unit_tests) $(shunit_tests)
 
-all: $(libs) $(pylibs) $(exe)
+all: $(pylibs) $(exe)
 .PHONY: all
 
 .PHONY: check
 check: runtests pyruntests
 
 .PHONY: install
-install: $(libs) $(pylibs)
+install: $(pylibs)
 	[ -n "$(PREFIX)" ] || ( echo PREFIX must be set to install; false )
 	mkdir -p $(PREFIX)/include/core123 $(PREFIX)/lib
 	cp -a $(top/)include/core123/* $(PREFIX)/include/core123
-	cp -a $(libs) $(pylibs) $(PREFIX)/lib
+	cp -a $(pylibs) $(PREFIX)/lib
 
 # the nifty VPATH strategy interacts badly with files whose
 # names don't change when they are "built".  If threeroe.py
@@ -121,9 +117,6 @@ install: $(libs) $(pylibs)
 %.py : python/%.py
 	cp -av $< $@
 
-libcore123.a: $(foreach obj, $(objs), libcore123.a($(obj)))
-	ranlib libcore123.a
-
 py_threeroe.o : CXXFLAGS+=-fPIC
 py_threeroe.so : py_threeroe.o
 	$(CXX) $(LDFLAGS) $(TARGET_ARCH) -shared $^ -o $@
@@ -133,14 +126,11 @@ py_threeroe.so : py_threeroe.o
 # Unit tests are in ut
 $(exe): LDFLAGS+=-L.
 $(exe): LDFLAGS+=-pthread
-$(exe): LDLIBS+=-lcore123
 $(addsuffix .o, $(exe)): CXXFLAGS+=-ggdb
 
 ut_expiring.o : CPPFLAGS += $(VALGRIND_CPPFLAGS)
 
 ut_svto.o ut_scanint.o: CPPFLAGS+=-Wno-int-in-bool-context
-
-$(exe) : $(libs)
 
 ut_configparser: ut_configparser.sh
 	cp -av $< $@
@@ -160,7 +150,7 @@ ut_stacktrace.o : CPPFLAGS += -DBACKWARD_HAS_DW=1
 ut_stacktrace : LDLIBS += -ldw
 
 .PHONY: runtests
-runtests: $(libs) $(exe) $(shunit_tests)
+runtests: $(exe) $(shunit_tests)
 	for t in $(unit_tests) $(shunit_tests); do echo Running $$t; DIAG_OPTS=flood TESTDATA=$(top/)ut/testdata ./$$t || exit 1; echo Finished $$t; done
 
 .PHONY: pyruntests
