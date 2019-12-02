@@ -18,6 +18,7 @@
 
 #pragma once
 #include <iostream>
+#include <functional>
 #include <core123/strutils.hpp>
 #include <core123/diag.hpp>
 #include <core123/sew.hpp>

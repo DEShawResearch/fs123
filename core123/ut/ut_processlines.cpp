@@ -25,7 +25,7 @@ struct Test {
         // element in these two cases.
         if (s.size() == 0 || s[s.size()-1] == '\n') {
             DIAG(_test>1, "removing last element, s.size()=" << s.size());
-            svec.erase(svec.end());
+            svec.pop_back();
         }
         if (_test) {
             DIAG(_test, svec.size() << " elements");
