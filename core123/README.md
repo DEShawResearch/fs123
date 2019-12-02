@@ -60,6 +60,7 @@ make -f ../GNUmakefile check
 * fdstream.hpp (MIT license)
 * configparser.hpp (uses diag, requires linkage)
 * opt.hpp
+* processlines.hpp (uses diag, requires linkage)
 
 ## Threads and synchronization
 
@@ -76,6 +77,8 @@ make -f ../GNUmakefile check
 * fwd_capture.hpp
 * addrinfo_cache.hpp
 * intutils.hpp
+* bits.hpp
+* bloomfilter.hpp (uses diag, requires linkage)
 
 ## Errors, exceptions and diagnostics
 
