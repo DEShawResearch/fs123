@@ -18,13 +18,15 @@ struct Test {
     vector<str_view> svec;
     Test(str_view teststr) : s{teststr}, svec{svsplit_exact(s, "\n")} {
         DIAG(_test, "creating test \"" << quopri(teststr) << '"');
-        // weird corner case: teststr being empty string "" means
-        // a vector of size 1 with the empty string, and teststr
-        // ending with newline means we have an empty string
-        // as the last element of the vector so nuke that last
-        // element in these two cases.
-        if (s.size() == 0 || s[s.size()-1] == '\n') {
-            DIAG(_test>1, "removing last element, s.size()=" << s.size());
+        // weird corner cases: if teststr is empty svsplit_exact
+        // returns a vector of size 1 whose only element is the empty
+        // string. If teststr ends with a newline, the last element of
+        // the vector returned by svsplit_exact is the empty string.
+        // In both cases, check, and then nuke that last element of
+        // the vector returned by svsplit_exact.
+        if (s.empty() || s.back() == '\n') {
+            DIAG(_test>1, "Checking (and removing) last element, s.size()=" << s.size());
+            EQUAL(svec.back(), "");
             svec.pop_back();
         }
         if (_test) {
