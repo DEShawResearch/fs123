@@ -1,4 +1,5 @@
-#include "core123/threadpool.hpp"
+#define CORE123_DIAG_FLOOD_ENABLE 1
+#include "core123/elastic_threadpool.hpp"
 #include "core123/scoped_timer.hpp"
 #include "core123/datetimeutils.hpp"
 #include "core123/sew.hpp"
@@ -10,11 +11,11 @@
 #include <chrono>
 #include <string>
 
-using core123::threadpool;
+using core123::elastic_threadpool;
 namespace sew = core123::sew;
 using core123::str;
 
-std::atomic<int> i;
+std::atomic<int> ai;
 class Foo {
 private:
     int divisor_;
@@ -22,26 +23,29 @@ public:
     Foo(int divisor) : divisor_{divisor} {}
     int operator()() {
 	std::this_thread::sleep_for( std::chrono::milliseconds(10) );
-	auto k = i++;
+	auto k = ai++;
 	if(k%divisor_==0)
-	    throw std::runtime_error("Sorry.  I don't like "+std::to_string(k) +" because it is divisible by "+std::to_string(divisor_));
-	return i;
+	    throw std::runtime_error(str("Foo: won't return", 10*k, "because", k, "is divisible by", divisor_));
+	return 10*k;
     }
 };
 
 int main(int, char**){
-    threadpool<int> tp(10);
+    std::vector<std::future<int>> results;
+    elastic_threadpool<int> tp(10, 2);
 
     // Just for informational purposes - how big is each of the entries
-    // in the threadpool's pcq?
-    std::cout << "sizeof(threadpool<int>'s packaged_task) " << sizeof(std::packaged_task<int()>) << "\n";
-    std::cout << "sizeof(threadpool<double>'s packaged_task) " << sizeof(std::packaged_task<double()>) << "\n";
-    std::cout << "sizeof(threadpool<array<int, 64>>'s packaged_task) " << sizeof(std::packaged_task<std::array<int, 64>()>) << "\n";
+    // in the elastic_threadpool's pcq?
+    std::cout << "sizeof(elastic_threadpool<int>'s packaged_task) " << sizeof(std::packaged_task<int()>) << "\n";
+    std::cout << "sizeof(elastic_threadpool<double>'s packaged_task) " << sizeof(std::packaged_task<double()>) << "\n";
+    std::cout << "sizeof(elastic_threadpool<array<int, 64>>'s packaged_task) " << sizeof(std::packaged_task<std::array<int, 64>()>) << "\n";
 
-    std::vector<std::future<int>> results;
     auto cp = getenv("UT_THREADPOOL_DIVISOR");
     auto divisor = cp ? atoi(cp) : 5;
     for(int i=0; i<20; ++i){
+        // Note that we're pushing 40 tasks.  20 of them return their lambda parameter.
+        // And 20 of them return 10*std_atomic_counter++ (unless the counter is divisible
+        // by 5, in which case they throw!
         results.push_back( tp.submit( [=](){ return i; }) );
 	auto f = Foo(divisor);
         results.push_back(tp.submit(f));
@@ -79,10 +83,9 @@ int main(int, char**){
     cmdoss << "grep Vm /proc/" << getpid() << "/status";
     sew::system(cmdoss.str().c_str());
     core123::timer<> t;
-    static const int Nth = 1;
-    threadpool<int> tpx(Nth);
+    elastic_threadpool<int> tpx(1, 1);
     auto elapsed = t.elapsed();
-    std::cout << "construction of threadpool(" << Nth << "):  " << str(elapsed) << "\n";
+    std::cout << "construction of elastic_threadpool(1, 1, 1):  " << str(elapsed) << "\n";
     sew::system(cmdoss.str().c_str());
     
     static const int N=10000;
