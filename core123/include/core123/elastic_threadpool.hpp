@@ -29,18 +29,21 @@
 //   elastic_threadpool<T> nthreadmax(int nthreadmax, int nidlemax)
 //
 // The thread pool will adapt to load by creating and destroying
-// threads so that no more than nthreadmax threads are ever executing,
-// i.e., consuming system resources, either idle, waiting for work to
-// be submit()-ed, or carrying out submit()-ed work.  Furthermore, no
-// more than nidlemax threads will ever be idle.  Under "reasonable"
-// load conditions, there will always be close to nidlemax idle tasks.
-// Under high load, when work is being submit()-ed faster than
-// nthreadmax threads can retire it, a 'backlog' of tasks will be
-// placed in a queue.  Each queue entry consumes about 64 bytes (plus
-// malloc overhead), so there is little need to try to throttle
-// submission.
+// threads.  Threads are either idle, i.e., waiting for work to be
+// submit()-ed, or carrying out submit()-ed work.  There will be no
+// more than nthreadmax threads in existence, and no more than
+// nidlemax will ever be idle.  The submit() method is non-blocking,
+// regardless of load.  It places a task on the work queue and
+// immediately returns to its caller.
 //
-// The shutdown() method drains the backlog and waits until all
+// Under "reasonable" load conditions, there will usually be close to
+// nidlemax idle threads and the work queue will be empty.  Under high
+// load, when work is being submit()-ed faster than nthreadmax threads
+// can retire it, a 'backlog' of tasks will collect in the work queue.
+// Each queue entry consumes about 16 bytes (plus malloc overhead), so
+// there is little value in limiting the depth of the backlog queue.
+//
+// The shutdown() method drains the work queue and waits until all
 // previously submit()-ed work has been retired.  It is an error if
 // submit() is called after shutdown().  It's up to the caller to
 // provide any necessary synchronization.
@@ -82,17 +85,25 @@ class elastic_threadpool{
 
     void start_thread() try {
         std::thread([this]() {
-                        raii_ctr raii_nth(nth);
+                        ++nth;
                         raii_ctr raii_idle(nidl);
-                        workunit_t wu;
-                        while(!too_many_threads() && workq.dequeue(wu)){
-                            raii_ctr decr_idle(nidl, -1);
-                            wu();
+                        try{
+                            workunit_t wu;
+                            while(!too_many_threads() && workq.dequeue(wu)){
+                                raii_ctr decr_idle(nidl, -1);
+                                wu();
+                            }
                         }
+                        catch(std::exception&e) {complain(e, "Ignoring unexpected exception thrown from elastic_threadpool thread");}
+                        catch(...) {complain("elastic_threadpool threw ...  This is *very* unexpected!  Ignoring."); }
+                        // N.B.  The idiomatic way to do this is with notify_all_at_thread_exit,
+                        // but that appears to be broken/misdesigned.  See:
+                        // https://stackoverflow.com/questions/59130819/tsan-complaints-with-notify-all-at-thread-exit
+                        // https://cplusplus.github.io/LWG/issue3343
+                        // So we decrement the counter and call cv.notify_all ourselves *with the lock held*.
                         std::unique_lock<std::mutex> lk(m);
-                        notify_all_at_thread_exit(cv, std::move(lk));
-                        // N.B.  the raii_nth destructor that
-                        // decrements nth is protected by lk.
+                        --nth;
+                        cv.notify_all();
                     }).detach();
     }catch(std::exception& e){
         // N.B.  Under very heavy load the thread constructor can fail
@@ -131,14 +142,6 @@ public:
         try{ shutdown(); }
         catch(std::exception& e){  complain(e, "elastic_threadpool::~elastic_threadpool:  ignore exception thrown by shutdown:"); }
         catch(...){ complain("elastic_threadpool::~elastic_threadpool:  ignore ... thrown by shutdown"); }
-        // N.B.  tsan reports a data race here that *seems* to be a
-        // associated with pthread_cond_destroy racing with the
-        // cond_notify_all called by the notify_all_at_thread_exit.  I
-        // *think* I'm doing this correctly.  I *think* that this is a
-        // false positive due to the fact that we haven't compiled
-        // libstdc++ (or libc++) with -fsantize=thread.  But it's hard
-        // to be sure I haven't goofed, somehow.  There's also a
-        // chance that notify_all_at_thread_exit is actually racy.
     }
     
     template <typename CallBackFunction>
