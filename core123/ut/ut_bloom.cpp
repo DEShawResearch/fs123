@@ -22,17 +22,21 @@ unsigned testfalse(const core123::bloomfilter& bf, unsigned nf,
 }
 
 int main(int argc, char **argv) {
+    EQUAL(core123::bloom_estimate_entries(2397, 17, 1e-5), 101);
+    CHECK(core123::bloom_estimate_falseprob(2397, 17, 100)-9.98338e-06 < 2e-8);
+    EQUAL(core123::bloom_estimate_bits(100, 1e-5), 2397);
+    EQUAL(core123::bloom_estimate_hashes(2397, 100), 17);
     const unsigned nfalse = 1000u;
     core123::bloomfilter bf(10, 10./nfalse);
     const char *tests[] = {"hello", "world", ""};
     for (const auto& t: tests) {
 	bf.add(t);
 	CHECK(bf.check(t));
-	CHECK(testfalse(bf, nfalse, t) == 0);
+	EQUAL(testfalse(bf, nfalse, t), 0);
     }
-    CHECK(testfalse(bf, nfalse*10, "xxx") == 12);
+    EQUAL(testfalse(bf, nfalse*10, "xxx"), 12);
     DIAG(_main, bf.popcount() << " bits set");
-    CHECK(bf.popcount() == 17);
+    EQUAL(bf.popcount(), 17);
     return utstatus();
 }
 

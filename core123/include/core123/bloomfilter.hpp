@@ -19,7 +19,7 @@ const static auto _bloom = diag_name("bloom");
 // utility free functions to estimate various parameters from others
 inline size_t bloom_estimate_entries(size_t nbits, size_t nhashes,
 					       double falseprob) {
-    return ceil(nbits/(-nhashes/log(1. - exp(log(falseprob)/nhashes))));
+    return ceil(nbits/-(nhashes/log(1. - exp(log(falseprob)/nhashes))));
 }
 inline double bloom_estimate_falseprob(size_t nbits, size_t nhashes,
 						 size_t nentries) {
