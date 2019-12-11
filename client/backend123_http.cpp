@@ -31,7 +31,7 @@
 
 using namespace core123;
 
-static auto _backend = diag_name("backend");
+static auto _http = diag_name("http");
 static auto _namecache = diag_name("namecache");
 
 namespace{
@@ -508,8 +508,8 @@ struct backend123_http::curl_handler : private countedobj<backend123_http::curl_
     }
 
     bool getreply(reply123* replyp) {
-	DIAGkey(_backend, "got status " << http_code << "\n");
-	if (_backend >= 2) {
+	DIAGkey(_http, "got status " << http_code << "\n");
+	if (_http >= 2) {
 	    for (const auto h : hdrmap)
 		DIAG(true, "header \"" << h.first << "\" : \"" << h.second << "\"" << (endswith(h.second, "\n")? ""  : "\n"));
             DIAG(true, "content (size=" << content.size() << ") \"\"\"" << quopri({content.data(), content.size()}) << "\"\"\"\n");
@@ -536,7 +536,7 @@ struct backend123_http::curl_handler : private countedobj<backend123_http::curl_
             replyp->stale_while_revalidate = std::chrono::seconds(swr);
             stats.backend_304++;
             stats.backend_304_bytes_saved += replyp->content.size();
-            DIAGkey(_backend, "getreply 304 setting age: " <<  age
+            DIAGkey(_http, "getreply 304 setting age: " <<  age
                     << ", max_age=" << max_age
                     << ", last_refresh=" << tp2dbl(replyp->last_refresh)
                     << ", expires=" << tp2dbl(replyp->expires)
@@ -555,7 +555,7 @@ struct backend123_http::curl_handler : private countedobj<backend123_http::curl_
         if(ii == hdrmap.end())
             throw se(EINVAL, "No key matching " HHERRNO " in header, need errno");
         auto eno = svto<int>(ii->second);
-        DIAGkey(_backend, "errno " HHERRNO ": " << eno << "\n");
+        DIAGkey(_http, "errno " HHERRNO ": " << eno << "\n");
         auto et64 = get_etag64();
         std::string content_encoding;
         ii = hdrmap.find("content-encoding");
@@ -564,10 +564,10 @@ struct backend123_http::curl_handler : private countedobj<backend123_http::curl_
         else
             content_encoding = "";
         auto ce = content_codec::encoding_stoi(content_encoding);
-        DIAGkey(_backend,  "content_encoding: " << content_encoding << "\n");
+        DIAGkey(_http,  "content_encoding: " << content_encoding << "\n");
         ii = hdrmap.find(HHCOOKIE);
         uint64_t estale_cookie = (ii == hdrmap.end()) ? 0 : svto<uint64_t>(ii->second);
-        DIAGkey(_backend, "estale_cookie: " << estale_cookie << "\n");
+        DIAGkey(_http, "estale_cookie: " << estale_cookie << "\n");
         *replyp = reply123(eno, estale_cookie, std::move(content), ce, age, max_age, et64, swr);
         // CAUTION:  content is no longer usable!!!
         if(eno!=0)
@@ -583,7 +583,7 @@ struct backend123_http::curl_handler : private countedobj<backend123_http::curl_
             
         ii = hdrmap.find(HHNO);
         if(ii != hdrmap.end()){
-            DIAGkey(_backend, HHNO ": " + ii->second);
+            DIAGkey(_http, HHNO ": " + ii->second);
             // ii->second is one of:
             // 1-  whitespace* NUMBER whitespace*  
             // 2-  whitespace* NUMBER whitespace* "EOF" whitespace*
@@ -592,7 +592,7 @@ struct backend123_http::curl_handler : private countedobj<backend123_http::curl_
             // replyp->last_chunk depends on which case.
             size_t pos = svscan<int64_t>(ii->second, &replyp->chunk_next_offset, 0);
             const char *p = ii->second.data() + pos;
-            DIAGfkey(_backend, HHNO ": chunk_next_offset=%jd, ii->second=%s, pos=%zd\n",
+            DIAGfkey(_http, HHNO ": chunk_next_offset=%jd, ii->second=%s, pos=%zd\n",
                      (intmax_t)replyp->chunk_next_offset, ii->second.c_str(), pos);
             while( ::isspace(*p) )
                 ++p;
@@ -603,7 +603,7 @@ struct backend123_http::curl_handler : private countedobj<backend123_http::curl_
             else
                 throw se(EPROTO, "Unrecognized words in " HHNO " header:" + ii->second);
         }else{
-            DIAGfkey(_backend, "No " HHNO "\n");
+            DIAGfkey(_http, "No " HHNO "\n");
             replyp->chunk_next_meta = reply123::CNO_MISSING;
         }
         return true;
@@ -672,7 +672,7 @@ protected:
         else{
             age = svto<unsigned long>(ii->second);
         }
-	DIAGkey(_backend, "get_age returning " << age << "\n");
+	DIAGkey(_http, "get_age returning " << age << "\n");
         return age;
     }catch(std::exception& e){
         std::throw_with_nested(std::runtime_error(__func__));
@@ -703,7 +703,7 @@ protected:
         auto ii = hdrmap.find("cache-control");
         if(ii == hdrmap.end())
             return 0; //throw se(EPROTO, "No Cache-control header.  Something is wrong");
-        DIAGfkey(_backend,  "get_max_age:  cache-control: %s\n", ii->second.c_str());
+        DIAGfkey(_http,  "get_max_age:  cache-control: %s\n", ii->second.c_str());
         std::string s = get_key_from_string(ii->second, "max-age=");
         // Should we be more strict here?  There are good reasons for no max-age,
         // e.g., there's a no-cache directive instead.  Just return 0.
@@ -711,7 +711,7 @@ protected:
             return 0;
         // OTOH, if there is a max-age, throw if we can't parse it as a long.
 	auto ret = svto<long>(s);
-	DIAGkey(_backend, "get_max_age ret=" << ret << " from \"" << s << "\"\n");
+	DIAGkey(_http, "get_max_age ret=" << ret << " from \"" << s << "\"\n");
         return ret;
     }catch(std::exception& e){
         std::throw_with_nested(std::runtime_error(__func__));
@@ -728,7 +728,7 @@ protected:
         if(s.empty())
             return 0;
 	auto ret = svto<long>(s);
-	DIAGkey(_backend, "get_swr ret=" << ret << " from \"" << rstrip(s) << "\"\n");
+	DIAGkey(_http, "get_swr ret=" << ret << " from \"" << rstrip(s) << "\"\n");
         return ret;
     }catch(std::exception& e){
         std::throw_with_nested(std::runtime_error(__func__));
@@ -962,7 +962,7 @@ backend123_http::~backend123_http(){
 bool
 backend123_http::refresh(const req123& req, reply123* replyp) try{
     if(!req.no_cache && replyp->fresh()){
-        DIAGfkey(_backend, "backend123_http::refresh:  short-circuit, no_cache: %d, fresh: %d\n",
+        DIAGfkey(_http, "backend123_http::refresh:  short-circuit, no_cache: %d, fresh: %d\n",
                  req.no_cache, replyp->fresh());
         return false;
     }
@@ -984,15 +984,15 @@ backend123_http::refresh(const req123& req, reply123* replyp) try{
     wrap_curl_easy_setopt(curl, CURLOPT_HEADERDATA, (void *)&ch);
     wrap_curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_handler::write_callback);
     wrap_curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&ch);
-    DIAGfkey(_backend, "GET %s\n", req.urlstem.c_str());
+    DIAGfkey(_http, "GET %s\n", req.urlstem.c_str());
     if(replyp->valid() && !req.no_cache && replyp->etag64){
         ch.headers.push_back("If-None-Match: \"" + std::to_string(replyp->etag64) + "\"");
-        DIAGkey(_backend, "INM: " <<  replyp->etag64 << "\n");
+        DIAGkey(_http, "INM: " <<  replyp->etag64 << "\n");
         stats.backend_INM++;
         _t.set_accumulator(&stats.backend_INM_sec);
     }
     
-    DIAGkey(_backend, "accept_encoding: " << accept_encoding << "\n");
+    DIAGkey(_http, "accept_encoding: " << accept_encoding << "\n");
     if(!accept_encoding.empty())
         ch.headers.push_back("Accept-encoding: " + accept_encoding);
 
@@ -1023,12 +1023,12 @@ backend123_http::refresh(const req123& req, reply123* replyp) try{
         for(const auto& a : cache_control){
             oss << ((i++)?",":"") << a;
         }
-        DIAGfkey(_backend, "%s\n", oss.str().c_str());
+        DIAGfkey(_http, "%s\n", oss.str().c_str());
         ch.headers.push_back(oss.str());
     }
     bool ret = ch.perform_with_fallback(curl, replyp);
     release_curl(std::move(curl));
-    DIAGfkey(_backend, "elapsed: %llu\n", _t.elapsed());
+    DIAGfkey(_http, "elapsed: %llu\n", _t.elapsed());
     return ret;
  }catch(std::exception& e){
     std::throw_with_nested( std::runtime_error(fmt("backend123_http::get(\"%s\")", req.urlstem.c_str())));
