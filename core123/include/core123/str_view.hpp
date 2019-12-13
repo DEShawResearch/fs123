@@ -21,7 +21,7 @@
 //   actually implements it.
 // - llvm doesn't define __cpp_lib_string_view anywhere - neither
 //   in <string_view>, nor in <version>.
-// - gnu doesn't have <version>
+// - gnu doesn't have <version> (until gcc-9)
 
 // That seems to leave us with no viable set of conditionals based
 // on just  __has_include() and __cpp_lib_string_view.  We're compelled

@@ -53,9 +53,9 @@ make -f ../GNUmakefile check
 * pathutils.hpp
 * strutils.hpp
 * streamutils.hpp
-* json.hpp  (MIT license)
-* base64.hpp (MIT license)
-* fdstream.hpp (MIT license)
+* json.hpp  (MIT license, namespace nlohmann)
+* base64.hpp (MIT license, namespace macaron)
+* fdstream.hpp (MIT license, namespace boost)
 * configparser.hpp
 * opt.hpp
 * processlines.hpp
@@ -78,6 +78,12 @@ make -f ../GNUmakefile check
 * bits.hpp
 * bloomfilter.hpp
 
+## Early access to upcoming standards
+
+* str_view.hpp
+* byt.hpp
+* span.hpp (Boost license, namespace tcb)
+
 ## Errors, exceptions and diagnostics
 
 * sew.hpp
@@ -86,7 +92,7 @@ make -f ../GNUmakefile check
 * nested_exception.hpp
 * syslog_number.hpp
 * stacktrace.hpp
-* backward.hpp        (MIT license)
+* backward.hpp        (MIT license, namespace backward)
 * diag.hpp
 * complaints.hpp
 * log_channel.hpp
