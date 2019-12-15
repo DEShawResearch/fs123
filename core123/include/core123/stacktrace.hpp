@@ -59,7 +59,7 @@
 
 namespace core123{
 
-backward::StackTrace stacktrace_from_here(size_t depth = 100){
+inline backward::StackTrace stacktrace_from_here(size_t depth = 100){
     backward::StackTrace st;
     st.load_here(depth);
     return st;
