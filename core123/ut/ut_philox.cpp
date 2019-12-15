@@ -30,6 +30,8 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 #include <core123/philox.hpp>
+#include <core123/timeit.hpp>
+#include <core123/datetimeutils.hpp>
 #include <cstdint>
 
 using core123::philox;
@@ -86,11 +88,46 @@ BOOST_AUTO_TEST_CASE(test_kat_philox4x64)
     dokat<philox<4, uint64_t, 10> >(" 243f6a8885a308d3 13198a2e03707344 a4093822299f31d0 082efa98ec4e6c89 452821e638d01377 be5466cf34e90c6c   a528f45403e61d95 38c72dbd566e9788 a5a1610e72fd18b5 57bd43b5e52b7fe6");
 }
 
+template <typename CBRNG>
+void timecheck(const std::string& name, int millis){
+    typename CBRNG::key_type k = {};
+    typename CBRNG::domain_type c;
+    CBRNG tf(k);
+    bool wow = false;
+    static const int LOOP = 8;
+    using namespace std::chrono;
+    auto result = core123::timeit(milliseconds(millis),
+                    [&](){
+                        for(int i=0; i<LOOP; ++i){
+                            c[0]++;
+                            auto r = tf(c);
+                            if(r[0] == 0 && r[1]==0)
+                                wow = true;
+                            if(r.size()>2 && r[2] == 0 && r[3] == 0)
+                                wow = true;
+                        }});
+    if(wow)
+        std::cout << "Wow.  We got a zero!" << "\n";
+    printf("%s: %lld calls in about %d ms.  %.2f ns per call.  %.2f ns per byte.\n",
+           name.c_str(), LOOP*result.count, millis,
+           1.e9*result.sec_per_iter()/LOOP, 1.e9*result.sec_per_iter()/LOOP/sizeof(typename CBRNG::range_type));
+}
+
 int  main(int, char **){
     test_kat_philox2x32();
     test_kat_philox4x32();
     test_kat_philox2x64();
     test_kat_philox4x64();
+    timecheck<philox<2, uint64_t, 6>>("philox<2, uint64_t, 6>", 200);
+    timecheck<philox<4, uint64_t, 7>>("philox<4, uint64_t, 7>", 200);
+    timecheck<philox<2, uint64_t, 10>>("philox<2, uint64_t, 10>", 200);
+    timecheck<philox<4, uint64_t, 10>>("philox<4, uint64_t, 10>", 200);
+
+    timecheck<philox<2, uint32_t, 7>>("philox<2, uint32_t, 7>", 200);
+    timecheck<philox<4, uint32_t, 7>>("philox<4, uint32_t, 7>", 200);
+    timecheck<philox<2, uint32_t, 10>>("philox<2, uint32_t, 10>", 200);
+    timecheck<philox<4, uint32_t, 10>>("philox<4, uint32_t, 10>", 200);
+
     std::cout << FAIL << " Failed tests" << std::endl;
     return !!FAIL;
 }

@@ -30,7 +30,10 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 #include <core123/threefry.hpp>
+#include <core123/timeit.hpp>
+#include <core123/datetimeutils.hpp>
 #include <cstdint>
+#include <chrono>
 
 using core123::threefry;
 
@@ -86,11 +89,44 @@ BOOST_AUTO_TEST_CASE(test_kat_threefry4x64)
     dokat<threefry<4, uint64_t, 20> > ("243f6a8885a308d3 13198a2e03707344 a4093822299f31d0 082efa98ec4e6c89 452821e638d01377 be5466cf34e90c6c be5466cf34e90c6c c0ac29b7c97c50dd   a7e8fde591651bd9 baafd0c30138319b 84a5c1a729e685b9 901d406ccebc1ba4");
 }
 
+template <typename CBRNG>
+void timecheck(const std::string& name, int millis){
+    typename CBRNG::key_type k = {};
+    typename CBRNG::domain_type c;
+    CBRNG tf(k);
+    bool wow = false;
+    static const int LOOP = 8;
+    using namespace std::chrono;
+    auto result = core123::timeit(milliseconds(millis),
+                    [&](){
+                        for(int i=0; i<LOOP; ++i){
+                            c[0]++;
+                            auto r = tf(c);
+                            if(r[0] == 0 && r[1]==0)
+                                wow = true;
+                            if(r.size()>2 && r[2] == 0 && r[3] == 0)
+                                wow = true;
+                        }});
+    if(wow)
+        std::cout << "Wow.  We got a zero!" << "\n";
+    printf("%s: %lld calls in about %d ms.  %.2f ns per call.  %.2f ns per byte.\n",
+           name.c_str(), LOOP*result.count, millis,
+           1.e9*result.sec_per_iter()/LOOP, 1.e9*result.sec_per_iter()/LOOP/sizeof(typename CBRNG::range_type));
+}
+
 int  main(int, char **){
     test_kat_threefry2x32();
     test_kat_threefry4x32();
     test_kat_threefry2x64();
     test_kat_threefry4x64();
+    timecheck<threefry<2, uint64_t, 13>>("threefry<2, uint64_t, 13>", 200);
+    timecheck<threefry<4, uint64_t, 13>>("threefry<4, uint64_t, 13>", 200);
+    timecheck<threefry<2, uint64_t, 20>>("threefry<2, uint64_t, 20>", 200);
+    timecheck<threefry<4, uint64_t, 20>>("threefry<4, uint64_t, 20>", 200);
+
+    // There's no threefry 2x32
+    timecheck<threefry<4, uint32_t, 12>>("threefry<4, uint32_t, 12>", 200);
+    timecheck<threefry<4, uint32_t, 20>>("threefry<4, uint32_t, 20>", 200);
     std::cout << FAIL << " Failed tests" << std::endl;
     return !!FAIL;
 }

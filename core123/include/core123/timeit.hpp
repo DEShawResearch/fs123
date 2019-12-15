@@ -39,6 +39,8 @@ struct timeit_result{
         count(count_), dur(dur_)
     {}
     timeit_result() : timeit_result(0, {}){}
+    float iter_per_sec() const { return count/std::chrono::duration<float>(dur).count(); }
+    float sec_per_iter() const { return std::chrono::duration<float>(dur).count()/count; }
 };
 
 template <class Rep, class Period, class Functor>
