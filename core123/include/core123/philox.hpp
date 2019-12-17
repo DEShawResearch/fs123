@@ -96,7 +96,7 @@ public:
 
     philox(const philox& v) : common_type(v){}
 
-    _ctr_type operator()(_ctr_type c){
+    _ctr_type operator()(_ctr_type c) const {
         _key_type kcopy = this->k;
         for(unsigned r=0; r<R; ++r)
             round(c, kcopy);
@@ -127,7 +127,7 @@ public:
 
     philox(const philox& v) : common_type(v){}
 
-    _ctr_type operator()(_ctr_type c){
+    _ctr_type operator()(_ctr_type c) const {
         _key_type kcopy = this->k;
         for(unsigned r=0; r<R; ++r)
             round(c, kcopy);

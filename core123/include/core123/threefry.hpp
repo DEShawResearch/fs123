@@ -134,7 +134,7 @@ public:
     threefry(const threefry& v) : common_type(v){
     }
 
-    _ctr_type operator()(_ctr_type c){ 
+    _ctr_type operator()(_ctr_type c) const { 
         Uint ks[3];
         ks[2] = Constants::KS_PARITY;
         ks[0] = this->k[0]; ks[2] ^= this->k[0]; c[0] += this->k[0];
@@ -222,7 +222,7 @@ public:
         return is >> static_cast<common_type&>(f);
     }
 
-    _ctr_type operator()(_ctr_type c){ 
+    _ctr_type operator()(_ctr_type c) const { 
         Uint ks[5];
         ks[4] = Constants::KS_PARITY;
         ks[0] = this->k[0]; ks[4] ^= this->k[0]; c[0] += this->k[0];
@@ -270,7 +270,6 @@ public:
         }
         return c; 
     }
-
 };
 
 } // namespace core123
