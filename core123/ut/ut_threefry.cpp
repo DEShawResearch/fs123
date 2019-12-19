@@ -119,14 +119,6 @@ int  main(int, char **){
     test_kat_threefry4x32();
     test_kat_threefry2x64();
     test_kat_threefry4x64();
-    timecheck<threefry<2, uint64_t, 13>>("threefry<2, uint64_t, 13>", 200);
-    timecheck<threefry<4, uint64_t, 13>>("threefry<4, uint64_t, 13>", 200);
-    timecheck<threefry<2, uint64_t, 20>>("threefry<2, uint64_t, 20>", 200);
-    timecheck<threefry<4, uint64_t, 20>>("threefry<4, uint64_t, 20>", 200);
-
-    // There's no threefry 2x32
-    timecheck<threefry<4, uint32_t, 12>>("threefry<4, uint32_t, 12>", 200);
-    timecheck<threefry<4, uint32_t, 20>>("threefry<4, uint32_t, 20>", 200);
     std::cout << FAIL << " Failed tests" << std::endl;
     return !!FAIL;
 }

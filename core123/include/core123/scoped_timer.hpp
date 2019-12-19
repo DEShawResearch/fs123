@@ -2,6 +2,7 @@
 #include <chrono>
 #include <atomic>
 #include <utility>
+#include <mutex>
 
 // scoped_timer is scoped_nanotimer after drinking the std::chrono
 // kool-aid.  I.e., it's returns std::chrono::durations rather than
@@ -145,5 +146,78 @@ public:
 // instantiations of _scoped_timer:
 using scoped_timer = _scoped_timer<std::chrono::steady_clock>;
 using atomic_scoped_timer = _scoped_timer<std::chrono::steady_clock, std::atomic<std::chrono::steady_clock::duration>>;
+
+// Consider two threads downloading data:
+//
+//   t=0             t=0.75
+//    |----------------|         thread 1 50MB
+//         |----------------|    thread 2 50MB
+//        t=0.25           t=1
+
+// The system delivered a constant 100MB/s for 1 second: the first
+// 25MB in 1/4 sec to thread 1, then 50MB in the next half-second
+// to both threads, and then 25MB in the last 1/4sec to thread2.
+// But if we divide the total data (100MB) by the total time
+// recorded by both threads, (1.5sec), the result is only 66MB/s.
+//
+// To get the actual delivered bandwidth, we need a timer that
+// starts when thread1 begins downloading data and ends when
+// thread2 finishes downloading data.  Such a timer would record
+// 1sec, and dividing the data volume by that timer would
+// correctly measure the delivered data rate.
+//
+// The refcounted_scoped_timer does the job.  To use it, create
+// a refcounted_scoped_timer_ctrl *outside* of all the scopes that
+// you want to instrument.  E.g.,
+// 
+//     refcounted_scoped_timer<> end_to_end_timer;
+//
+// Then in every instrumented scope, say:
+//
+//     auto _raii end_to_end_timer.make_instance();
+//
+// The timer will start when the first thread enters the
+// scope, and will stop (and accumulate) when the last thread
+// exits the scope.
+//
+// In the outer scope, read the accumulated time with:
+//
+//     end_to_end_timer.elapsed(); // returns a steady_clock::duration
+//
+
+template <typename ClkT = std::chrono::steady_clock>
+struct refcounted_scoped_timer{
+    using accum_type = typename ClkT::duration;
+private:
+    std::mutex mtx;
+    typename ClkT::time_point start;
+    int refcnt = 0;
+    friend struct instance;
+    std::atomic<accum_type> p{accum_type{}};
+
+    struct instance{
+        refcounted_scoped_timer& rst;
+        instance(refcounted_scoped_timer& _rst):
+            rst(_rst)
+        {
+            std::lock_guard<std::mutex> lg(rst.mtx);
+            if(rst.refcnt++ == 0)
+                rst.start = ClkT::now();
+        }
+        ~instance() {
+            std::lock_guard<std::mutex> lg(rst.mtx);
+            if(--rst.refcnt == 0)
+                rst.p += ClkT::now() - rst.start;
+        }
+    };
+public:
+    accum_type elapsed() const {
+        return p.load();
+    }
+    
+    instance make_instance(){
+        return instance(*this);
+    }
+};
 
 } // namespace core123
