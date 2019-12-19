@@ -112,4 +112,5 @@ make -f ../GNUmakefile check
 * threeroe.hpp
 * counter\_based\_urng.hpp
 * threefry.hpp
+* simd\_threefry.hpp
 * philox.hpp
