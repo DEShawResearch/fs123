@@ -9,62 +9,12 @@
 //
 // Individual options are declared with:
 //
-//   p.add_option("name", "description", default_value, callback)
-//
-// where callback has a signature like:
-//
-//    void callable(const std::string& newvalue, const option& before);
-//
-// Such options are set by a command line argument of the form:
-//
-//    --name=value
-//
-// The callable can do whatever it likes with the new value and the
-// previous state of the option (see option's api below).  E.g., it
-// can convert the new value to a type and/or write it to an external
-// location.  In fact, the 'opt_setter' function returns a callable
-// that does exactly that.  E.g.,
-//
-//    int nthreads;
-//    p.add_option("nthreads", "number of threads", 4, opt_setter(nthreads));
-//
-// When the '--nthreads=4' option is parsed, the functor returned by
-// opt_setter(nthreads) will assign 4 to its argument, nthreads.  Note
-// that the opt_setter stores a reference to its argument, so its
-// argument should generally be a long-lived objects.
-//
-// Options that do not require a value are declared without a default and
-// with a callback with a different signature:
-//
+//   p.add_option("name", "description", default_value, callback);
+// for options that don't take a value, or
 //   p.add_option("name", "description", callback);
+// for options that don't take a value.
 //
-// In which case, the callback's signature is:
-//
-//     void callable(const option& before);
-//
-// The 'opt_true_setter' and 'opt_false_setter' callbacks are particularly
-// useful for value-less options that set a boolean:
-//
-//   bool verbose
-//   p.add_option("verbose", "chattiness", opt_true_setter(verbose));
-//
-// When the '--verbose' option is parsed, the functor returned by
-// opt_true_setter(verbosity) will assign true to its argument,
-// verbosity.
-//
-// There are two automatically declared options:
-//
-//   --flagfile=FILENAME - invokes a callback that calls:
-//           setopts_from_istream(ifstream(FILENAME))
-//
-// The pre-declared options (or any existing option), can be removed
-// with del_option.
-//
-// A rudimentary, but passable usage string is produced by:
-//   std::cerr << p.helptext();
-//
-// Options are set in several ways:
-//
+// Options are parsed by one of:
 // - from the command line:
 //     p.setopts_from_argv(int argc, const char** argv, size_t startindex=1);
 // - from a range:
@@ -73,10 +23,63 @@
 // - from the environment:
 //     p.setopts_from_env("MYPROG_");
 // - from a stream:
-//     p.setopts_from_istream(ifstream("foo.config"));
+//     p.setopts_from_istream(ifstream("foo.opts"));
 // - explicitly:
 //     p.set("name", "value");
 //     p.set("verbose");  // a no-value option
+//
+// The with-value add_option method takes a callback argument with
+// a signature like:
+//
+//    void callable(const std::string& newvalue, const option& before);
+//
+// Such options are set by a command line argument of the form:
+//
+//    --name=value
+//
+// The callable can do whatever it likes with the new value and the
+// previous state of the option.  E.g., it can convert the new value
+// to a type and/or write it to an external location.  In fact, the
+// 'opt_setter' function returns a callable that does exactly that.
+// E.g.,
+//
+//    int nthreads;
+//    p.add_option("nthreads", "number of threads", 4, opt_setter(nthreads));
+//
+// When the '--nthreads=4' option is parsed, the functor returned by
+// opt_setter(nthreads) will assign 4 to its argument, nthreads.  Note
+// that the opt_setter stores a reference to its argument, so its
+// argument should generally be a long-lived object.
+//
+// Options that do not take a value are declared without a default and
+// with a callback with a different signature:
+//
+//   p.add_option("name", "description", callback);
+//
+// In which case, the callback's signature is:
+//
+//     void callable(const option& before);
+//
+// The 'opt_true_setter' and 'opt_false_setter' callbacks are
+// convenient for value-less options that set a boolean:
+//
+//   bool verbose;
+//   p.add_option("verbose", "enable chattiness", opt_true_setter(verbose));
+//
+// When the '--verbose' option is parsed, the functor returned by
+// opt_true_setter(verbose) will assign true to its argument, verbose.
+//
+// There is one automatically declared option:
+//
+//   --flagfile=FILENAME - invokes a callback that calls:
+//           setopts_from_istream(ifstream(FILENAME))
+//
+// Any option (including --flagfile) can be removed with del_option, after
+// which its name will no longer be recognized by the setopts functions.
+//
+// A rudimentary, but passable usage string is produced by:
+//   std::cerr << p.helptext();
+//
 //
 // In all cases, option names are case-insensitive and hyphens and underscores
 // in option names are ignored.  So,
