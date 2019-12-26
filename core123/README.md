@@ -77,11 +77,12 @@ make -f ../GNUmakefile check
 * intutils.hpp
 * bits.hpp
 * bloomfilter.hpp
+* shared_blob.hpp
+* shared_span.hpp
 
 ## Early access to upcoming standards
 
 * str_view.hpp
-* byt.hpp
 * span.hpp (Boost license, namespace tcb)
 
 ## Errors, exceptions and diagnostics

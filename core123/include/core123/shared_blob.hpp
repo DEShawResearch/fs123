@@ -24,7 +24,6 @@
 
 #pragma once
 #include "span.hpp"
-#include "byt.hpp"
 #include <cstddef>
 #include <memory>
 #if __has_include(<version>)
@@ -41,26 +40,26 @@ public:
     using blob_type = SMART_PTR;
     _blob() : len{}, bytes{}{}
 #if __cpp_lib_shared_ptr_arrays >= 201611L
-    _blob(size_t _len) : len(_len), bytes(new byt[_len]){}
+    _blob(size_t _len) : len(_len), bytes(new unsigned char[_len]){}
 #else
     // Pre-17, we have to provide a custom-deleter.
-    _blob(size_t _len) : len(_len), bytes(new byt[_len], std::default_delete<byt[]>()){}
+    _blob(size_t _len) : len(_len), bytes(new unsigned char[_len], std::default_delete<unsigned char[]>()){}
 #endif
     _blob(SMART_PTR _bytes, size_t _len) : len(_len), bytes(_bytes){}
     size_t size() const { return len; }
-    byt* data() const {
+    unsigned char* data() const {
         return bytes.get();
     }
     const SMART_PTR& sp() const { return bytes; }
-    tcb::span<byt> as_span() const { return {data(), size()}; }
+    tcb::span<unsigned char> as_span() const { return {data(), size()}; }
 };
     
-using unique_blob = _blob<std::unique_ptr<byt[]>>;
+using unique_blob = _blob<std::unique_ptr<unsigned char[]>>;
 #if __cpp_lib_shared_ptr_arrays >= 201611L
-using shared_blob = _blob<std::shared_ptr<byt[]>>;
+using shared_blob = _blob<std::shared_ptr<unsigned char[]>>;
 #else
 // pre-17, the element_type cannot be an array
-using shared_blob = _blob<std::shared_ptr<byt>>;
+using shared_blob = _blob<std::shared_ptr<unsigned char>>;
 #endif
 
 }

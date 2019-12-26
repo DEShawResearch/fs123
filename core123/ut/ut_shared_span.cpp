@@ -22,12 +22,20 @@ int main(int, char **) try {
     EQUAL(middle.avail_front(), 10);
     EQUAL(middle.avail_back(), 11);
 
-    middle = middle.grow_back(3);
-    EQUAL(middle.size(), 15);
-    EQUAL(middle.avail_front(), 10);
-    EQUAL(middle.avail_back(), 8);
+    {
+        auto grown = middle.grow_back(3);
+        EQUAL(grown.avail_back(), 8);
+        EQUAL(grown.avail_front(), 22);
+        EQUAL(middle.size(), 15);
+        EQUAL(middle.avail_front(), 10);
+        EQUAL(middle.avail_back(), 8);
+    }
     
-    EQUAL(middle.grow_front(10).avail_front(), 0);
+    {
+        auto grown = middle.grow_front(10);
+        EQUAL(middle.avail_front(), 0);
+        EQUAL(grown.avail_front(), 0);
+    }
     bool caught = false;
     try{
         middle.grow_front(11);
