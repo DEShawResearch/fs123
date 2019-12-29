@@ -36,8 +36,6 @@ pylibs:=threeroe.py py_threeroe.so
 unit_tests:=\
 	ut_timeit \
 	ut_simd_threefry \
-	ut_shared_blob \
-	ut_shared_span \
 	ut_elastic_threadpool \
 	ut_roundtrip \
 	ut_demangle \

@@ -77,8 +77,6 @@ make -f ../GNUmakefile check
 * intutils.hpp
 * bits.hpp
 * bloomfilter.hpp
-* shared_blob.hpp
-* shared_span.hpp
 
 ## Early access to upcoming standards
 
