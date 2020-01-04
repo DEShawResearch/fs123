@@ -332,7 +332,7 @@ struct diag_t{
         if(clear_before_set)
             clear_names();
         string::size_type start, colon;
-        colon= -1;
+        colon=0; colon -= 1; // i.e., colon=-1, without a warning
         do{
             start = colon+1;
             colon = str.find(':', start);
@@ -383,7 +383,7 @@ struct diag_t{
         if(restore_defaults_before_set)
             set_opt_defaults();
         string::size_type start, colon;
-        colon = -1;
+        colon=0; colon -= 1; // i.e., colon=-1, without a warning
         do{
             start = colon + 1;
             colon = s.find(':', start);
