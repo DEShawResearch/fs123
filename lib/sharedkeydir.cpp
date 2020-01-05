@@ -18,6 +18,8 @@ sharedkeydir::sharedkeydir(int dirfd_, const std::string& encode_sid_indirect_, 
     secret_cache(10),
     refresh_time(std::chrono::seconds(refresh_sec))
 {
+    if(!legal_sid(encode_sid_indirect))
+        throw std::runtime_error("sharedkeydir::sharedkeydir:  encode_sid_indirect: '" + encode_sid_indirect + "' is not a legal sid name.");
 }
 
 std::string
@@ -32,6 +34,8 @@ sharedkeydir::get_encode_sid() /*override*/{
 
 secret_sp
 sharedkeydir::get_sharedkey(const std::string& sid) /*override*/{
+    if(!legal_sid(sid))
+        throw std::runtime_error("sharedkeydir::get_sharedkey:  sid: '" + sid + "' contains illegal characters");;
     auto exsid = secret_cache.lookup(sid);
     if(!exsid.expired())
         return std::move(exsid);
@@ -53,8 +57,10 @@ sharedkeydir::regular_maintenance() /*override*/{
 
 secret_sp
 sharedkeydir::refresh_secret(const std::string& sid) /*private*/{
-    // The key is in the file called <dirname>/<sid>.shrdkey so we'll
+    // The key is in the file called <dirname>/<sid>.sharedkey so we'll
     // be ready for the day we have <sid>.pubkey and <sid>.privkey.
+    if(!legal_sid(sid))
+        throw std::runtime_error("sharedkeydir::refresh_secret:  sid: '" + sid + "' contains illegal characters");
     auto fname = sid + suffix;
     acfd fd = sew::openat(dirfd, fname.c_str(), O_RDONLY);
     char inbuf[1025];

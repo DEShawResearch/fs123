@@ -14,7 +14,7 @@ secret_manager::legal_sid(const std::string& sv){
     //   non-empty
     //   no more than 255 chars long
     //   doesn't start with '.' 
-    //   alphanumeric with underscore, hyphen and period,
+    //   is alphanumeric with underscore, hyphen and period,
     //
     // Note that DO_NOT_ENCODE_SID is intentionally "illegal".
     if(sv.size() == 0)
