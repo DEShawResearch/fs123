@@ -10,9 +10,9 @@ namespace {
 static auto _ut = core123::diag_name("ut");
 static unsigned utfail = 0, utpass = 0;
 
-#define EQUAL(x, y) if ((x) != (y)) { utfail++; std::cerr << "FAILED " #x " " << (x) << " != " #y " " << (y) << std::endl; } else {utpass++; DIAG(_ut, "PASSED " #x " " << (x) << " == " #y " " << (y));}
-#define NOTEQUAL(x, y) if ((x) == (y)) { utfail++; std::cerr << "FAILED " #x " " << (x) << " != " #y " " << (y) << std::endl; } else {utpass++; DIAG(_ut, "PASSED " #x " " << (x) << " == " #y " " << (y));}
-#define CHECK(expr) if(expr) { utpass++; DIAG(_ut, "PASSED " #expr " is true");} else {utfail++; std::cerr << "FAILED " << #expr << " is false\n";}
+#define EQUAL(x, y) if ((x) != (y)) { utfail++; std::cerr << __LINE__ << ": FAILED " #x " " << (x) << " != " #y " " << (y) << std::endl; } else {utpass++; DIAG(_ut, "PASSED " #x " " << (x) << " == " #y " " << (y));}
+#define NOTEQUAL(x, y) if ((x) == (y)) { utfail++; std::cerr << __LINE__ << ": FAILED " #x " line " << __LINE__ << (x) << " != " #y " " << (y) << std::endl; } else {utpass++; DIAG(_ut, "PASSED " #x " " << (x) << " == " #y " " << (y));}
+#define CHECK(expr) if(expr) { utpass++; DIAG(_ut, "PASSED " #expr " is true");} else {utfail++; std::cerr << __LINE__ << ": FAILED " << #expr << " is false\n";}
 
 #define EQSTR(x, y) _EQSTR(x, y, #x)
 inline void _EQSTR(const std::string& x, const std::string& y, const char *xexpr){
