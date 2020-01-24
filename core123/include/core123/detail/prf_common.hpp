@@ -62,12 +62,14 @@ struct prf_common{
     typedef std::array<DUint, Ndomain> domain_type;
     typedef std::array<RUint, Nrange> range_type;
     typedef std::array<KUint, Nkey> key_type ;
+    static constexpr unsigned domain_size = Ndomain;
+    static constexpr unsigned range_size = Nrange;
+    static constexpr unsigned key_size = Nkey;
     constexpr static typename domain_type::value_type domain_array_min()  { return std::numeric_limits<DUint>::min(); }
     constexpr static typename domain_type::value_type domain_array_max()  { return std::numeric_limits<DUint>::max(); }
 
     constexpr static typename range_type::value_type range_array_min()  { return std::numeric_limits<RUint>::min(); }
     constexpr static typename range_type::value_type range_array_max()  { return std::numeric_limits<RUint>::max(); }
-
 
     key_type k;
     prf_common(key_type _k) : k(_k){
