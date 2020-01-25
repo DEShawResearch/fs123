@@ -3,11 +3,13 @@
 #include <core123/envto.hpp>
 #include <core123/threefry.hpp>
 #include <core123/philox.hpp>
+#include <core123/chacha.hpp>
 #include <iostream>
 
 static int Nthreads;
 using core123::philox;
 using core123::threefry;
+using core123::chacha;
 
 template <typename CBRNG>
 void timecheck(const std::string& name, int millis){
@@ -56,25 +58,31 @@ void timecheck(const std::string& name, int millis){
 
 int main(int, char**){
     Nthreads = core123::envto<int>("UT_TIMEIT_NTHREADS", 6);
+    int msec = core123::envto<int>("UT_TIMEIT_MSEC", 200);
     
-    timecheck<philox<2, uint64_t, 6>>("philox<2, uint64_t, 6>", 200);
-    timecheck<philox<4, uint64_t, 7>>("philox<4, uint64_t, 7>", 200);
-    timecheck<philox<2, uint64_t, 10>>("philox<2, uint64_t, 10>", 200);
-    timecheck<philox<4, uint64_t, 10>>("philox<4, uint64_t, 10>", 200);
-
-    timecheck<philox<2, uint32_t, 7>>("philox<2, uint32_t, 7>", 200);
-    timecheck<philox<4, uint32_t, 7>>("philox<4, uint32_t, 7>", 200);
-    timecheck<philox<2, uint32_t, 10>>("philox<2, uint32_t, 10>", 200);
-    timecheck<philox<4, uint32_t, 10>>("philox<4, uint32_t, 10>", 200);
-
-    timecheck<threefry<2, uint64_t, 13>>("threefry<2, uint64_t, 13>", 200);
-    timecheck<threefry<4, uint64_t, 13>>("threefry<4, uint64_t, 13>", 200);
-    timecheck<threefry<2, uint64_t, 20>>("threefry<2, uint64_t, 20>", 200);
-    timecheck<threefry<4, uint64_t, 20>>("threefry<4, uint64_t, 20>", 200);
-
-    // There's no threefry 2x32
-    timecheck<threefry<4, uint32_t, 12>>("threefry<4, uint32_t, 12>", 200);
-    timecheck<threefry<4, uint32_t, 20>>("threefry<4, uint32_t, 20>", 200);
+    std::cout << "Recommended generators:\n";
+    timecheck<philox<2, uint64_t, 10>>("philox<2, uint64_t, 10>", msec);
+    timecheck<philox<4, uint64_t, 10>>("philox<4, uint64_t, 10>", msec);
+    timecheck<philox<2, uint32_t, 10>>("philox<2, uint32_t, 10>", msec);
+    timecheck<philox<4, uint32_t, 10>>("philox<4, uint32_t, 10>", msec);
+    timecheck<threefry<2, uint64_t, 20>>("threefry<2, uint64_t, 20>", msec);
+    timecheck<threefry<4, uint64_t, 20>>("threefry<4, uint64_t, 20>", msec);
+    timecheck<threefry<4, uint32_t, 20>>("threefry<4, uint32_t, 20>", msec);
+    timecheck<chacha<8>>("chacha<8>", msec);
+    std::cout << "\n";
+    std::cout << "Crush-resistant generators:\n";
+    timecheck<philox<2, uint64_t, 6>>("philox<2, uint64_t, 6>", msec);
+    timecheck<philox<4, uint64_t, 7>>("philox<4, uint64_t, 7>", msec);
+    timecheck<philox<2, uint32_t, 7>>("philox<2, uint32_t, 7>", msec);
+    timecheck<philox<4, uint32_t, 7>>("philox<4, uint32_t, 7>", msec);
+    timecheck<threefry<2, uint64_t, 13>>("threefry<2, uint64_t, 13>", msec);
+    timecheck<threefry<4, uint64_t, 13>>("threefry<4, uint64_t, 13>", msec);
+    timecheck<threefry<4, uint32_t, 12>>("threefry<4, uint32_t, 12>", msec);
+    timecheck<chacha<4>>("chacha<4>", msec);
+    std::cout << "\n";
+    std::cout << "Cryptographic generators:\n";
+    timecheck<threefry<4, uint64_t, 72>>("threefry<4, uint64_t, 72>", msec);
+    timecheck<chacha<20>>("chacha<20>", msec);
 
     return 0;
 }

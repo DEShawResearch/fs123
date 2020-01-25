@@ -34,6 +34,7 @@ LINK.o = $(CXX) $(LDFLAGS) $(TARGET_ARCH)
 pylibs:=threeroe.py py_threeroe.so
 
 unit_tests:=\
+	ut_chacha \
 	ut_counter_based_generator \
 	ut_timeit \
 	ut_simd_threefry \
