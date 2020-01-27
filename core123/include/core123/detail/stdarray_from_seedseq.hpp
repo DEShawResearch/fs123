@@ -36,8 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     // The more "interesting" constructors and seed methods require us
     // to manufacture a key_type (a std::array) from seed_seq.
     // There's no easy way to do it, so we provide these static
-    // methods.  It could plausibly go in a separate, 'detail'
-    // header file
+    // methods.
     
 namespace core123{
 namespace detail{

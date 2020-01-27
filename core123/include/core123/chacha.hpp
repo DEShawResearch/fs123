@@ -21,7 +21,7 @@
 //
 // To use it as a conventional engine:
 //
-//    auto g = make_counter_based_generator<32>(chacha<4>(), {... up to 11 values ...});
+//    auto g = make_counter_based_engine<32>(chacha<4>(), {... up to 11 values ...});
 //    ... g() ... // up to 64 billion times.
 //
 // Quality:

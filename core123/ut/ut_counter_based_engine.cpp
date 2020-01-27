@@ -1,4 +1,4 @@
-#include "core123/counter_based_generator.hpp"
+#include "core123/counter_based_engine.hpp"
 #include "core123/threefry.hpp"
 #include "core123/philox.hpp"
 #include "core123/ut.hpp"
@@ -8,42 +8,38 @@
 
 using namespace core123;
 
+// N.B. there's *a lot* more testing of the counter_based_engine in
+// ut_threefry2x64.cpp and ut_philox4x64.cpp, via helper_engine.ipp.
+
 int main(int, char **) try {
     bool threw;
-    EQUAL((counter_based_generator<threefry<4, uint64_t>, 0>().sequence_length()), 4);
-    EQUAL((counter_based_generator<threefry<4, uint64_t>, 1>().sequence_length()), 8);
-    EQUAL((counter_based_generator<threefry<4, uint64_t>, 2>().sequence_length()), 16);
+    EQUAL((counter_based_engine<threefry<4, uint64_t>, 0>().sequence_length()), 4);
+    EQUAL((counter_based_engine<threefry<4, uint64_t>, 1>().sequence_length()), 8);
+    EQUAL((counter_based_engine<threefry<4, uint64_t>, 2>().sequence_length()), 16);
     auto ullmax = std::numeric_limits<unsigned long long>::max();
-    EQUAL((counter_based_generator<threefry<4, uint64_t>, 61>().sequence_length()), uint64_t(1)<<63);
-    EQUAL((counter_based_generator<threefry<4, uint64_t>, 62>().sequence_length()), ullmax);
-    EQUAL((counter_based_generator<threefry<4, uint64_t>, 63>().sequence_length()), ullmax);
-    EQUAL((counter_based_generator<threefry<4, uint64_t>, 64>().sequence_length()), ullmax);
+    EQUAL((counter_based_engine<threefry<4, uint64_t>, 61>().sequence_length()), uint64_t(1)<<63);
+    EQUAL((counter_based_engine<threefry<4, uint64_t>, 62>().sequence_length()), ullmax);
+    EQUAL((counter_based_engine<threefry<4, uint64_t>, 63>().sequence_length()), ullmax);
+    EQUAL((counter_based_engine<threefry<4, uint64_t>, 64>().sequence_length()), ullmax);
     
     using prf_t = philox<2, uint64_t>;
     prf_t::key_type k = {99};
     prf_t::domain_type c0 = {};
-    using g_t = counter_based_generator<prf_t, 5>;
-    auto g = make_counter_based_generator<5>(prf_t(k), c0);
+    using g_t = counter_based_engine<prf_t, 5>;
+    auto g = make_counter_based_engine<5>(prf_t(k), c0);
 
     CHECK((std::is_same<g_t, decltype(g)>::value));
-    // Default-construct g1.  It's initially unusable,
-    // but we'll assign into it.
+    // Default-construct g1.  
     decltype(g) g1;
-    EQUAL(g1.navail(), 0);
-    threw = false;
-    try{
-        g1();
-    }catch(std::out_of_range& e){
-        threw = true;
-    }
-    CHECK(threw);
+    EQUAL(g1.navail(), 64);
+    CHECK(g1 != g);
     
     // Check that we can't construct a cbg with high bits set in the counter:
     threw = false;
     try{
         prf_t::domain_type d0 = {};
         d0.back() = 1ull<<60;
-        auto g = make_counter_based_generator<4>(prf_t(k), d0);
+        auto g = make_counter_based_engine<4>(prf_t(k), d0);
         CHECK(false); // can't get here!
         g();
     }catch(std::invalid_argument& e){
@@ -119,7 +115,7 @@ int main(int, char **) try {
     
     // Let's check on navail when the numbers are really large:
     {
-    auto gx = make_counter_based_generator<64>(threefry<4, uint64_t>({1, 2, 3, 4}), {});
+    auto gx = make_counter_based_engine<64>(threefry<4, uint64_t>({1, 2, 3, 4}), {});
     
     unsigned long long bigly = std::numeric_limits<unsigned long long>::max();
     EQUAL(gx.navail(), bigly); 
@@ -142,7 +138,7 @@ int main(int, char **) try {
 
     // Let's check that the weird corner case with BITS=0 "works"
     {
-        auto gx = make_counter_based_generator<0>(threefry<4, uint64_t>({1,2,3,4}), {});
+        auto gx = make_counter_based_engine<0>(threefry<4, uint64_t>({1,2,3,4}), {});
         EQUAL(gx.navail(), 4);
         auto r1 = gx();
         EQUAL(gx.navail(), 3);

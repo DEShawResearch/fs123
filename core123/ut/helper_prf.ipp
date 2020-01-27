@@ -29,7 +29,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
-#include <core123/counter_based_urng.hpp>
+#include <core123/counter_based_engine.hpp>
 #include <random>
 #include <set>
 #include <tuple>
@@ -78,7 +78,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // into a bona fide URNG with the counter_based_engine template.  Let's
 // check that:
 
-typedef core123::counter_based_urng<BOOST_PSEUDO_RANDOM_FUNCTION> engine_t;
+typedef core123::counter_based_engine<BOOST_PSEUDO_RANDOM_FUNCTION, 32> engine_t;
 
 #define BOOST_RANDOM_RNE engine_t
 
@@ -118,7 +118,7 @@ BOOST_AUTO_TEST_CASE(test_huge_discard)
 // TODO: seek/tell, seed(key) and getseed()
 
 // Now let's test the counter_based_urng template:
-typedef core123::counter_based_urng<BOOST_PSEUDO_RANDOM_FUNCTION> urng_t;
+typedef core123::counter_based_engine<BOOST_PSEUDO_RANDOM_FUNCTION, 32> urng_t;
 
 #undef BOOST_RANDOM_URNG
 #define BOOST_RANDOM_URNG urng_t
@@ -228,26 +228,26 @@ BOOST_AUTO_TEST_CASE(test_discard_urng)
 BOOST_AUTO_TEST_CASE(test_get_set_domain)
 {
     BOOST_RANDOM_URNG urng1;
-    auto d1 = urng1.getdomain();
+    auto d1 = urng1.iv();
     BOOST_RANDOM_URNG urng2;
-    auto d2 = urng2.getdomain();
+    auto d2 = urng2.iv();
     BOOST_CHECK_EQUAL(urng1, urng2);
     BOOST_CHECK_EQUAL(d1, d2);
     BOOST_PSEUDO_RANDOM_FUNCTION::domain_type c2 = {{123,456}};
-    urng2.setdomain(c2);
-    d2 = urng2.getdomain();
+    urng2.reinit(c2);
+    d2 = urng2.iv();
     BOOST_CHECK_NE(d1, d2); // now they're unequal
     BOOST_CHECK_NE(urng1, urng2);
     urng2();
     // incrementing/discarding shouldn't affect the domain.
-    auto d2y = urng2.getdomain();
+    auto d2y = urng2.iv();
     BOOST_CHECK_EQUAL(d2, d2y);
     urng2.discard(99);
-    auto d2x = urng2.getdomain();
+    auto d2x = urng2.iv();
     BOOST_CHECK_EQUAL(d2, d2x);
 
-    // Now let's see if setdomain works:
-    urng1.setdomain(d2);
+    // Now let's see if reinit works:
+    urng1.reinit(d2);
     BOOST_CHECK_NE(urng1, urng2);
     // But if we increment by 100, they are equal:
     urng1.discard(100);
@@ -258,7 +258,7 @@ BOOST_AUTO_TEST_CASE(test_get_set_domain)
     BOOST_PSEUDO_RANDOM_FUNCTION::key_type k0 = {};
     BOOST_RANDOM_URNG urng3(BOOST_PSEUDO_RANDOM_FUNCTION(k0), c0);
 
-    BOOST_CHECK_EQUAL(c0, urng3.getdomain());
+    BOOST_CHECK_EQUAL(c0, urng3.iv());
 }
 
 // Let's check that we don't get any repeats in the first
@@ -277,10 +277,10 @@ BOOST_AUTO_TEST_CASE(test_no_repeats)
 
     // Continue to check for no repeats with different
     // seeding/setting strategies:
-    // setdomain(ctr) with an incrementing ctr
+    // reinit(ctr) with an incrementing ctr
     for(int i=0; i<1000000; ++i){
         c0[0]++;
-        urng.setdomain(c0);
+        urng.reinit(c0);
         std::tie(std::ignore, did_insertion) = norepeats.insert(urng());
         BOOST_CHECK(did_insertion);
     }
@@ -294,17 +294,15 @@ BOOST_AUTO_TEST_CASE(test_no_repeats)
         BOOST_CHECK(did_insertion);
     }
 
-    // seed(key)
+    // seed(prf, iv)
     for(int i=0; i<100000; ++i){
         k0[0]++;
-        urng.seed(k0);
+        urng.seed(BOOST_PSEUDO_RANDOM_FUNCTION(k0), {1});
         std::tie(std::ignore, did_insertion) = norepeats.insert(urng());
         BOOST_CHECK(did_insertion);
     }
 
     for(int i=0; i<100000; ++i){
-        if(i == urng.default_seed)
-            continue;
         urng.seed(i);
         std::tie(std::ignore, did_insertion) = norepeats.insert(urng());
         BOOST_CHECK(did_insertion);

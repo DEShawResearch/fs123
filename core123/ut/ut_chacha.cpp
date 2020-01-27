@@ -1,12 +1,12 @@
 #include "core123/chacha.hpp"
 #include "core123/ut.hpp"
-#include "core123/counter_based_generator.hpp"
+#include "core123/counter_based_engine.hpp"
 
 using namespace core123;
 
 int main(int, char **){
     chacha<12> cha12;
-    auto g = make_counter_based_generator<32>(cha12, {0});
+    auto g = make_counter_based_engine<32>(cha12, {0});
     std::cout << std::hex;
     std::cout << "g.sequence_length: " << g.sequence_length() << "\n";
     std::cout << g() << " " << g() << " " << g() << " " << g() << "\n";

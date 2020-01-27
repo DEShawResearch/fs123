@@ -109,7 +109,8 @@ make -f ../GNUmakefile check
 ## Hashes and random numbers
 
 * threeroe.hpp
-* counter\_based\_urng.hpp
+* chacha.hpp
 * threefry.hpp
-* simd\_threefry.hpp
 * philox.hpp
+* simd\_threefry.hpp
+* counter\_based\_engine.hpp
