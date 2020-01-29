@@ -370,7 +370,19 @@ _wrapspecial(std::string str_readlink(const char *pathname),
              )
 _wrap_void(fsync);
 _NOT_GLIBC( _wrap_void(fdatasync); )
-_wrap_void(pipe);
+//_wrap_void(pipe);
+inline void pipe(int pipefd[2]){
+    auto ret = ::pipe(pipefd);
+    if(ret < 0)
+        throw se(strfunargs("pipe", pipefd));
+}
+template <typename CEH> // wrapspecial doesn't work with template, but it's obsolete anyway...
+inline void pipe(core123::ac::fd_t<CEH> pipefd[2]){
+    int p[2];
+    sew::pipe(p);
+    pipefd[0] = p[0];
+    pipefd[1] = p[1];
+}
 _wrap(dup);
 _wrap(dup2);
 _wrap_void(truncate);
@@ -791,45 +803,61 @@ static inline int openat(int dfd, const char *pathname, int flags, mode_t mode){
 }
 //#endif
 
-_wrapspecial(void ioctl(int fd, int request),
+// N.B.  According to man ioctl, "Usually, on success zero is reurned.
+// A few ioctl() requests use the return value as an output parameter
+// and return a nonnegative value on success.  On error, -1 is
+// returned and errno is set appropriately."
+_wrapspecial(int ioctl(int fd, int request),
 {
-    if (::ioctl(fd, request) < 0)
+    int ret;
+    if ((ret = ::ioctl(fd, request)) < 0)
         throw se(strfunargs("ioctl", fd, request));
+    return ret;
 }
              )   
 
-_wrapspecial(void ioctl(int fd, int request, int arg),
+_wrapspecial(int ioctl(int fd, int request, int arg),
 {
-    if (::ioctl(fd, request, arg) < 0)
+    int ret;
+    if ((ret = ::ioctl(fd, request, arg)) < 0)
         throw se(strfunargs("ioctl", fd, request, arg));
+    return ret;
 }
              )   
 
-_wrapspecial(void ioctl(int fd, int request, void *p),
+_wrapspecial(int ioctl(int fd, int request, void *p),
 {
-    if (::ioctl(fd, request, p) < 0)
+    int ret;
+    if ((ret = ::ioctl(fd, request, p)) < 0)
         throw se(strfunargs("ioctl", fd, request, p));
+    return ret;
 }
              )   
 
-_wrapspecial(void fcntl(int fd, int request),
+_wrapspecial(int fcntl(int fd, int request),
 {
-    if (::fcntl(fd, request) < 0)
+    int ret;
+    if ((ret = ::fcntl(fd, request)) < 0)
         throw se(strfunargs("fcntl", fd, request));
+    return ret;
 }
              )   
 
-_wrapspecial(void fcntl(int fd, int request, long arg),
+_wrapspecial(int fcntl(int fd, int request, long arg),
 {
-    if (::fcntl(fd, request, arg) < 0)
+    int ret;
+    if ((ret = ::fcntl(fd, request, arg)) < 0)
         throw se(strfunargs("fcntl", fd, request, arg));
+    return ret;
 }
              )   
 
-_wrapspecial(void fcntl(int fd, int request, void *p),
+_wrapspecial(int fcntl(int fd, int request, void *p),
 {
-    if (::fcntl(fd, request, p) < 0)
+    int ret;
+    if ((ret = ::fcntl(fd, request, p)) < 0)
         throw se(strfunargs("fcntl", fd, request, p));
+    return ret;
 }
              )   
 
