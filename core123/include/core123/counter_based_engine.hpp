@@ -87,8 +87,8 @@
 // was provided, or std::seed_seq).
 
 #include "strutils.hpp"
-#include "detail/stdarray_from_seedseq.hpp"
 #include "detail/prf_common.hpp"
+#include <random>
 #include <limits>
 #include <stdexcept>
 #include <array>
@@ -205,10 +205,8 @@ public:
     }
 
     // The seed() members all forward to seed(SeedSeq), which
-    // initializes both the PRF and the IV from two calls to
-    // q.generate() (N.B., this is strictly a violation of the
-    // requirements for a Random Number Engine because Table 92 in
-    // [rand.req.eng] says we should make "one call to q.generate".
+    // initializes both the PRF and the IV from a call to
+    // q.generate().
     void seed(result_type s){
         static constexpr unsigned N32 = (sizeof(result_type)-1) / sizeof(uint32_t) + 1;
         std::array<uint32_t, N32> a;
@@ -222,14 +220,30 @@ public:
     void seed(){
         // The seed_seq is initialized with little-endian("core123::default")
         // (which should be different from anything initialized with either
-        // a 32-bit or 64-bit result-type).
+        // a 32-bit or 64-bit result-type).  Hopefully this won't "collide"
+        // with any seed that can be manufactured by the other seed methods.
         std::seed_seq q({0x65726f63, 0x3a333231, 0x6665643a, 0x746c756});
         seed(q);
     }
     template <class SeedSeq, typename = detail::enable_if_seed_seq<SeedSeq, counter_based_engine, result_type>>
     void seed(SeedSeq &q){
-        f = PRF{detail::stdarray_from_seedseq<typename PRF::key_type>(q)};
-        auto c = detail::stdarray_from_seedseq<typename PRF::domain_type>(q);
+        static const size_t Nk32 = detail::u32_for<typename PRF::key_type>();
+        static const size_t Nd32 = detail::u32_for<typename PRF::domain_type>();
+        std::array<uint32_t, Nk32+Nd32> a;
+        // Call q.generate.  N.B.  the 'seedseq' serves very little
+        // purpose here.  As long as we avoid *identical* keys and
+        // initial values, counter-based prngs produce independent and
+        // uncorrelated sequences.  The SeedSeq' can't help.  It can
+        // only hurt (by producing the same key from two different
+        // initializations).  Nevertheless, it's required by the standard...
+        q.generate(a.begin(), a.end());
+        typename PRF::key_type k;
+        typename PRF::domain_type c;
+        auto b = std::begin(a);
+        auto e = std::end(a);
+        b = detail::stdarray_from_u32(k, b, e);
+        f = PRF{k};
+        detail::stdarray_from_u32(c, b, e);
         c.back() &= ~ctr_mask;
         reinit(c);
     }

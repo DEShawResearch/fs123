@@ -109,5 +109,38 @@ struct prf_common{
     CORE123_DETAIL_INEQUALITY_OPERATOR(prf_common)
 };
 
+
+template<typename AType, typename Iter>
+inline static Iter
+stdarray_from_u32(AType& ret, Iter p32, Iter e32){
+    using AV_t = typename AType::value_type;
+    static_assert(std::is_unsigned<AV_t>::value, "stdarray_from_u32's AType must have an unsigned value_type");
+    static_assert(std::numeric_limits<AV_t>::radix == 2, "C'mon.  You didn't really thing this would work with non base-2 integers, did you");
+    constexpr size_t w = std::numeric_limits<AV_t>::digits;
+    static_assert(w>0, "Huh?  An unsigned type with 0 digits???");
+    constexpr size_t u32_per_value = (w - 1)/32 + 1;
+    for(auto& e : ret){
+        if(p32 == e32) throw std::out_of_range("stdarray_from_u32");
+        e = uint32_t(*p32++);
+        for(size_t j=1; j<u32_per_value; ++j){
+            if(p32 == e32) throw std::out_of_range("stdarray_from_u32");
+            e |= (AV_t(uint32_t(*p32++))) << (32*j);
+        }
+    }
+    return p32;
+}
+
+template <typename AType>
+inline static constexpr size_t
+u32_for(){
+    using AV_t = typename AType::value_type;
+    static_assert(std::is_unsigned<AV_t>::value, "u32_for's AType must have an unsigned value_type");
+    static_assert(std::numeric_limits<AV_t>::radix == 2, "C'mon.  You didn't really thing this would work with non base-2 integers, did you");
+    constexpr size_t w = std::numeric_limits<AV_t>::digits;
+    static_assert(w>0, "Huh?  An unsigned type with 0 digits???");
+    constexpr size_t u32_per_value = (w - 1)/32 + 1;
+    return std::tuple_size<AType>::value*u32_per_value;
+}
+
 } // namespace detail
 } // namespace core123
