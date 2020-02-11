@@ -1196,6 +1196,8 @@ void fs123_readdir(fuse_req_t req, fuse_ino_t ino,
     ANNOTATE_HAPPENS_BEFORE(fi->fh);
 
     // All readdirs on the same open fd are serialized.
+    // N.B.  See comment at end.  It's essential to explicitly
+    // call lk.unlock() before calling reply_anything()!
     std::unique_lock<std::mutex> lk{fhstate->mtx};
 #if 0
     // See docs/Notes.readdir.  You can't win.
@@ -1211,8 +1213,10 @@ void fs123_readdir(fuse_req_t req, fuse_ino_t ino,
     size_t nextoff = size_t(off);
     if(nextoff == fhstate->contents.size() && !fhstate->eof){
 	auto reply = begetchunk_dir(ino, fhstate->contents.empty(), fhstate->chunk_next_offset);
-        if( reply.eno )
+        if( reply.eno ){
+            lk.unlock(); // see comment at end of function
             return reply_err(req, reply.eno);
+        }
         // anti-Postel's law ... be strict in what we accept too
         if( reply.chunk_next_meta == reply123::CNO_MISSING )
             throw se(EIO, fmt("fs123_readdir(%s) reply missing " HHNO " with chunk-next-offset", ino_to_fullname(ino).c_str()));
@@ -1336,10 +1340,14 @@ void fs123_readdir(fuse_req_t req, fuse_ino_t ino,
     // We could release the lock sooner but it would require thinking
     // carefully about how contents are stored - and it's not clear
     // anyone would ever benefit (who does multiple concurrent
-    // readdirs on the same fd??)  OTOH, we *must* release this lock
-    // before we call reply_buf because the kernel might issue a
-    // releasedir callback in another thread immediately after the
-    // reply_buf, and that releasedir will delete fhstate.
+    // readdirs on the same fd??)
+    //
+    // OTOH, we *must* release this lock before we call reply_buf
+    // because the kernel might issue a releasedir callback, which
+    // could be executed in another thread immediately after the
+    // reply_buf.  If that happens before this thread calls
+    // lk.unlock() (perhaps via RAII), this thread will be unlock-ing
+    // a delete'ed mutex.
     lk.unlock();
     DIAGfkey(_readdir, "fuse_reply_buf(req, %p, %ld)\n", buf.data(), used);
     reply_buf(req, buf.data(), used);
