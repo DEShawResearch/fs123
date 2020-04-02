@@ -22,7 +22,7 @@ checkCorners(const histogram& h){
         double bottom = h.bottom(p);
 
         printf("Checking bounds on bin [%a, %a)\n", h.bottom(p), h.top(p));
-        if(!isinf(top)){
+        if(!std::isinf(top)){
             auto q = h.find(top);
             if(!(p<q)){
                 printf("Failed p<h.find(%a)\n", top);
@@ -37,7 +37,7 @@ checkCorners(const histogram& h){
             }
 #endif
         }
-        if(!isinf(bottom)){
+        if(!std::isinf(bottom)){
             auto q = h.find(bottom);
             if(!(p==q)){
                 printf("Failed p == h.find(%a)\n", bottom);
