@@ -48,8 +48,8 @@ check: $(EXE)
 
 .PHONY: core123-check
 core123-check:
-	-mkdir core123
-	$(MAKE) -C core123 -f $(top/)core123/GNUmakefile check
+	-mkdir core123-build
+	$(MAKE) -C core123-build -f $(abstop/)core123/GNUmakefile check
 
 OPT?=-O3 # if not explicitly set
 CPPFLAGS += -iquote $(top/)include
@@ -129,7 +129,7 @@ $(EXE): libfs123.a
 .PHONY: clean
 clean:
 	rm -f $(EXE) *.o *.gcno *.gcda *.gcov *.a *.so
-	[ ! -d core123 ] || rm -rf core123
+	[ ! -d core123-build ] || rm -rf core123-build
 	[ ! -d "$(DEPDIR)" ] || rm -rf $(DEPDIR)
 
 .PHONY: install
