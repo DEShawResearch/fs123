@@ -41,7 +41,7 @@ case "$TEST_FS123_DEBUG" in
 y)	ekeep="PS4"; debug=-x;;
 *)	debug=+x;;
 esac
-#garden env-keep-only --user FS123_\* WORKDIR OBJDIR EXPORT_ROOT SERVPORT CLIENTOPTS RCroot LSB_INIT_FUNCTIONS SKEW Fs123DiagNames $ekeep
+#garden env-keep-only --user FS123_\* WORKDIR OBJDIR EXPORT_ROOT CLIENTOPTS RCroot LSB_INIT_FUNCTIONS SKEW Fs123DiagNames $ekeep
 
 : ${WORKDIR:=$(pwd)}
 if [ ! -d "$WORKDIR" ]; then
@@ -52,14 +52,13 @@ set $debug -u
 : ${RCroot=$WORKDIR/s}
 : ${MTroot=$WORKDIR/c}
 : ${EXPORT_ROOT=$RCroot/export_root}
-: ${SERVPORT=$(($RANDOM+10000))}
 : ${CLIENTOPTS=}
 
 export MTPT=$MTroot/mtpt
 etc=${RCroot}/etc/fs123p7exportd
 initd=${RCroot}/etc/init.d
 
-export WORKDIR EXPORT_ROOT SERVPORT RCroot MTroot
+export WORKDIR EXPORT_ROOT RCroot MTroot
 
 if [ ${EXPORT_ROOT##/} = $EXPORT_ROOT ]; then
     EXPORT_ROOT=$RCroot/$EXPORT_ROOT
@@ -80,7 +79,7 @@ touch ${EXPORT_ROOT}/abc
 if lsattr -v ${EXPORT_ROOT}/abc ; then
     cookie_src=ioc_getversion
 else
-    echo 1>&2 Filesystem does not support testing --estale_cookie_src=ioc_getversion.  
+    echo 1>&2 Filesystem does not support testing --estale_cookie_src=ioc_getversion.
 fi
 if [ ! ${cookie_src:+set} ]; then
     if setfattr -n "user.fs123.estalecookie" -v "12345"  ${EXPORT_ROOT}/abc ; then
@@ -100,19 +99,21 @@ for f in $initd/fs123p7exportd ${RCroot}/sbin/fs123p7exportd; do
 done
 
 clientexe=${MTroot}/sbin/mount.fs123p7
+serverexe=${RCroot}/sbin/fs123p7exportd
 
 # currently copy init script, daemon and executables to rc.
 # cp -av or ln -s?  do we need a "copy" in addition to stop and start?
 # or start always does a copy?
 : ${CPEXE=ln -sfv} #  was cp -av
 set -x
-cp -a ${testdir}/../exportd/fs123p7exportd.rc $initd/fs123p7exportd
+$CPEXE ${testdir}/../exportd/fs123p7exportd.rc $initd/fs123p7exportd
 sed -i.bak -e "s,RCroot=[^}]*,RCroot=$RCroot," $initd/fs123p7exportd
 
 : ${OBJDIR:=$(pwd)}
 PATH=$OBJDIR:$PATH
 export OBJDIR PATH
 
+$CPEXE $OBJDIR/fs123p7exportd ${RCroot}/sbin/fs123p7exportd
 $CPEXE $OBJDIR/fs123p7exportd ${RCroot}/sbin/fs123p7exportd
 $CPEXE $OBJDIR/fs123p7 ${RCroot}/sbin/fs123p7
 $CPEXE $OBJDIR/fs123p7 ${MTroot}/sbin/fs123p7
@@ -131,12 +132,31 @@ $CPEXE $OBJDIR/fs123p7 $clientexe
 # should run different several different clients... Until then, test the
 # "most important" one (whatever that means).
 ProtoMinor=2
-client="$clientexe -f -oFs123CommandPipe=${MTroot}/cmdpipe -oFs123SignalFile=${MTroot}/fs123.sig -oFs123LogRateWindow=10 -oFs123FallbackUrls=http://127.0.0.1:$SERVPORT/02 -oFs123RetryTimeout=10 -oFs123BuggyAutomountWorkaround=1 -oFs123EnhancedConsistency=1 -oFs123CacheDir=$MTroot/cachedir,Fs123CacheMaxMBytes=1,Fs123CacheMaxFiles=10,Fs123CacheFancySharing=false,Fs123EvictPeriodMinutes=1 -oFs123SupportXattr=true -oFs123ProtoMinor=$ProtoMinor -oFs123SharedkeydirRefresh=1 -oFs123EncryptRequests=true -oFs123LogMinLevel=LOG_NOTICE,Fs123DiagDestination=$MTroot/fs123.diag,Fs123DiagNames=complaints:err:ofmap:open:getattr:http=2:secretbox:diskcache -o ro,noatime $CLIENTOPTS \"\$@\" http://127.0.0.1:$SERVPORT/01 ${MTroot}/mtpt"
+#client="$clientexe -f -oFs123CommandPipe=${MTroot}/cmdpipe -oFs123SignalFile=${MTroot}/fs123.sig -oFs123LogRateWindow=10 -oFs123FallbackUrls=http://127.0.0.1:$SERVPORT/02 -oFs123RetryTimeout=10 -oFs123BuggyAutomountWorkaround=1 -oFs123EnhancedConsistency=1 -oFs123CacheDir=$MTroot/cachedir,Fs123CacheMaxMBytes=1,Fs123CacheMaxFiles=10,Fs123CacheFancySharing=false,Fs123EvictPeriodMinutes=1 -oFs123SupportXattr=true -oFs123ProtoMinor=$ProtoMinor -oFs123SharedkeydirRefresh=1 -oFs123EncryptRequests=true -oFs123LogMinLevel=LOG_NOTICE,Fs123DiagDestination=$MTroot/fs123.diag,Fs123DiagNames=complaints:err:ofmap:open:getattr:http=2:secretbox:diskcache -o ro,noatime $CLIENTOPTS \"\$@\" http://127.0.0.1:$SERVPORT/01 ${MTroot}/mtpt"
+clientopts="-f"
+clientopts+=" -oFs123CommandPipe=${MTroot}/cmdpipe"
+clientopts+=" -oFs123SignalFile=${MTroot}/fs123.sig"
+clientopts+=" -oFs123LogRateWindow=10"
+clientopts+=" -oFs123FallbackUrls=http://127.0.0.1:\$(cat ${RCroot}/portfile)/02"
+clientopts+=" -oFs123RetryTimeout=10"
+clientopts+=" -oFs123BuggyAutomountWorkaround=1"
+clientopts+=" -oFs123EnhancedConsistency=1"
+clientopts+=" -oFs123CacheDir=$MTroot/cachedir,Fs123CacheMaxMBytes=1,Fs123CacheMaxFiles=10,Fs123CacheFancySharing=false,Fs123EvictPeriodMinutes=1"
+clientopts+=" -oFs123SupportXattr=true"
+clientopts+=" -oFs123ProtoMinor=$ProtoMinor"
+clientopts+=" -oFs123Sharedkeydir=$RCroot/secrets.d"
+clientopts+=" -oFs123SharedkeydirRefresh=1"
+clientopts+=" -oFs123EncryptRequests=true"
+clientopts+=" -oFs123LogMinLevel=LOG_NOTICE"
+clientopts+=" -oFs123DiagDestination=$MTroot/fs123.diag,Fs123DiagNames=complaints:err:ofmap:open:getattr:http=2:secretbox:diskcache"
+clientopts+=" -o ro,noatime"
+clientopts+=" $CLIENTOPTS"
+url="http://127.0.0.1:\$(cat ${RCroot}/portfile)/01"
+mtpt="${MTroot}/mtpt"
+client="$clientexe $clientopts $url $mtpt"
 
 $CPEXE ${testdir}/fs123.supp $MTroot/fs123.supp
 
-export cache_control=$etc/fs123cc.crf
-echo > ${cache_control}
 export diag_file=$RCroot/fs123.diag
 
 mkdir -p $RCroot/secrets.d
@@ -148,30 +168,35 @@ echo 99 > $RCroot/secrets.d/encoding.keyid
 
 # it's a little weird to put the config in the EXPORT_ROOT, but
 # nothing forbids it...
+
 cat > $etc/fs123p7exportd.gflags <<- EOF
-port=$SERVPORT
 # can't do chroot until exe has ben setpcap'ed
 --chroot=
+--nlisteners=4
 --export_root=$EXPORT_ROOT
---cache_control_file=$cache_control
 --estale_cookie_src=$cookie_src
 # 
 --log_destination=$RCroot/errorlog
 --log_max_hourly_rate=600
 --accesslog_destination=$RCroot/accesslog
---diag_names=http=2:bufev:proc:fs123req:cache_control:secretbox:cc_rules:err:complaints
+--diag_names=fs123server:http:bufev:proc:fs123req:secretbox:cc_rules:err:complaints:exportd_handler
+#--libevent_debug=true
 --diag_destination=$diag_file
 --sharedkeydir=$RCroot/secrets.d
 --sharedkeydir_refresh=1
 --allow_unencrypted_requests=true
 --allow_unencrypted_replies=true
---max_age_long=20
---max_age_short=3
---stale_while_revalidate_long=10
---stale_while_revalidate_short=3
---cache_control_regex=max-age=55,stale-while-revalidate=44:max-age=33,stale-while-revalidate=22:.*\.dms
---decentralized_cache_control=true
+--no_rules_cc=max-age=3, stale-while-revalidate=3
 EOF
+
+# Only test --threadpool-max if it's supported (requires linkage with
+# libevent >= 2.1.9)
+if "$serverexe" --threadpool-max 4 --argcheck 1 ; then
+    cat >> $etc/fs123p7exportd.gflags <<- EOF
+--threadpool-max=4
+--threadpool-idle=1
+EOF
+fi
 
 # set up a various commands to make it easier to repeat tests
 (printf '#!/bin/bash\n'; export -p; echo PATH=\$PATH:$MTroot/sbin:$testdir; printf 'exec "$@"\n') > $MTroot/runtest
@@ -200,7 +225,7 @@ for f in fs123.diag exportd.err accesslog errorlog; do
    if [ -f \$f ]; then  mv $RCroot/\$f $RCroot/\$f.\$hms 2>/dev/null; fi
 done
 # N.B.  Try --run-libc-freeres=no if this segfaults.  See http://valgrind.org/docs/manual/faq.html#faq.exit_errors 
-server="$RCroot/sbin/fs123p7exportd --flagfile $RCroot/etc/fs123p7exportd/fs123p7exportd.gflags --pidfile $RCroot/pidfile "
+server="$serverexe --flagfile $RCroot/etc/fs123p7exportd/fs123p7exportd.gflags --pidfile $RCroot/pidfile --portfile $RCroot/portfile \$FS123_TEST_SERVER_ARGS"
 if [ x"\${FS123_TEST_WITH_VALGRIND}" = xyes ]; then
    server="valgrind --error-exitcode=99 --soname-synonyms=somalloc=NONE --suppressions=$MTroot/fs123.supp \$server"
 fi
@@ -246,8 +271,17 @@ set -x
 : ${FS123_TEST_WITH_VALGRIND=$(if type valgrind; then echo yes; else echo no; fi)}
 export FS123_TEST_WITH_VALGRIND
 
+rm -f $RCroot/portfile
 $RCroot/run &
 serverpid=$!
+if ! [ -f $RCroot/portfile ]; then
+    echo No portfile immediately after starting server.  Sleep and check again...
+    sleep 10
+    if ! [ -f $RCroot/portfile ]; then
+        echo No portfile after sleeping.  Server has probably failed to start.
+        exit 1
+    fi
+fi
 
 ######## BEGIN test of client
 
@@ -279,8 +313,9 @@ done
 # pick.
 tests=$(ls -t $testdir/t-*[a-zA-Z0-9])
 # For example, to run in a particular order:
-#tests=$(sed "s@ @ $testdir/@g" <<< " t-14ccrules t-15cornercases t-16logrotate t-17sigusr2 t-01simple t-02disconnected t-03readdir t-04changingcrf t-05unittests t-06xattr t-07modified t-08estale t-09w2r t-10lsroot t-11showcache t-12swrcache t-13ccregex")
+#tests=$(sed "s@ @ $testdir/@g" <<< " t-14ccrules t-15cornercases t-16logrotate t-17sigusr2 t-01simple t-02disconnected t-03readdir t-04changingcrf t-05unittests t-06xattr t-07modified t-08estale t-09w2r t-10lsroot t-11showcache t-12swrcache")
 #garden prepend-path PATH $MTroot/sbin
+
 PATH=$MTroot/sbin:$PATH
 echo Running tests in this order: $(sed s@$testdir/@@g <<< $tests)
 failed=

@@ -110,12 +110,12 @@ public:
     bool check(const str_view sv) const {
         return check((const uint8_t *)sv.data(), sv.size());
     }
-    const size_t popcount() const { return bits_.popcount(); }
+    size_t popcount() const { return bits_.popcount(); }
     const uint8_t* databytes() const { return bits_.databytes(); }
-    const size_t sizebytes() const { return bits_.sizebytes(); }
-    const size_t sizebits() const { return bits_.sizebits(); }
-    const size_t numhashes() const { return nhashes_; }
-    const size_t numentries() const { return nentries_; }
+    size_t sizebytes() const { return bits_.sizebytes(); }
+    size_t sizebits() const { return bits_.sizebits(); }
+    size_t numhashes() const { return nhashes_; }
+    size_t numentries() const { return nentries_; }
     // probability of false positive
     const double falseprob() const {
         return bloom_estimate_falseprob(bits_.sizebits(), nhashes_, nentries_);

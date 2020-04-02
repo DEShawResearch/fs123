@@ -14,3 +14,4 @@ salmonj/
 *.secret
 Portfile
 ut_content_codec.secret
+*.deps

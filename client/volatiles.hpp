@@ -20,6 +20,8 @@
 // running.
 
 struct volatiles_t{
+    // used in multiple backends:
+    std::atomic<bool> disconnected{core123::envto<bool>("Fs123Disconnected", false)};
     // used in backend_http.cpp
     std::atomic<long> connect_timeout{core123::envto<long>("Fs123ConnectTimeout", 20L)};
     std::atomic<long> transfer_timeout{core123::envto<long>("Fs123TransferTimeout", 40L)};

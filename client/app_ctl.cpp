@@ -39,6 +39,8 @@ int complain(){
         " EvictPeriodMinutes\n"
         " CacheMaxMBytes\n"
         " CacheMaxFiles\n"
+        " AddPeer\n"
+        " RemovePeer\n"
         ;
     return 1;
 }
@@ -127,6 +129,10 @@ int app_ctl(int argc, char **argv) try {
         ioc = DC_MAXMBYTES_IOC;
     }else if(cmd == "CacheMaxFiles"){
         ioc = DC_MAXFILES_IOC;
+    }else if(cmd == "AddPeer"){
+        ioc = ADD_PEER_IOC;
+    }else if(cmd == "RemovePeer"){
+        ioc = REMOVE_PEER_IOC;
     }else{
         fprintf(stderr, "Unrecognized command: %s\n", cmd.c_str());
         return complain();

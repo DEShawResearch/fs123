@@ -54,6 +54,7 @@
 #include <sys/ioctl.h>
 #include <sys/file.h>
 #include <fcntl.h>
+#include <ftw.h>
 #include <sys/mman.h>	// mmap and friends
 #include <unistd.h>
 #include <signal.h>
@@ -280,10 +281,10 @@ wrap_check_errno1(R (*f)(Args...), const char *name, R errval=static_cast<R>(-1)
 // minimal changes, we'll do so.  "Minimal" changes means no
 // autoconf and nothing to make the code unreadable or slow(er)
 // to compile.  
-#if !defined(__GLIBC)
-#define _NOT_GLIBC(X)
+#if defined(__GLIBC__)
+#define _NEEDS_GLIBC(X) X
 #else
-#define _NOT_GLIBC(X) X
+#define _NEEDS_GLIBC(X)
 #endif
     
 //  fd-related utilities
@@ -299,7 +300,7 @@ _wrap(write);
 _wrap(pwrite);
 _wrap(writev);
 _wrap(lseek);
-_NOT_GLIBC( _wrap(lseek64); )
+_NEEDS_GLIBC( _wrap(lseek64); )
 //_wrap(readlinkat); // special case char*
 //_wrap(readlink);   // special case char*
 _wrapspecial(ssize_t readlinkat(int dirfd, const char *path, char *buf, size_t bufsiz),
@@ -369,7 +370,7 @@ _wrapspecial(std::string str_readlink(const char *pathname),
 }
              )
 _wrap_void(fsync);
-_NOT_GLIBC( _wrap_void(fdatasync); )
+_NEEDS_GLIBC( _wrap_void(fdatasync); )
 //_wrap_void(pipe);
 inline void pipe(int pipefd[2]){
     auto ret = ::pipe(pipefd);
@@ -396,27 +397,27 @@ _wrap_void(chown);
 _wrap_void(fchown);
 _wrap_void(lchown);
 _wrap(getxattr);
-_NOT_GLIBC( _wrap(lgetxattr); )
+_NEEDS_GLIBC( _wrap(lgetxattr); )
 _wrap(fgetxattr);
 _wrap(listxattr);
-_NOT_GLIBC( _wrap(llistxattr); )
+_NEEDS_GLIBC( _wrap(llistxattr); )
 _wrap(flistxattr);
 _wrap_void(setxattr);
-_NOT_GLIBC( _wrap_void(lsetxattr); )
+_NEEDS_GLIBC( _wrap_void(lsetxattr); )
 _wrap_void(fsetxattr);
 _wrap_void(removexattr);
-_NOT_GLIBC( _wrap_void(lremovexattr); )
+_NEEDS_GLIBC( _wrap_void(lremovexattr); )
 _wrap_void(fremovexattr);
 _wrap_void(utime);
 _wrap_void(utimes);
 _wrap_void(futimes);
-_NOT_GLIBC( _wrap_void(futimesat); )
+_NEEDS_GLIBC( _wrap_void(futimesat); )
 
 // functions in fcntl.h (fcntl is below)
 _wrap(creat);
-_NOT_GLIBC( _wrap(creat64); )
+_NEEDS_GLIBC( _wrap(creat64); )
 _wrap_void(lockf);
-_NOT_GLIBC( _wrap_void(lockf64); )
+_NEEDS_GLIBC( _wrap_void(lockf64); )
 // MacOS (others?) doesn't have posix_fadvise or posix_fallocate. Test
 // for whether there's a #define of one of the flag arguments to
 // decide whether to try to wrap them...
@@ -424,14 +425,14 @@ _NOT_GLIBC( _wrap_void(lockf64); )
 _wrap_returns_errno(posix_fadvise);
 _wrap_returns_errno(posix_fallocate);
 #endif
-_NOT_GLIBC( _wrap_returns_errno(posix_fadvise64); )
-_NOT_GLIBC( _wrap_returns_errno(posix_fallocate64); )
+_NEEDS_GLIBC( _wrap_returns_errno(posix_fadvise64); )
+_NEEDS_GLIBC( _wrap_returns_errno(posix_fallocate64); )
 
 // memory mapping
 _wrapev(mmap,  MAP_FAILED);
 _wrap_void(munmap);
-_NOT_GLIBC( _wrap_void(brk); ) // actually, it is on apple, but it throws an error
-_NOT_GLIBC( _wrapev(sbrk, (void*)-1); )
+_NEEDS_GLIBC( _wrap_void(brk); ) // actually, it is on apple, but it throws an error
+_NEEDS_GLIBC( _wrapev(sbrk, (void*)-1); )
 _wrap_void(madvise);
 _wrap_void(mprotect);
 _wrap_void(mincore);
@@ -455,8 +456,8 @@ _wrap_void(mkdir);
 _wrap_void(mkdirat);
 _wrap_void(mknod);
 _wrap_void(mkfifo);
-_NOT_GLIBC( _wrap_void(mknodat); )
-_NOT_GLIBC( _wrap_void(mkfifoat); )
+_NEEDS_GLIBC( _wrap_void(mknodat); )
+_NEEDS_GLIBC( _wrap_void(mkfifoat); )
 // Some of the pathname functions are in stdio.h
 _wrap_void(rename);
 _wrap_void(renameat);
@@ -501,18 +502,18 @@ _wrapspecial(const char* getenv(const char *name),
 _wrap(getppid);
 _wrap(getuid);
 _wrap(geteuid);
-_NOT_GLIBC( _wrap_void(getresuid); )
+_NEEDS_GLIBC( _wrap_void(getresuid); )
 _wrap_void(setuid);
 _wrap_void(seteuid);
-_NOT_GLIBC( _wrap_void(setreuid); )
-_NOT_GLIBC( _wrap(setresuid); )
+_NEEDS_GLIBC( _wrap_void(setreuid); )
+_NEEDS_GLIBC( _wrap(setresuid); )
 _wrap(getgid);
 _wrap(getegid);
-_NOT_GLIBC( _wrap_void(getresgid); )
+_NEEDS_GLIBC( _wrap_void(getresgid); )
 _wrap(setgid);
 _wrap(setegid);
 _wrap(setregid);
-_NOT_GLIBC( _wrap(setresgid); )
+_NEEDS_GLIBC( _wrap(setresgid); )
 _wrap(getgroups);
 _wrap_void(setgroups);
 _wrap(sysconf);
@@ -540,7 +541,9 @@ _wrap_void(setpriority);
 _wrap_void(nice);
 
 // session management and terminals
-_wrap(daemon); // not posix, but it is in glibc and BSD
+#ifndef __APPLE__
+_wrap(daemon); // not posix, but it is in glibc, musl and BSD.  Deprecated on MacOS
+#endif
 _wrap(getsid);
 _wrap_void(setsid);
 _wrap(getpgid);
@@ -549,7 +552,7 @@ _wrap(getpgrp);   // technically, cannot fail?
 _wrap_void(setpgrp);
 _wrap(tcgetpgrp);
 _wrap_void(tcsetpgrp);
-_NOT_GLIBC( _wrap(vhangup); )
+_NEEDS_GLIBC( _wrap(vhangup); )
 
 // time
 _wrap(time);
@@ -569,29 +572,10 @@ _wrap(dirfd);
 _wrapev(opendir, (::DIR*)0);
 // fdopendir needs special handling to avoid double-close when used with xfd_t.  See below.
 //_wrapev(fdopendir, (::DIR*)0);
-_NOT_GLIBC( _wrapev_check_errno1(readdir64, (dirent64*)0); )
+_NEEDS_GLIBC( _wrapev_check_errno1(readdir64, (dirent64*)0); )
 _wrapev_check_errno1(readdir, (dirent*)0);
-
-// readdir_r is another oddball.  It returns 0 on success but
-// a positive value equal to errno on failure.  Are there others
-// that behave this way?  Do we need another wrap_xxx macro?
-_wrapspecial(void readdir_r(::DIR* dirp, struct dirent*entry, struct dirent** result),
-{
-    int ret = ::readdir_r(dirp, entry, result);
-    if(ret)
-        throw se(strfunargs("readdir_r", dirp, entry, result));
-}
-             )
-
-_NOT_GLIBC( _wrapspecial(void readdir64_r(::DIR* dirp, struct dirent64*entry, struct dirent64** result),
-{
-    int ret = ::readdir64_r(dirp, entry, result);
-    if(ret)
-        throw se(strfunargs("readdir64_r", dirp, entry, result));
-}
-             )
-	    )
-
+// N.B.  readdir_r was deprecated by glibc-2.24.  It's not supported
+// in sew, even if we're compiling with an older glibc.
 _wrap(telldir);
 // seekdir returns void, so it needs special handling.
 //_wrap_void(seekdir);
@@ -603,6 +587,8 @@ _wrapspecial(void seekdir(::DIR* dirp, long offset),
         throw se(strfunargs("seekdir", dirp, offset));
 }
              )
+_wrap(ftw);
+_wrap(nftw);
 // _wrap_void(closedir); // autocloser overload.  See below
 _wrap_void(chdir);
 _wrap_void(fchdir);
@@ -635,9 +621,9 @@ _wrap_check_errno0(fgets);
 // EBADF.
 
 // file notification
-_NOT_GLIBC( _wrap(inotify_init); )
-_NOT_GLIBC( _wrap(inotify_add_watch); )
-_NOT_GLIBC( _wrap_void(inotify_rm_watch); )
+_NEEDS_GLIBC( _wrap(inotify_init); )
+_NEEDS_GLIBC( _wrap(inotify_add_watch); )
+_NEEDS_GLIBC( _wrap_void(inotify_rm_watch); )
 
 // XXX TODO thread calls: futex tkill set_thread_area set_tid_address .  pthreads_* are challenging, some return 0 for ok, errno for fail?
 // XXX TODO sem, shm, msg
@@ -694,7 +680,7 @@ template <typename ... Args>
     throw se(eno, strfunargs("execle", path, arg, args...));
 }
     
-_NOT_GLIBC( _wrap_void(unshare); )
+_NEEDS_GLIBC( _wrap_void(unshare); )
 _wrap(umask);
 _wrap(wait);
 _wrap(wait3);
@@ -704,9 +690,9 @@ _wrap_void(waitid);
 _wrapev(signal, SIG_ERR);
 _wrap_void(sigaction);
 _wrap_void(sigprocmask);
-_NOT_GLIBC( _wrap(sigwaitinfo); )
-_NOT_GLIBC( _wrap(sigtimedwait); )
-_NOT_GLIBC( _wrap_void(sigqueue); )
+_NEEDS_GLIBC( _wrap(sigwaitinfo); )
+_NEEDS_GLIBC( _wrap(sigtimedwait); )
+_NEEDS_GLIBC( _wrap_void(sigqueue); )
 _wrap_void(sigpending);
 _wrap_void(sigsuspend);
 _wrap_void(pause);
@@ -731,10 +717,10 @@ _wrap_void(shutdown);
 _wrap(select);
 _wrap(pselect);
 _wrap(poll);
-_NOT_GLIBC( _wrap(ppoll); )
-_NOT_GLIBC( _wrap(epoll_create); )
-_NOT_GLIBC( _wrap(epoll_wait); )
-_NOT_GLIBC( _wrap_void(epoll_ctl); )
+_NEEDS_GLIBC( _wrap(ppoll); )
+_NEEDS_GLIBC( _wrap(epoll_create); )
+_NEEDS_GLIBC( _wrap(epoll_wait); )
+_NEEDS_GLIBC( _wrap_void(epoll_ctl); )
 _wrap_void(send);
 _wrap_void(sendto);
 _wrap_void(sendmsg);
@@ -769,9 +755,9 @@ _wrapev_linkage(gethostbyname, (struct hostent *)0);
 _wrapev_linkage(gethostbyname2, (struct hostent *)0);
 _wrapev_linkage(gethostbyaddr, (struct hostent *)0);
 _wrapev_linkage(gethostent, (struct hostent *)0);
-_NOT_GLIBC( _wrap_void_linkage(gethostbyname_r); )
-_NOT_GLIBC( _wrap_void_linkage(gethostbyname2_r); )
-_NOT_GLIBC( _wrap_void_linkage(gethostent_r); )
+_NEEDS_GLIBC( _wrap_void_linkage(gethostbyname_r); )
+_NEEDS_GLIBC( _wrap_void_linkage(gethostbyname2_r); )
+_NEEDS_GLIBC( _wrap_void_linkage(gethostent_r); )
 
 // open, openat, fcntl and ioctl need special handling because they're declared with an
 // ellipsis e.g. in fcntl.h, int open(const char *, int, ...);
@@ -1033,9 +1019,6 @@ inline ::DIR* opendirat(int fd, const char* path) try {
 #undef _wrapev_errno1
 #undef _wrapspecial
 #undef _COMMA
-#if !defined(_separate_static_linkage_cpp)
-#undef __NOT_GLIBC
-#endif
 
 }} // namespace core123::sew
 

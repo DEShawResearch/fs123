@@ -1,5 +1,6 @@
 #pragma once
 #include <chrono>
+#include <atomic>
 #include <algorithm>
 #include <unordered_map>
 #include <mutex>
@@ -44,6 +45,14 @@ struct expiring : public T{
 
     auto ttl(typename clk_t::time_point asifnow = clk_t::now()) const{
         return good_till - asifnow;
+    }
+
+    // return a reference to the T underlying this.
+    T& ref(){
+        return *static_cast<T*>(this);
+    }
+    const T& ref() const{
+        return *static_cast<const T*>(this);
     }
 };
 
@@ -95,8 +104,11 @@ class expiring_cache{
     using eV = expiring<V, Clk>;
     const size_t max_size;
     std::unordered_map<K, eV> themap;
-    std::mutex mtx;
-    size_t _evictions, _expirations, _hits, _misses;
+    mutable std::mutex mtx;
+    // We don't really care about data races in our statistics,
+    // but we *do* really care about making -fsanitize=thread
+    // happy.  So std::atomic:
+    std::atomic<size_t> _evictions, _expirations, _hits, _misses;
     size_t evict_bkt;
 
     // random_eviction: find a "random" bucket and erase a number of
@@ -193,6 +205,6 @@ public:
     size_t hits() const { return _hits; }
     size_t misses() const { return _misses; }
     size_t expirations() const { return _expirations; }
-    size_t size() const { return themap.size(); }
+    size_t size() const { std::lock_guard<std::mutex> lg(mtx); return themap.size(); }
 };
 } // namespace core123

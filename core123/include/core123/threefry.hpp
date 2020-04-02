@@ -56,49 +56,97 @@ struct threefry_constants{
 template <>
 struct threefry_constants<2, uint32_t>{
     static constexpr uint32_t KS_PARITY = UINT32_C(0x1BD11BDA);
-    static constexpr unsigned Rotations[8] =
-        {13, 15, 26, 6, 17, 29, 16, 24};
+    static constexpr unsigned Rotations(int r){
+        switch(r%8){
+        case 0: return 13;
+        case 1: return 15;
+        case 2: return 26;
+        case 3: return 6;
+        case 4: return 17;
+        case 5: return 29;
+        case 6: return 16;
+        default: return 24;
+        }
+    }
 };
-constexpr unsigned
-threefry_constants<2, uint32_t>::Rotations[8];
 
 // 4x32 contants
 template <>
 struct threefry_constants<4, uint32_t>{
     static constexpr uint32_t KS_PARITY = UINT32_C(0x1BD11BDA);
-    static constexpr unsigned Rotations0[8] = 
-        {10, 11, 13, 23, 6, 17, 25, 18};
-    static constexpr unsigned Rotations1[8] = 
-        {26, 21, 27, 5, 20, 11, 10, 20};
+    static constexpr unsigned Rotations0(int r){
+        switch(r%8){
+        case 0: return 10;
+        case 1: return 11;
+        case 2: return 13;
+        case 3: return 23;
+        case 4: return 6;
+        case 5: return 17;
+        case 6: return 25;
+        default: return 18;
+        }
+    }
+    static constexpr unsigned Rotations1(int r){
+        switch(r%8){
+        case 0: return 26;
+        case 1: return 21;
+        case 2: return 27;
+        case 3: return 5;
+        case 4: return 20;
+        case 5: return 11;
+        case 6: return 10;
+        default: return 20;
+        }
+    }
 };
-constexpr unsigned
-threefry_constants<4, uint32_t>::Rotations0[8];
-constexpr unsigned
-threefry_constants<4, uint32_t>::Rotations1[8];
 
 // 2x64 constants
 template <>
 struct threefry_constants<2, uint64_t>{
     static constexpr uint64_t KS_PARITY = UINT64_C(0x1BD11BDAA9FC1A22);
-    static constexpr unsigned Rotations[8] =
-        {16, 42, 12, 31, 16, 32, 24, 21};
+    static constexpr unsigned Rotations(int r){
+        switch(r%8){
+        case 0: return 16;
+        case 1: return 42;
+        case 2: return 12;
+        case 3: return 31;
+        case 4: return 16;
+        case 5: return 32;
+        case 6: return 24;
+        default: return 21;
+        }
+    }
 };
-constexpr unsigned
-threefry_constants<2, uint64_t>::Rotations[8];
 
 // 4x64 constants
 template <>
 struct threefry_constants<4, uint64_t>{
     static constexpr uint64_t KS_PARITY = UINT64_C(0x1BD11BDAA9FC1A22);
-    static constexpr unsigned Rotations0[8] = 
-        {14, 52, 23, 5, 25, 46, 58, 32};
-    static constexpr unsigned Rotations1[8]  = 
-        {16, 57, 40, 37, 33, 12, 22, 32};
+    static constexpr unsigned Rotations0(int r){
+        switch(r%8){
+        case 0: return 14;
+        case 1: return 52;
+        case 2: return 23;
+        case 3: return 5;
+        case 4: return 25;
+        case 5: return 46;
+        case 6: return 58;
+        default: return 32;
+        }
+    }
+    static constexpr unsigned Rotations1(int r){
+        switch(r%8){
+        case 0: return 16;
+        case 1: return 57;
+        case 2: return 40;
+        case 3: return 37;
+        case 4: return 33;
+        case 5: return 12;
+        case 6: return 22;
+        default: return 32;
+        }
+    }
 };
-constexpr unsigned
-threefry_constants<4, uint64_t>::Rotations0[8];
-constexpr unsigned
-threefry_constants<4, uint64_t>::Rotations1[8];
 
 template <unsigned N, typename Uint, unsigned R=20, typename Constants=threefry_constants<N, Uint> >
 struct threefry {
@@ -116,13 +164,17 @@ private:
     typedef typename common_type::domain_type _ctr_type;
     typedef typename common_type::key_type _key_type;
     
-    static inline void round(_ctr_type& c, unsigned r){
-        c[0] += c[1]; c[1] = rotl(c[1],Constants::Rotations[r%8]); c[1] ^= c[0];
+    static inline void round(Uint& c0, Uint& c1, int r){
+        c0 += c1; c1 = rotl(c1,Constants::Rotations(r)); c1 ^= c0;
     }
-    static inline void keymix(_ctr_type& c, Uint* ks, unsigned r){
+    template <unsigned r>
+    static inline void round(Uint& c0, Uint& c1){
+        c0 += c1; c1 = rotl(c1,Constants::Rotations(r)); c1 ^= c0;
+    }
+    static inline void keymix(Uint& c0, Uint& c1, Uint* ks, unsigned r){
         unsigned r4 = r>>2;
-        c[0] += ks[r4%3]; 
-        c[1] += ks[(r4+1)%3] + r4;
+        c0 += ks[r4%3]; 
+        c1 += ks[(r4+1)%3] + r4;
     }
 
 public:
@@ -137,47 +189,48 @@ public:
     _ctr_type operator()(_ctr_type c) const { 
         Uint ks[3];
         ks[2] = Constants::KS_PARITY;
-        ks[0] = this->k[0]; ks[2] ^= this->k[0]; c[0] += this->k[0];
-        ks[1] = this->k[1]; ks[2] ^= this->k[1]; c[1] += this->k[1];
+        Uint c0, c1;
+        ks[0] = this->k[0]; ks[2] ^= this->k[0]; c0 = c[0] + this->k[0];
+        ks[1] = this->k[1]; ks[2] ^= this->k[1]; c1 = c[1] + this->k[1];
         // Surprisingly(?), gcc (through gcc8) doesn't unroll the
         // loop.  If we unroll it ourselves, it's about twice as fast.
-        if(R>0) round(c,0);
-        if(R>1) round(c,1);
-        if(R>2) round(c,2);
-        if(R>3) round(c,3);
-        if(R>3) keymix(c, ks, 4);
+        if(R>0) round<0>(c0, c1);
+        if(R>1) round<1>(c0, c1);
+        if(R>2) round<2>(c0, c1);
+        if(R>3) round<3>(c0, c1);
+        if(R>3) keymix(c0, c1, ks, 4);
 
-        if(R>4) round(c,4);
-        if(R>5) round(c,5);
-        if(R>6) round(c,6);
-        if(R>7) round(c,7);
-        if(R>7) keymix(c, ks, 8);
+        if(R>4) round<4>(c0, c1);
+        if(R>5) round<5>(c0, c1);
+        if(R>6) round<6>(c0, c1);
+        if(R>7) round<7>(c0, c1);
+        if(R>7) keymix(c0, c1, ks, 8);
 
-        if(R>8) round(c,8);
-        if(R>9) round(c,9);
-        if(R>10) round(c,10);
-        if(R>11) round(c,11);
-        if(R>11) keymix(c, ks, 12);
+        if(R>8) round<8>(c0, c1);
+        if(R>9) round<9>(c0, c1);
+        if(R>10) round<10>(c0, c1);
+        if(R>11) round<11>(c0, c1);
+        if(R>11) keymix(c0, c1, ks, 12);
         
-        if(R>12) round(c,12);
-        if(R>13) round(c,13);
-        if(R>14) round(c,14);
-        if(R>15) round(c,15);
-        if(R>15) keymix(c, ks, 16);
+        if(R>12) round<12>(c0, c1);
+        if(R>13) round<13>(c0, c1);
+        if(R>14) round<14>(c0, c1);
+        if(R>15) round<15>(c0, c1);
+        if(R>15) keymix(c0, c1, ks, 16);
 
-        if(R>16) round(c,16);
-        if(R>17) round(c,17);
-        if(R>18) round(c,18);
-        if(R>19) round(c,19);
-        if(R>19) keymix(c, ks, 20);
+        if(R>16) round<16>(c0, c1);
+        if(R>17) round<17>(c0, c1);
+        if(R>18) round<18>(c0, c1);
+        if(R>19) round<19>(c0, c1);
+        if(R>19) keymix(c0, c1, ks, 20);
         for(unsigned r=20; r<R; ){
-            round(c, r);
+            round(c0, c1, r);
             ++r;
             if((r&3)==0){
-                keymix(c, ks, r);
+                keymix(c0, c1, ks, r);
             }
         }
-        return c; 
+        return {c0, c1}; 
     }
 };
 
@@ -188,22 +241,37 @@ private:
     typedef detail::prf_common<4, 4, 4, Uint> common_type;
     typedef typename common_type::domain_type _ctr_type;
     typedef typename common_type::key_type _key_type;
-    static inline void round(_ctr_type& c, unsigned r){
+    static void round(Uint& c0, Uint& c1, Uint& c2, Uint& c3, unsigned r){
         if((r&1)==0){
-            c[0] += c[1]; c[1] = rotl(c[1],Constants::Rotations0[r%8]); c[1] ^= c[0];
-            c[2] += c[3]; c[3] = rotl(c[3],Constants::Rotations1[r%8]); c[3] ^= c[2];
+            c0 += c1; c1 = rotl(c1,Constants::Rotations0(r)); c1 ^= c0;
+            c2 += c3; c3 = rotl(c3,Constants::Rotations1(r)); c3 ^= c2;
         }else{
-            c[0] += c[3]; c[3] = rotl(c[3],Constants::Rotations0[r%8]); c[3] ^= c[0];
-            c[2] += c[1]; c[1] = rotl(c[1],Constants::Rotations1[r%8]); c[1] ^= c[2];
+            c0 += c3; c3 = rotl(c3,Constants::Rotations0(r)); c3 ^= c0;
+            c2 += c1; c1 = rotl(c1,Constants::Rotations1(r)); c1 ^= c2;
+        }
+    }
+    // N.B.  icc 2018 produces terrible code if we call:
+    //    round(c0, c1, c2, c3, R)
+    // with a literal constant for R, but it produces perfectly fine
+    // code if we call:
+    //    round<R>(c0, c1, c2, c3).
+    template <unsigned r>
+    static void round(Uint& c0, Uint& c1, Uint& c2, Uint& c3){
+        if((r&1)==0){
+            c0 += c1; c1 = rotl(c1,Constants::Rotations0(r)); c1 ^= c0;
+            c2 += c3; c3 = rotl(c3,Constants::Rotations1(r)); c3 ^= c2;
+        }else{
+            c0 += c3; c3 = rotl(c3,Constants::Rotations0(r)); c3 ^= c0;
+            c2 += c1; c1 = rotl(c1,Constants::Rotations1(r)); c1 ^= c2;
         }
     }
 
-    static inline void keymix(_ctr_type& c, Uint* ks, unsigned r){
+    static void keymix(Uint& c0, Uint& c1, Uint& c2, Uint& c3, Uint* ks, unsigned r){
         unsigned r4 = r>>2;
-        c[0] += ks[(r4+0)%5]; 
-        c[1] += ks[(r4+1)%5];
-        c[2] += ks[(r4+2)%5];
-        c[3] += ks[(r4+3)%5] + r4;
+        c0 += ks[(r4+0)%5]; 
+        c1 += ks[(r4+1)%5];
+        c2 += ks[(r4+2)%5];
+        c3 += ks[(r4+3)%5] + r4;
     }
 public:
     threefry() : common_type(){ 
@@ -224,51 +292,52 @@ public:
 
     _ctr_type operator()(_ctr_type c) const { 
         Uint ks[5];
+        Uint c0, c1, c2, c3;
         ks[4] = Constants::KS_PARITY;
-        ks[0] = this->k[0]; ks[4] ^= this->k[0]; c[0] += this->k[0];
-        ks[1] = this->k[1]; ks[4] ^= this->k[1]; c[1] += this->k[1];
-        ks[2] = this->k[2]; ks[4] ^= this->k[2]; c[2] += this->k[2];
-        ks[3] = this->k[3]; ks[4] ^= this->k[3]; c[3] += this->k[3];
+        ks[0] = this->k[0]; ks[4] ^= this->k[0]; c0 = c[0] + this->k[0];
+        ks[1] = this->k[1]; ks[4] ^= this->k[1]; c1 = c[1] + this->k[1];
+        ks[2] = this->k[2]; ks[4] ^= this->k[2]; c2 = c[2] + this->k[2];
+        ks[3] = this->k[3]; ks[4] ^= this->k[3]; c3 = c[3] + this->k[3];
 
         // Surprisingly(?), gcc (through gcc8) doesn't unroll the
         // loop.  If we unroll it ourselves, it's about twice as fast.
-        if(R>0) round(c,0);
-        if(R>1) round(c,1);
-        if(R>2) round(c,2);
-        if(R>3) round(c,3);
-        if(R>3) keymix(c, ks, 4);
+        if(R>0) round<0>(c0, c1, c2, c3);
+        if(R>1) round<1>(c0, c1, c2, c3);
+        if(R>2) round<2>(c0, c1, c2, c3);
+        if(R>3) round<3>(c0, c1, c2, c3);
+        if(R>3) keymix(c0, c1, c2, c3, ks, 4);
 
-        if(R>4) round(c,4);
-        if(R>5) round(c,5);
-        if(R>6) round(c,6);
-        if(R>7) round(c,7);
-        if(R>7) keymix(c, ks, 8);
+        if(R>4) round<4>(c0, c1, c2, c3);
+        if(R>5) round<5>(c0, c1, c2, c3);
+        if(R>6) round<6>(c0, c1, c2, c3);
+        if(R>7) round<7>(c0, c1, c2, c3);
+        if(R>7) keymix(c0, c1, c2, c3, ks, 8);
 
-        if(R>8) round(c,8);
-        if(R>9) round(c,9);
-        if(R>10) round(c,10);
-        if(R>11) round(c,11);
-        if(R>11) keymix(c, ks, 12);
+        if(R>8) round<8>(c0, c1, c2, c3);
+        if(R>9) round<9>(c0, c1, c2, c3);
+        if(R>10) round<10>(c0, c1, c2, c3);
+        if(R>11) round<11>(c0, c1, c2, c3);
+        if(R>11) keymix(c0, c1, c2, c3, ks, 12);
         
-        if(R>12) round(c,12);
-        if(R>13) round(c,13);
-        if(R>14) round(c,14);
-        if(R>15) round(c,15);
-        if(R>15) keymix(c, ks, 16);
+        if(R>12) round<12>(c0, c1, c2, c3);
+        if(R>13) round<13>(c0, c1, c2, c3);
+        if(R>14) round<14>(c0, c1, c2, c3);
+        if(R>15) round<15>(c0, c1, c2, c3);
+        if(R>15) keymix(c0, c1, c2, c3, ks, 16);
 
-        if(R>16) round(c,16);
-        if(R>17) round(c,17);
-        if(R>18) round(c,18);
-        if(R>19) round(c,19);
-        if(R>19) keymix(c, ks, 20);
+        if(R>16) round<16>(c0, c1, c2, c3);
+        if(R>17) round<17>(c0, c1, c2, c3);
+        if(R>18) round<18>(c0, c1, c2, c3);
+        if(R>19) round<19>(c0, c1, c2, c3);
+        if(R>19) keymix(c0, c1, c2, c3, ks, 20);
         for(unsigned r=20; r<R; ){
-            round(c, r);
+            round(c0, c1, c2, c3, r);
             ++r;
             if((r&3)==0){
-                keymix(c, ks, r);
+                keymix(c0, c1, c2, c3, ks, r);
             }
         }
-        return c; 
+        return {c0, c1, c2, c3}; 
     }
 };
 

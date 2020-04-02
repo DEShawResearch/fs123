@@ -385,9 +385,8 @@ public:
         auto f = finish();
         for(auto v64 : {f.second, f.first}){
             for(int i=0; i<16; ++i){
-                unsigned nibble = v64&0xf;
+                *--p = hexlownibble(v64);
                 v64>>=4;
-                *--p = ((nibble>9)? ('a'-10) : '0') + nibble;
             }
         }
         return ret;

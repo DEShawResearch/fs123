@@ -1,3 +1,4 @@
+#define CORE123_DIAG_FLOOD_ENABLE 1
 #include "fs123/content_codec.hpp"
 #include <sodium.h>
 #include <core123/diag.hpp>
@@ -66,11 +67,11 @@ content_codec::encoding_itos(int16_t encoding) /*static*/{
 //   | nonce(24) | recordsz(4) | secretidlen(2)=0x2 | secretid(2) | ciphertext(recordsz) |
 //
 // The recordsz, secretidlen and secretid are in network byte order.
-std::string
-content_codec::decode(int16_t ce, const std::string& message,
+core123::padded_uchar_span
+content_codec::decode(int16_t ce, core123::padded_uchar_span message,
                       secret_manager& sm){
-    DIAGfkey(_secretbox, "content_codec::decode(%d, message[%zu])\n",
-             ce, message.size());
+    DIAGfkey(_secretbox, "content_codec::decode(%d, message[%zu]@%p)\n",
+             ce, message.size(), message.data());
     switch(ce){
     case CE_IDENT:
         DIAGfkey(_secretbox, "decode(CE_IDENT):  returning message unmodified");
@@ -86,56 +87,61 @@ content_codec::decode(int16_t ce, const std::string& message,
     atomic_scoped_nanotimer _t(&stats.secretbox_decrypt_sec);
     // N.B.  We're using the 'non-easy', original-djb-recipe crypto_secretbox API
     // because we  want to compile and link on CentOS6 and the libsodium that ships
-    // with CentOS6 doesn't have the _easy API.  We're forced to do a little extra
-    // copying and a lot of extra index arithmetic.
-    if(message.size() < crypto_secretbox_BOXZEROBYTES + crypto_secretbox_NONCEBYTES)
-        throw std::runtime_error("encrypted content size: " + std::to_string(message.size()) + " shorter than crypto_secret_ZEROBOXBYTES + crypto_secretbox_NONCEBYTES");
-    // to make it easier to compare, we use names (c, m, clen) that
-    // correspond to the docs: https://nacl.cr.yp.to/secretbox.html
-    fs123_secretbox_header hdr(message);
+    // with CentOS6 doesn't have the _easy API.
+    // <snip https://libsodium.gitbook.io/doc/secret-key_cryptography/secretbox> 
+    // crypto_secretbox_open() takes a pointer to 16 bytes before the
+    // ciphertext and stores the message 32 bytes after the
+    // destination pointer, overwriting the first 32 bytes with zeros.
+    // </snip>
+    // 16 == crypto_secretbox_BOXZEROBYTES
+    // 32 == crypto_secretbox_ZEROBYTES
+    static_assert(crypto_secretbox_ZEROBYTES ==32 && crypto_secretbox_BOXZEROBYTES==16, "These are not the boxes we're looking for...");
+    fs123_secretbox_header hdr(message); // throws if message too small
+    DIAGf(_secretbox, "decode:  hdr.wiresize(): %zd hdr.get_recordsz(): %d\n", hdr.wiresize(), hdr.get_recordsz());
     std::string keyid = hdr.get_keyid();
-    size_t clen = hdr.get_recordsz() + crypto_secretbox_BOXZEROBYTES;
+    auto ciphertext_len = hdr.get_recordsz();
+    if( ciphertext_len != message.size() - hdr.wiresize() )
+        throw std::runtime_error("content_codec::decode:  Header is garbled.  hdr.get_recordsz() != message.size() - hdr.wiresize()");
     auto key = sm.get_sharedkey(keyid);
     if(key->size() < crypto_secretbox_KEYBYTES)
         throw std::runtime_error(fmt("secret[%s] is too short (%zu), needed %u",
                                               keyid.c_str(), key->size(), crypto_secretbox_KEYBYTES));
-    unsigned char m[clen];
-    // DANGER: We're modifying the message here to satisfy the
-    // idiosyncratic demands of crypto_secretbox_open.  Then when
-    // we're done with crypto_secretbox_open, we'll put the original
-    // data back.  crypto_secretbox_open is in C, so it can't throw,
-    // so this should be perfectly safe (?!).
-    if( hdr.wiresize() < crypto_secretbox_BOXZEROBYTES)
-        throw std::runtime_error("fs123_secretbox_hdr smaller than BOXZEROBYTES?  How?");
-    auto c = reinterpret_cast<unsigned char const*>(message.data() + hdr.wiresize() - crypto_secretbox_BOXZEROBYTES);
-    bzero(const_cast<unsigned char*>(c), crypto_secretbox_BOXZEROBYTES);
-    auto ret = crypto_secretbox_open(m, c, clen, hdr.nonce, key->data());
-    ::memcpy(const_cast<char*>(&message[0]), &hdr, hdr.wiresize());
+    // DANGER: We're assuming the crypto_secretbox_open works in-place
+    // with overlapping 'm' and 'c' buffers.
+    auto cstart = message.data() + hdr.wiresize();
+    auto padded_cstart = cstart - crypto_secretbox_BOXZEROBYTES;
+    size_t padded_len = ciphertext_len + crypto_secretbox_BOXZEROBYTES;
+    auto plainstart = padded_cstart + crypto_secretbox_ZEROBYTES;
+    // N.B.  NaCl's docs say we must zero out the first 16 bytes of
+    // input.  Libsodiums do not, and code inspection confirms it.  So
+    // there's no need for bzero.
+    // N.B.  The "strong exception guarantee" relies on the belief
+    // that crypto_secretbox_open does not modify any data if it
+    // returns non-zero.
+    auto ret = crypto_secretbox_open(padded_cstart, padded_cstart, padded_len, hdr.nonce, key->data());
     if(0 != ret){
         stats.secretbox_auth_failures++;
         DIAGfkey(_secretbox, "crypto_secretbox_open failed!\n");
-        throw std::runtime_error(fmt("message forged, msglen=%zu, secret=%s key[0]=%u", clen, keyid.c_str(), (*key)[0]));
+        throw std::runtime_error(fmt("message forged, msglen=%zu, secret=%s key[0]=%u", padded_len, keyid.c_str(), (*key)[0]));
     }
     // Check for the pad byte(s). They must be 0x2 followed by zero or more NULs. 
-    auto p = &m[clen];
-    auto m0 = &m[crypto_secretbox_ZEROBYTES];
-    while( p>m0 && *--p == '\0')
+    auto pend = &cstart[hdr.get_recordsz()];
+    while( pend>plainstart && *--pend == '\0')
         ;
-    if(*p != 0x2)
+    if(*pend != 0x2)
         throw std::runtime_error("mal-formed or missing pad-bytes at end of message");
 
     if(key.use_count() == 1)
         stats.secretbox_disappearing_secrets++;
-    stats.secretbox_bytes_decrypted += clen;
+    stats.secretbox_bytes_decrypted += padded_len;
     stats.secretbox_blocks_decrypted++;
-    DIAGfkey(_secretbox, "content_codec::decoded: %s\n", quopri({(const char*)m0, size_t(p-m0)}).c_str());
-    return {reinterpret_cast<char*>(m0), size_t(p-m0)};
+    DIAGfkey(_secretbox, "content_codec::decoded: %s\n", quopri({(const char*)plainstart, std::min(size_t(512), size_t(pend-plainstart))}).c_str());
+    return {message, size_t(plainstart-message.data()), size_t(pend-plainstart)};
 }
 
-str_view
+padded_uchar_span
 content_codec::encode(int16_t ce, const std::string& sid,
-                      secret_sp secret, str_view input,
-                      str_view workspace,
+                      secret_sp secret, padded_uchar_span input,
                       size_t pad_alignment, bool derived_nonce){
     if(ce == CE_IDENT)
         return input;
@@ -160,14 +166,13 @@ content_codec::encode(int16_t ce, const std::string& sid,
     // Work in-place.  But make sure we've got enough padding on the front and
     // back of the content:
     fs123_secretbox_header hdr(sid, recordsz);
-    if(workspace.data() > input.data() - hdr.wiresize() - crypto_secretbox_MACBYTES)
-        throw std::invalid_argument(fmt("content_codec::encode:  not enough space between start of workspace and start of input for header and MAC, workspace-input: %td, hdr.wiresize: %zd, MACBYTES: %d", workspace.data() - input.data(), hdr.wiresize(), crypto_secretbox_MACBYTES));
-    if(input.data() + (input.size() + padding) > workspace.data() + workspace.size())
+    if(input.avail_front() < hdr.wiresize() + crypto_secretbox_MACBYTES)
+        throw std::invalid_argument("content_codec::encode:  not enough space to prepend header and MAC");
+    if(input.avail_back() < padding)
         throw std::invalid_argument("content_codec::encode:  not enough space after end for padding");
         
-    // DANGER - this is where we play fast and loose with the constness of input.data()!
-    unsigned char *plaintext = reinterpret_cast<unsigned char*>(const_cast<char*>(input.data()));
-    unsigned char *c = plaintext - crypto_secretbox_ZEROBYTES;
+    auto plaintext = input.data();
+    auto c = plaintext - crypto_secretbox_ZEROBYTES;
     ::bzero(c, crypto_secretbox_ZEROBYTES);
     plaintext[input.size()] = 0x2; // first pad-byte is 0x2
     ::bzero(plaintext + input.size()+1, padding-1); // remaining pad bytes (if any) are 0x0
@@ -196,6 +201,15 @@ content_codec::encode(int16_t ce, const std::string& sid,
     }
     if( hdr.wiresize() < crypto_secretbox_BOXZEROBYTES)
         throw std::runtime_error("fs123_secretbox_hdr smaller than BOXZEROBYTES.  How??" );
+    // <snip https://libsodium.gitbook.io/doc/secret-key_cryptography/secretbox>
+    // crypto_secretbox() takes a pointer to 32 bytes before the
+    // message, and stores the ciphertext 16 bytes after the
+    // destination pointer, the first 16 bytes being overwritten with
+    // zeros.
+    // </snip>
+    // 16 == crypto_secretbox_BOXZEROBYTES
+    // 32 == crypto_secretbox_ZEROBYTES
+    static_assert(crypto_secretbox_ZEROBYTES ==32 && crypto_secretbox_BOXZEROBYTES==16, "These are not the boxes we're looking for...");
     if(0 != crypto_secretbox(c, c, msz, hdr.nonce, secret->data()))
         throw std::runtime_error("crypto_secretbox:  failed to authenticate/decode message");
     if(secret.use_count() == 1)
@@ -204,8 +218,7 @@ content_codec::encode(int16_t ce, const std::string& sid,
     DIAGfkey(_secretbox, "plain=%zu@%p\n", input.size(), plaintext);
     stats.secretbox_blocks_encrypted++;
     stats.secretbox_bytes_encrypted += msz;
-    return {input.data() - crypto_secretbox_MACBYTES - hdr.wiresize(),
-            recordsz + hdr.wiresize()};
+    return input.subspan(-ssize_t(crypto_secretbox_MACBYTES + hdr.wiresize()), recordsz + hdr.wiresize());
 }
 
 std::ostream& content_codec::report_stats(std::ostream& os) /*static*/ {

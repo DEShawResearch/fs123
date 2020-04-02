@@ -1,4 +1,3 @@
-#include "valgrindhacks.hpp"
 #include "diskcache.hpp"
 #include "fuseful.hpp"
 #include "fs123/stat_serializev3.hpp"
@@ -15,11 +14,14 @@
 #include <core123/pathutils.hpp>
 #include <core123/stats.hpp>
 #include <core123/fdstream.hpp>
+#include <core123/uuid.hpp>
 #include <random>
 #include <vector>
 #include <utility>
 #include <thread>
 #include <cmath>
+
+static const int UUID_ASCII_LEN=36; // really?  Not defined in uuid.h?
 
 using namespace core123;
 
@@ -66,6 +68,22 @@ bool should_serialize(const reply123& r){
     return false;
 }
 
+void
+create_uuid_symlink(int rootfd){
+    std::string uu = gen_random_uuid();
+    if(::symlinkat(uu.c_str(), rootfd, ".uuid") < 0){
+        if(errno != EEXIST)
+            throw se("create_uuid_symlink: symlinkat failed");
+        complain(LOG_WARNING, "create_uuid_symlink:  failed with EEXIST.  This is normal if multiple diskcaches are starting concurrently, but is very surprising otherwise");
+        return;
+    }
+    // Don't leave a dangling symlink.  This is not necessary for
+    // correctness, but it's just bad form to leave a dangling
+    // symlink.  If either the open or the close fails, something is
+    // badly broken and sew will tell us about it.
+    sew::close(sew::openat(rootfd, uu.c_str(), O_CREAT|O_WRONLY, 0600));
+}
+
 } // end namespace <anon>
 
 void 
@@ -77,6 +95,21 @@ diskcache::check_root(){
     for(unsigned i=0; i<Ndirs_; ++i){
         makedirsat(rootfd_, reldirname(i), 0700, true);
     }
+    // Check for a symlink called .uuid in the root directory.  If it's
+    // not there, create it.  Then readlink it into the uuid member.
+    // UUIDs are *always* UUID_ASCII_LEN (36) bytes plus a null
+    char uuid_buf[UUID_ASCII_LEN+1];
+    int ntry = 0;
+ tryagain:
+    auto nbytes = ::readlinkat(rootfd_, ".uuid", uuid_buf, sizeof(uuid_buf));
+    if(nbytes != UUID_ASCII_LEN){
+        if(nbytes < 0 && errno == ENOENT && ++ntry<2){
+            create_uuid_symlink(rootfd_);
+            goto tryagain;
+        }
+        throw se("diskcache::diskcache:  uuid symlink is borked");
+    }
+    uuid = std::string(uuid_buf, UUID_ASCII_LEN);
 }
 
 std::string 
@@ -90,14 +123,15 @@ scan_result
 diskcache::do_scan(unsigned dirnum) const{
     scan_result ret;
     acDIR dp = sew::opendirat(rootfd_, reldirname(dirnum).c_str());
-    auto len = offsetof(struct dirent, d_name) + 
-        fpathconf(rootfd_, _PC_NAME_MAX) + 1;
-    char space[len];
-    // Yikes.  readdir_r really is a pain...
-    struct dirent* entryp = (struct dirent*)&space[0];
-    struct dirent* result;
+    struct dirent* entryp;
     DIAGf(_evict, "do_scan with dirfd(dp)=%d", dirfd(dp));
-    while( sew::readdir_r(dp, entryp, &result), result ){
+    // glibc deprecated readdir_r in 2.24 (2016), but it was
+    // thread-safe long before that: https://lwn.net/Articles/696474/
+    //
+    // "in modern implementations (including the glibc
+    // implementation), concurrent calls to readir(3) that specify
+    // different directory streams are thread-safe."
+    while( (entryp = sew::readdir(dp)) ){
         std::string fname = entryp->d_name;
         struct stat sb;
         DIAGfkey(_evict>1, "readdir -> %x/%s\n", dirnum, fname.c_str());
@@ -272,9 +306,11 @@ diskcache::evict_once() try {
         double usage_fraction = std::max( filefraction, bytefraction );
         size_t Nevict = 0;
         DIAG(_evict, str("Usage fraction:", usage_fraction, "in directory", reldirname(dir_to_evict_)));
-        if(usage_fraction > 1.0)
-            complain(LOG_WARNING, "Usage fraction %g > 1.0 in directory: %zx.  Disk cache may be dangerously close to max-size",
-                     usage_fraction, dir_to_evict_);
+        if(usage_fraction > 1.0){
+            if(overfull_++ == 0)
+                complain(LOG_WARNING, "Usage fraction %g > 1.0 in directory: %zx.  Disk cache may be dangerously close to max-size.  This message is issued once per scan",
+                         usage_fraction, dir_to_evict_);
+        }
         // We don't evict anything until we're above evict_target_fraction.
         if( usage_fraction > vols_.evict_target_fraction ){
             // We're above evict_target_fraction.  Try to get down to 'evict_lwm'
@@ -287,11 +323,12 @@ diskcache::evict_once() try {
         if(++dir_to_evict_ >= Ndirs_)
             dir_to_evict_ = 0;
         if(dir_to_evict_ == 0){
-            complain((files_evicted_ == 0)? LOG_INFO : LOG_NOTICE, "evict_once:  completed full scan.  Found %zd files of size %zd.  Evicted %zd files", 
-                     files_scanned_, bytes_scanned_, files_evicted_);
+            complain((files_evicted_ == 0)? LOG_INFO : LOG_NOTICE, "evict_once:  completed full scan.  Found %zd files of size %zd.  Evicted %zd files.  Found %zd over-full directories", 
+                     files_scanned_, bytes_scanned_, files_evicted_, overfull_);
             files_evicted_ = 0;
             files_scanned_ = 0;
             bytes_scanned_ = 0;
+            overfull_ = 0;
         }
         files_evicted_ += Nevict;
         files_scanned_ += Nfiles;
@@ -331,10 +368,10 @@ diskcache::evict_once() try {
  }
 
     
-diskcache::diskcache(std::unique_ptr<backend123> upstream, const std::string& root,
+diskcache::diskcache(backend123* upstream, const std::string& root,
                      uint64_t hash_seed_first, bool fancy_sharing, volatiles_t& vols) :
-    backend123(upstream?upstream->get_disconnected():false),
-    upstream_(std::move(upstream)),
+    backend123(),
+    upstream_(upstream),
     injection_probability_(1.0),
     hashseed_(hash_seed_first, 0),
     vols_(vols)
@@ -342,9 +379,9 @@ diskcache::diskcache(std::unique_ptr<backend123> upstream, const std::string& ro
     // We made injection_probability_ std:atomic<float> so we wouldn't
     // have to worry about it getting ripped or torn.  But helgrind
     // worries anyway.  Tell it to stop.
-    VALGRIND_HG_DISABLE_CHECKING(&injection_probability_, sizeof(injection_probability_));
     size_t nthreads = envto<size_t>("Fs123RefreshThreads", 10);
     size_t backlog = envto<size_t>("Fs123RefreshBacklog", 10000);
+    foreground_serialize = envto<bool>("Fs123ForegroundSerialize", false);
     tp = std::make_unique<threadpool<void>>(nthreads, backlog);
     makedirs(root, 0755, true); // EEXIST is not an error.
     rootfd_ = sew::open(root.c_str(), O_DIRECTORY);
@@ -488,7 +525,7 @@ void diskcache::maybe_bg_upstream_refresh(const req123& req, const std::string& 
         stats.dc_maybe_rf_too_soon++;
         return;
     }
-    if(disconnected_){
+    if(vols_.disconnected){
         stats.dc_rf_disconnected_skipped++;
         return;
     }
@@ -527,7 +564,7 @@ void diskcache::detached_upstream_refresh(req123& req, const std::string& path) 
 }
 
 void diskcache::detached_serialize(const reply123& r, const std::string& path, const std::string& url) noexcept try {
-    DIAGkey(_diskcache,  "detached_serialize, running in thread: " << std::this_thread::get_id() << "\n");
+    DIAGkey(_diskcache,  "detached_serialize(r.content.data(): " << (const void*)r.content.data() << ", path=" << path << ")\n");
     serialize(r, path, url);
 }catch(std::exception& e){
     complain(LOG_WARNING, e, "detached_serialize:  caught error: ");
@@ -537,7 +574,7 @@ void diskcache::detached_serialize(const reply123& r, const std::string& path, c
 }
 
 void diskcache::upstream_refresh(const req123& req, const std::string& path, reply123* r, bool already_detached, bool usable_if_error){
-    if( disconnected_ && usable_if_error){
+    if( vols_.disconnected && usable_if_error){
         // If we're disconnected and r is within the stale-if-error window,
         // return immediately.  Don't complain. Don't ask upstream.
         stats.dc_rf_stale_if_error++;
@@ -546,11 +583,11 @@ void diskcache::upstream_refresh(const req123& req, const std::string& path, rep
     }
     if(upstream_->refresh(req, r)){
         stats.dc_rf_200++;
-        if(already_detached){
+        if(already_detached || foreground_serialize){
             // we're already detached.  Call serialize synchronously.
             // Nobody's waiting for us, and the threadpool will throw
             // an EINVAL if we try to submit to it recursively.
-            DIAGkey(_diskcache, "upstream_refresh(detached) in " << std::this_thread::get_id() << " r->expires: " << tp2dbl(r->expires) << ", r->etag64: "  << r->etag64 << "\n");
+            DIAGkey(_diskcache, "upstream_refresh(detached) in " << std::this_thread::get_id() << " r->expires: " << ins(r->expires) << ", r->etag64: "  << r->etag64 << "\n");
             serialize(*r, path, req.urlstem);  // might throw, but we're already_detached, so it's caught by caller
         }else{
             // We are not already detached.  This is a fine
@@ -560,8 +597,23 @@ void diskcache::upstream_refresh(const req123& req, const std::string& path, rep
             // pass args by value!  Don't do std::move(*r) because the
             // caller is still "using" r.  We're not allowed to trash
             // it.
-            DIAGkey(_diskcache, "tp->submit(detached_serialize) submitted by thread: " << std::this_thread::get_id() << "\n");
-            tp->submit([rv = *r, path, urlstem = req.urlstem, this](){ detached_serialize(rv, path, urlstem); });
+            DIAGkey(_diskcache, "tp->submit(detached_serialize(r->content.data()=" << (const void*)r->content.data() << ", path=" << path << "))\n");
+            // if std::string is copy-on-write (it shouldn't be, but
+            // it still is in RedHat's devtoolsets in 2020), then
+            // operator[] should force a copy.  Even if we didn't
+            // force the copy here, there shouldn't be a problem,
+            // because we're careful to avoid casting away const-ness
+            // of content.data() elsewhere in the code.  But just to
+            // be sure, use operator[] here and explicitly check
+            // that content isn't shared.
+            auto rcd = &r->content[0];
+            tp->submit([rv = r->copy(), path, rcd, urlstem = req.urlstem, this](){
+                           if(rcd == &rv.content[0]){
+                               complain(LOG_CRIT, "Uh oh.  Copy-on-write problems!  reply was not copied correctly into lambda %s:%d", __FILE__, __LINE__);
+                               std::terminate();
+                           }
+                           detached_serialize(rv, path, urlstem);
+                       });
         }
     }else{
         stats.dc_rf_304++;
@@ -574,12 +626,12 @@ void diskcache::upstream_refresh(const req123& req, const std::string& path, rep
             // ASAP.
             throw se(EINVAL, "diskcache:: upstream_->refresh returned false, interpreted as 304 Not Modified, but the request is no-cache.  That shouldn't happen.  Find this error message in the code and FIX THE UNDERLYING PROBLEM!");
         }
-        tp->submit([rv = *r, path, this](){ detached_update_expiration(rv, path); });
+        tp->submit([rv = r->copy(), path, this](){ detached_update_expiration(rv, path); });
     }
 }
     
 bool
-diskcache::refresh(const req123& req, reply123* r) try {
+diskcache::refresh(const req123& req, reply123* r) /*override*/ try {
     // FIXME - there's way too much exception-catching going on
     // here.  That's a big red mis-design flag.  Why is the
     // diskcache code thinking about high-latency links and
@@ -661,10 +713,16 @@ diskcache::refresh(const req123& req, reply123* r) try {
  }
 
 std::ostream& 
-diskcache::report_stats(std::ostream& os) {
+diskcache::report_stats(std::ostream& os) /*override*/{
     os << stats;
-    os << "dc_threadpool_backlog: " << tp->backlog() << "\n";
-    return upstream_->report_stats(os);
+    return os << "dc_threadpool_backlog: " << tp->backlog() << "\n";
+}
+
+std::string
+diskcache::get_uuid() /*override*/{
+    if(uuid.size() != 36)
+        throw std::runtime_error("diskcache::get_uuid wrong length??");
+    return uuid;
 }
 
 std::string 
@@ -783,8 +841,9 @@ diskcache::deserialize_no_unlink(int rootfd, const std::string& path,
     // four-argument string::compare.
     static const size_t thirtytwo = sizeof(ret.content_threeroe);
     if(threeroe(ret.content).hexdigest().compare(0, thirtytwo, ret.content_threeroe, thirtytwo) != 0){
-        throw se(EINVAL, fmt("diskcache::deserialize:  threeroe mismatch:  threeroe(data): %s, threeroe(stored_in_header): %.32s.\n",
-                             threeroe(ret.content).hexdigest().c_str(), ret.content_threeroe));
+        throw se(EINVAL, fmt("diskcache::deserialize:  threeroe mismatch:  threeroe(data): %s, threeroe(stored_in_header): %.32s. content: %zu@%p, initial bytes: %s\n",
+                             threeroe(ret.content).hexdigest().c_str(), ret.content_threeroe,
+                             ret.content.size(), ret.content.data(), hexdump(ret.content.substr(0, 512), true).c_str()));
     }
     return ret;
 }
@@ -798,11 +857,14 @@ diskcache::deserialize(const std::string& path) try {
     // it's usually better to remove it than to leave it where it will
     // trip us up again.
     //   
-    // But would it be better to rename it so we can study it later?
-    ::unlinkat(rootfd_, path.c_str(), 0);
+    auto newpath = path + "." + str(std::chrono::system_clock::now());
+    ::renameat(rootfd_, path.c_str(), rootfd_, newpath.c_str());
+    // If this happens often, *and* we understand why, it might be better
+    // to unlink instead:
+    //::unlinkat(rootfd_, path.c_str(), 0);
     // Now that we've renamed it, we might as well return a miss rather
     // than throwing an exception.
-    complain(LOG_WARNING, e, "diskcache::deserialize("+rootpath_ +"/"+path+"):  file unlinked.  Returning 'invalid', i.e., MISS");
+    complain(LOG_WARNING, e, "diskcache::deserialize("+rootpath_ +"/"+path+"):  file renamed to " + newpath + ".  Returning 'invalid', i.e., MISS");
     return {};
  }
 
@@ -822,7 +884,6 @@ diskcache::serialize(const reply123& r, const std::string& path, const std::stri
     // A single diskcache object is used concurrently by many threads.
     // Take care that they don't step on one anothers rngs.
     static std::atomic<int> seed(0); // give a different seed to every thread.
-    VALGRIND_HG_DISABLE_CHECKING(&seed, sizeof(seed));
     static thread_local std::default_random_engine eng(seed++);
     std::uniform_real_distribution<float> ureal(0., 1.);
     if(  ureal(eng) > injection_probability_ ){
@@ -889,6 +950,18 @@ diskcache::serialize(const reply123& r, const std::string& path, const std::stri
         iov[4].iov_len = sizeof(url_len);
         iov[5].iov_base = const_cast<int*>(&r.magic);
         iov[5].iov_len = sizeof(r.magic);
+#if 1   // N.B.  We believe r.content is now managed correctly, even
+        // if std::string is copy-on-write.  There is an O(1)
+        // check in detached_serialize to confirm that.  So the
+        // O(content.size()) check here is probably unnecessary.
+        if(threeroe(r.content).hexdigest().compare(0, 32, r.content_threeroe, 32) != 0){
+            throw se(EINVAL, fmt("diskcache::serialize: threeroe mismatch: r.content.data(): %p, r.content.size(): %zu threeroe(data): %s, threeroe(in header): %.32s",
+                                 r.content.data(), r.content.size(),
+                                 threeroe(r.content).hexdigest().c_str(),
+                                 r.content_threeroe
+                                 ));
+        }
+#endif
         size_t wrote = sew::writev(fd, iov, 6);
         stats.diskcache_serialize_bytes += wrote;
         // Don't close before renaming, as that would leave a window

@@ -20,11 +20,11 @@
 
 #define HAS_FORGET_MULTI  (FUSE_VERSION >= 29)
 
-#include "valgrindhacks.hpp"
 #include "app_mount.hpp"
 #include "backend123.hpp"
 #include "backend123_http.hpp"
 #include "diskcache.hpp"
+#include "distrib_cache_backend.hpp"
 #include "inomap.hpp"
 #include "special_ino.hpp"
 #include "fuseful.hpp"
@@ -113,6 +113,7 @@ auto _xattr = diag_name("xattr");
 auto _secretbox = diag_name("secretbox");
 auto _retry = diag_name("retry");
 auto _periodic = diag_name("periodic");
+auto _shutdown = diag_name("shutdown");
 
 // Setting stat::st_ino to a value that doesn't fit in 32 bits can
 // cause trouble for client programs.  Specifically, in a 32-bit
@@ -141,18 +142,12 @@ fuse_ino_t st_ino_mask = ~fuse_ino_t(0);
 // for default values.
 size_t Fs123Chunk;
 
-// be and linkmap cannot be staticly constructed because their
+// linkmap and attrcache cannot be staticly constructed because their
 // constructors depend on runtime options or environment variables.
 // Nevertheless, they are used freely, without checking for validity
 // in the callbacks.  Wrapping them in a unique_ptr prevents valgrind
 // from complaining about them at program termination.
-std::unique_ptr<backend123> be;
-// http_be is the "bottom" backend.  It's always an 'http' backend.
-// We sometimes want to manipulate it directly without
-// going through intermediate levels, e.g., to look up and/or change
-// urls.  OTOH, it may be 'owned' by us, or we may transfer
-// ownership to another layer, e.g., a diskcache.
-backend123_http *http_be;
+
 std::string baseurl;
 static_assert(sizeof(fuse_ino_t) == sizeof(uint64_t), "fuse_ino_t must be 64 bits");
 std::unique_ptr<expiring_cache<fuse_ino_t, std::string>> linkmap;
@@ -167,6 +162,14 @@ struct attrcache_value_t{
 std::unique_ptr<expiring_cache<fuse_ino_t, attrcache_value_t, clk123_t>> attrcache;
 bool privileged_server;
 bool support_xattr;
+
+// Our 'backends' are stacked.  So they can call one another, they may hold *non-owning* pointers
+// to one another.  Ownership is managed here, with file-scope unique_ptrs that
+// are destroyed in the fs123_destroy callback.
+backend123* be;
+std::unique_ptr<backend123_http> http_be;
+std::unique_ptr<diskcache> diskcache_be;
+std::unique_ptr<distrib_cache_backend> distrib_cache_be;
 
 // The maintenance task runs in the background, started in fs123_init and destroyed
 // in fs123_destroy
@@ -487,7 +490,12 @@ bool berefresh_decode(const req123& req, reply123* reply){
     if(secret_mgr){
         if(reply->content_encoding == content_codec::CE_IDENT && !allow_unencrypted_replies)
             throw se(EIO, "server replied in cleartext but client has allow_encrypted_replies=false");
-        reply->content = content_codec::decode(reply->content_encoding, reply->content, *secret_mgr); // might throw
+        auto sp = content_codec::decode(reply->content_encoding, as_uchar_span(reply->content), *secret_mgr); // might throw, trashes content
+        // FIXME: If reply->content were a span, we'd just put it on
+        // the lhs of the assignment above and we'd be done.  But
+        // since it's a string, we're obliged to make a new one and
+        // copy the decoded span into it.
+        reply->content = std::string(as_str_view(sp));
         reply->content_encoding = content_codec::CE_IDENT;
     }else{
         if(reply->content_encoding != content_codec::CE_IDENT)
@@ -558,16 +566,15 @@ void encrypt_request(req123& req){
             size_t sz = req.urlstem.size();
             const size_t leader = sizeof(fs123_secretbox_header) + crypto_secretbox_MACBYTES; // crypto_secretbox_MACBYTES == 16
             const size_t padding = 8;
-            char ws[sz + leader + padding]; // enough space for zerobytes and padding.
-            char *inplace = ws+leader;
-            ::memcpy(inplace, req.urlstem.data(), sz);
+            uchar_blob ub(sz + leader + padding); // enough space for zerobytes and padding.
+            padded_uchar_span ps(ub, leader, sz);
+            ::memcpy(ps.data(), req.urlstem.data(), sz);
             secret_sp secret = secret_mgr->get_sharedkey(esid);
-            auto encoded = content_codec::encode(content_codec::CE_FS123_SECRETBOX,
+            padded_uchar_span encoded = content_codec::encode(content_codec::CE_FS123_SECRETBOX,
                                                  esid, secret,
-                                         str_view(inplace,  sz),
-                                         str_view(ws, sizeof(ws)),
-                                         padding, true/*derived_nonce*/);
-            req.urlstem = "/e/" + macaron::Base64::Encode(std::string(encoded));
+                                                 ps,
+                                                 padding, true/*derived_nonce*/);
+            req.urlstem = "/e/" + macaron::Base64::Encode(std::string(as_str_view(encoded)));
         }
     }
 }
@@ -658,7 +665,7 @@ reply123 begetattr(fuse_ino_t pino, str_view lc, fuse_ino_t ino, int max_stale){
     auto key = attrcache_key(pino, lc);
     auto cached_reply = attrcache->lookup(key);
     if( !cached_reply.expired() ){
-        DIAGkey(_getattr, "attrcache hit: " << cached_reply.content << " ec: " << cached_reply.estale_cookie << " good_till: " << tp2dbl(cached_reply.good_till) << " (" << tpuntildbl(cached_reply.good_till) << ")\n");
+        DIAGkey(_getattr, "attrcache hit: " << cached_reply.content << " ec: " << cached_reply.estale_cookie << " good_till: " << ins(cached_reply.good_till) << " (" << ins(until(cached_reply.good_till)) << ")\n");
         if( !cookie_mismatch(ino, cached_reply.estale_cookie) )
             return {std::move(cached_reply.content), content_codec::CE_IDENT, cached_reply.estale_cookie, cached_reply.ttl()};
         // It's not clear how we get here.  But if we're here
@@ -855,6 +862,9 @@ void regular_maintenance(){
     // take it in a content-serving thread.
     http_be->regular_maintenance();
 
+    if(distrib_cache_be)
+        distrib_cache_be->regular_maintenance();
+
 #if __has_include(<mcheck.h>)
     if(getenv("MALLOC_CHECK_")){
         mcheck_check_all();
@@ -947,9 +957,8 @@ void fs123_init(void *, struct fuse_conn_info *conn_info) try {
     // The first non-option argument was extracted as 'fuse_device_option'.
     // It's the url we pass to backend123.
     baseurl = backend123::add_sigil_version(fuse_device_option);
-    http_be = new backend123_http(baseurl, Fs123Chunk * 1024, accepted_encodings,
-                                  envto<bool>("Fs123Disconnected", false), *volatiles);
-    if(http_be == nullptr)
+    http_be = std::make_unique<backend123_http>(baseurl, accepted_encodings, *volatiles);
+    if(!http_be)
         throw se(ENOMEM, fmt("new backend123_http(%s) returned nullptr.  Something is terribly wrong.", fuse_device_option.c_str()));
     std::string fallbacks = envto<std::string>("Fs123FallbackUrls", "");
     // Treat fallbacks as a pipe(|) or whitespace-separated list of
@@ -966,16 +975,36 @@ void fs123_init(void *, struct fuse_conn_info *conn_info) try {
             complain(LOG_NOTICE, "Added fallback url: %s",  with_sigil.c_str());
         }
     }
-    be.reset(http_be);
+    be = http_be.get();
     cache_dir = envto<std::string>("Fs123CacheDir", "");
     if(!cache_dir.empty() && volatiles->dc_maxmbytes){
         // By specifying a seed that depends on the baseurl, we make
         // it possible for multiple clients to share the same cache.
         // Requests made to different baseurls will (with high probability)
         // not collide.
-        be = std::make_unique<diskcache>(std::move(be), cache_dir, threeroe(baseurl).hash64(),
-                                         envto<bool>("Fs123CacheFancySharing", false), *volatiles);
+        diskcache_be = std::make_unique<diskcache>(be, cache_dir, threeroe(baseurl).hash64(),
+                                                   envto<bool>("Fs123CacheFancySharing", false), *volatiles);
+        be = diskcache_be.get();
     }
+
+    // FIXME - Options!!
+    auto distrib_cache_style = envto<std::string>("Fs123DistribCacheExperimental", "");
+    if(!distrib_cache_style.empty()){
+        if(!diskcache_be)
+            throw se(EINVAL, "Can't have a Distributed Cache without a Diskcache");
+        // See the comment at the top of distrib_cache_backend.hpp for a description
+        // of these 'styles'
+        if(distrib_cache_style == "diskcache-in-front"){
+            distrib_cache_be = std::make_unique<distrib_cache_backend>(http_be.get(), diskcache_be.get(), baseurl, *volatiles);
+            diskcache_be->set_upstream(distrib_cache_be.get());
+        }else if(distrib_cache_style == "diskcache-behind"){
+            distrib_cache_be = std::make_unique<distrib_cache_backend>(diskcache_be.get(), diskcache_be.get(), baseurl, *volatiles);
+            be = distrib_cache_be.get();
+        }else{
+            throw se(EINVAL, "Unrecognized value of Fs123DistribCacheExperimental: " + distrib_cache_style + ".  Expected either 'diskcache-in-front' or 'diskcache-behind'");
+        }
+    }
+
     auto attrcachesz = envto<size_t>("Fs123AttrCacheSize", 100000);
     attrcache = std::make_unique<decltype(attrcache)::element_type>(attrcachesz);
 
@@ -1027,20 +1056,16 @@ void fs123_init(void *, struct fuse_conn_info *conn_info) try {
 
 void fs123_destroy(void*){
     complain(LOG_NOTICE, "top of fs123_destroy");
-    maintenance_task.reset(); // do this first, see comment in init
+    DIAG(_shutdown, "top of fs123_destroy");
     // In some cases, (unclear when), the kernel doesn't tell us
     // to 'forget', ino=1.  We could ino_forget() it here, but if
     // the kernel has told us to forget it, a second forget() generates
     // an error message.  Let's just ignore it.
     // ino_forget(1, 1);
-    // make_unique was called in _init.  Symmetry suggests that we
-    // should call reset in _destroy
-    be.reset();
-    volatiles.reset();
-    attrcache.reset();
-    linkmap.reset();
-    if(enhanced_consistency)
-        openfile_stopscan();
+    //
+    // Various subsystems were initialized in fs123_init.  Shut them
+    // down in LIFO order so that any inter-dependencies are respected.
+    maintenance_task.reset();
     if(!named_pipe_name.empty()){
         unlink(named_pipe_name.c_str());
         named_pipe_done = true;
@@ -1057,12 +1082,21 @@ void fs123_destroy(void*){
         // It should rejoin pretty soon.
         if(named_pipe_thread.joinable()){
             complain(LOG_NOTICE, "joining named pipe");
-            named_pipe_thread.join();
+            named_pipe_thread.join();           DIAG(_shutdown, "named_pipe_thread.join() done");
         }else
             complain(LOG_ERR, "named pipe is not joinable?  Have we called destroy twice?");
         close(named_pipe_fd);
         named_pipe_fd = -1;
     }
+    if(enhanced_consistency)
+        openfile_stopscan();      DIAG(_shutdown, "openfile_stopscan() done");
+    linkmap.reset();              DIAG(_shutdown, "linkmap.reset() done");
+    attrcache.reset();            DIAG(_shutdown, "attrcache.reset() done");
+    distrib_cache_be.reset();     DIAG(_shutdown, "distrb_cache_be.reset() done");
+    diskcache_be.reset();         DIAG(_shutdown, "diskcache_be.reset() done");
+    http_be.reset();              DIAG(_shutdown, "http_be.reset() done");
+    volatiles.reset();            DIAG(_shutdown, "volatiles_be.reset() done");
+    secret_mgr.reset();           DIAG(_shutdown, "secret_mgr.reset() done");
     complain(LOG_NOTICE, "return from fs123_destroy at epoch: " + str(std::chrono::system_clock::now()));
 }
 
@@ -1131,6 +1165,12 @@ struct fh_state{
 
     fh_state() : contents{}, chunk_next_offset{0}, eof{false} {}
  };
+// We use a shared_ptr<fh_state> to avoid any chance that the fh_state
+// (or anything within it, e.g., the mtx) goes out-of-scope while we're
+// still using it.  For example, in readdir, we hold a unique_lock 
+// on the fh_state's mutex, so the mutex's lifetime must be strictly
+// longer than the unqique_lock's.
+using fh_state_sp = std::shared_ptr<fh_state>;
 
 void fs123_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info* fi) try
 {    
@@ -1161,7 +1201,7 @@ void fs123_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info* fi) tr
 void fs123_opendir(fuse_req_t req, fuse_ino_t  ino, struct fuse_file_info *fi) try {
     stats.opendirs++;
     atomic_scoped_nanotimer _t(&stats.opendir_sec);
-    fi->fh = reinterpret_cast<decltype(fi->fh)>(new fh_state{});
+    fi->fh = reinterpret_cast<decltype(fi->fh)>(new fh_state_sp(std::make_shared<fh_state>()));
     DIAGfkey(_opendir, "opendir(%ju, fi=%p, fi->fh = %p)\n", (uintmax_t)ino, fi, (void*)fi->fh);
     // Documentation is silent on whether keep_cache is honored for
     // directories.  We want the kernel *not* to use cached entries --
@@ -1170,7 +1210,6 @@ void fs123_opendir(fuse_req_t req, fuse_ino_t  ino, struct fuse_file_info *fi) t
     // direct_io are initialized to zero, but let's not assume:
     fi->keep_cache = false;
     fi->direct_io = false;
-    ANNOTATE_HAPPENS_BEFORE(fi->fh);
     reply_open(req, fi);
 } CATCH_ERRS
 
@@ -1192,12 +1231,9 @@ void fs123_readdir(fuse_req_t req, fuse_ino_t ino,
     atomic_scoped_nanotimer _t(&stats.readdir_sec);
     if(fi==nullptr || fi->fh == 0)
         throw se(EIO, "fs123_readdir called with fi=nullptr or fi->fh==0.  This is totally unexpected!");
-    auto fhstate = reinterpret_cast<fh_state*>(fi->fh);
-    ANNOTATE_HAPPENS_BEFORE(fi->fh);
+    fh_state_sp fhstate = *reinterpret_cast<fh_state_sp*>(fi->fh);
 
     // All readdirs on the same open fd are serialized.
-    // N.B.  See comment at end.  It's essential to explicitly
-    // call lk.unlock() before calling reply_anything()!
     std::unique_lock<std::mutex> lk{fhstate->mtx};
 #if 0
     // See docs/Notes.readdir.  You can't win.
@@ -1213,10 +1249,8 @@ void fs123_readdir(fuse_req_t req, fuse_ino_t ino,
     size_t nextoff = size_t(off);
     if(nextoff == fhstate->contents.size() && !fhstate->eof){
 	auto reply = begetchunk_dir(ino, fhstate->contents.empty(), fhstate->chunk_next_offset);
-        if( reply.eno ){
-            lk.unlock(); // see comment at end of function
+        if( reply.eno )
             return reply_err(req, reply.eno);
-        }
         // anti-Postel's law ... be strict in what we accept too
         if( reply.chunk_next_meta == reply123::CNO_MISSING )
             throw se(EIO, fmt("fs123_readdir(%s) reply missing " HHNO " with chunk-next-offset", ino_to_fullname(ino).c_str()));
@@ -1341,14 +1375,6 @@ void fs123_readdir(fuse_req_t req, fuse_ino_t ino,
     // carefully about how contents are stored - and it's not clear
     // anyone would ever benefit (who does multiple concurrent
     // readdirs on the same fd??)
-    //
-    // OTOH, we *must* release this lock before we call reply_buf
-    // because the kernel might issue a releasedir callback, which
-    // could be executed in another thread immediately after the
-    // reply_buf.  If that happens before this thread calls
-    // lk.unlock() (perhaps via RAII), this thread will be unlock-ing
-    // a delete'ed mutex.
-    lk.unlock();
     DIAGfkey(_readdir, "fuse_reply_buf(req, %p, %ld)\n", buf.data(), used);
     reply_buf(req, buf.data(), used);
 } CATCH_ERRS
@@ -1359,9 +1385,7 @@ void fs123_releasedir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
     stats.releasedirs++;
     if(fi == nullptr || fi->fh == 0)
         throw se(EINVAL, "fs123_releasedir called with fi==nullptr or fi->fh=0.  This is totally unexpected!");
-    ANNOTATE_HAPPENS_AFTER(fi->fh);
-    ANNOTATE_HAPPENS_BEFORE_FORGET_ALL(fi->fh);
-    delete reinterpret_cast<fh_state*>(fi->fh);
+    delete reinterpret_cast<fh_state_sp*>(fi->fh);
     return reply_err(req, 0);
 }CATCH_ERRS
 
@@ -1863,15 +1887,7 @@ void fs123_ioctl(fuse_req_t req, fuse_ino_t ino, int cmd, void *arg, struct fuse
         fuse_reply_ioctl(req, 0, nullptr, 0);
         return;
     case DISCONNECTED_IOC:
-        {
-        if( in_bufsz != sizeof(fs123_ioctl_data) )
-            throw se(EINVAL, "Wrong size for ioctl");
-        rdo = (fs123_ioctl_data*)in_buf;
-        rdo->buf[ sizeof(rdo->buf)-1 ] = '\0';
-        be->set_disconnected(svto<bool>(rdo->buf));
-        complain(LOG_NOTICE, "changed Disconnected=%d", be->get_disconnected());
-        fuse_reply_ioctl(req, 0, nullptr, 0);
-        }
+        VOLATILE_IOCTL(disconnected);
         return;
     case CACHE_TAG_IOC:
         {
@@ -1950,6 +1966,34 @@ void fs123_ioctl(fuse_req_t req, fuse_ino_t ino, int cmd, void *arg, struct fuse
         set_complaint_max_hourly_rate(svto<float>(rdo->buf));
         complain(LOG_NOTICE, "changed Fs123LogMaxHourlyRate=%s", rdo->buf);
         fuse_reply_ioctl(req, 0, nullptr, 0);
+        return;
+    case ADD_PEER_IOC:
+        if(!distrib_cache_be)
+            throw se(EINVAL, "ioctl(ADD_PEER_IOC, ...): No distributed cache");
+        {
+        if( in_bufsz != sizeof(fs123_ioctl_data) )
+            throw se(EINVAL, "Wrong size for ioctl");
+        rdo = (fs123_ioctl_data*)in_buf;
+        rdo->buf[ sizeof(rdo->buf)-1 ] = '\0';
+        // Expect input of the form:
+        //  UUID baseurl
+        // where there is exactly one space between the UUID and the
+        // baseurl.
+        distrib_cache_be->suggest_peer(rdo->buf);
+        fuse_reply_ioctl(req, 0, nullptr, 0);
+        }
+        return;
+    case REMOVE_PEER_IOC:
+        if(!distrib_cache_be)
+            throw se(EINVAL, "ioctl(REMOVE_PEER_IOC, ...): No distributed cache");
+        {
+        if( in_bufsz != sizeof(fs123_ioctl_data) )
+            throw se(EINVAL, "Wrong size for ioctl");
+        rdo = (fs123_ioctl_data*)in_buf;
+        rdo->buf[ sizeof(rdo->buf)-1 ] = '\0';
+        distrib_cache_be->discourage_peer(rdo->buf);
+        fuse_reply_ioctl(req, 0, nullptr, 0);
+        }
         return;
     default:
         // We could just ignore these, but it can be
@@ -2044,7 +2088,12 @@ std::ostream& vm_report(std::ostream& os){
 std::ostream& report_stats(std::ostream& os){
     stats.elapsed_sec = elapsed_asnt.elapsed();
     os << stats;
-    be->report_stats(os);
+    if(diskcache_be)
+        diskcache_be->report_stats(os);
+    if(http_be)
+        http_be->report_stats(os);
+    if(distrib_cache_be)
+        distrib_cache_be->report_stats(os);
     if(enhanced_consistency)
         os << openfile_report();
     if(secret_mgr)
@@ -2087,13 +2136,13 @@ std::ostream& report_config(std::ostream& os){
        << "Fs123DiagNames: " << get_diag_names(true) << "\n"
        << "Fs123DiagDestination: " << diag_destination << "\n"
        << "Fs123TruncateTo32BitIno: " << (st_ino_mask != ~fuse_ino_t(0)) << "\n"
-       << "Fs123Chunk:" << Fs123Chunk << "\n"
+       << "Fs123Chunk: " << Fs123Chunk << "\n"
        << "Fs123CacheDir: " << cache_dir << "\n"
        << "Fs123CacheMaxMBytes: " << volatiles->dc_maxmbytes << "\n"
        << "Fs123CacheMaxFiles: " << volatiles->dc_maxfiles << "\n"
-       << "Fs123EvictLwm:" << volatiles->evict_lwm << "\n"
-       << "Fs123EictTargetFraction:" << volatiles->evict_target_fraction << "\n"
-       << "Fs123EvictThrottleLWM" << volatiles->evict_throttle_lwm << "\n"
+       << "Fs123EvictLwm: " << volatiles->evict_lwm << "\n"
+       << "Fs123EictTargetFraction: " << volatiles->evict_target_fraction << "\n"
+       << "Fs123EvictThrottleLWM: " << volatiles->evict_throttle_lwm << "\n"
        << "Fs123EvictPeriodMinutes" << volatiles->evict_period_minutes << "\n"
        << "Fs123StaleIfError: " << req123::default_stale_if_error << "\n"
        << "Fs123PastStaleWhileRevalidate: " << req123::default_past_stale_while_revalidate << "\n"
@@ -2107,12 +2156,12 @@ std::ostream& report_config(std::ostream& os){
        << "Fs123RetryInitialMillis: " << volatiles->retry_initial_millis << "\n"
        << "Fs123RetrySaturate: " << volatiles->retry_saturate << "\n"
        << "Fs123IgnoreEstaleMismatch: " << volatiles->ignore_estale_mismatch << "\n"
-       << "Fs123SupportXattr:" << support_xattr << "\n"
+       << "Fs123SupportXattr: " << support_xattr << "\n"
        << "Fs123ConnectTimeout: " << volatiles->connect_timeout << "\n"
        << "Fs123TransferTimeout: " << volatiles->transfer_timeout << "\n"
        << "Fs123LoadTimeoutFactor " << volatiles->load_timeout_factor << "\n"
-       << "Fs123NameCache " << volatiles->namecache << "\n"
-       << "Fs123Disconnected: " << be->get_disconnected() << "\n"
+       << "Fs123NameCache: " << volatiles->namecache << "\n"
+       << "Fs123Disconnected: " << volatiles->disconnected << "\n"
        << "Fs123NoKernelDataCaching: " << no_kernel_data_caching << "\n"
        << "Fs123NoKernelAttrCaching: " << no_kernel_attr_caching << "\n"
        << "Fs123NoKernelDentryCaching: " << no_kernel_dentry_caching << "\n"
@@ -2171,6 +2220,9 @@ std::ostream& report_config(std::ostream& os){
         //Prt(Fs123CurlMaxRedirs)
         // In diskcache:
         //Prt(Fs123CacheDir)
+        Prt(Fs123DistribCacheExperimental, "false")// default in distrib_cache_backend.cpp
+        Prt(Fs123DistribCacheReflector, "<unset>") // default in distrib_cache_backend.cpp
+        Prt(Fs123DistribCacheMulticastLoop, "false")// default in distrib_cache_backend.cpp
         //Prt(Fs123PastStaleWhileRevalidate)
         //Prt(Fs123CacheMaxMBytes)
         //Prt(Fs123CacheMaxFiles)
@@ -2181,6 +2233,7 @@ std::ostream& report_config(std::ostream& os){
         //Prt(Fs123EvictPeriodMinutes, 60)// default in diskcache.cpp
         Prt(Fs123RefreshThreads, 10)    // default in diskcache.cpp
         Prt(Fs123RefreshBacklog, 10000)    // default in diskcache.cpp
+        Prt(Fs123ForegroundSerialize, "true") // default in diskcache.cpp
         // env-vars with conventional meaning to libcurl
         // can be set on the command line.
         // Note that http{s}_proxy distinguish between being
@@ -2190,6 +2243,10 @@ std::ostream& report_config(std::ostream& os){
         // Hacks to run under valgrind
         Prt(Fs123Trampoline, "")
         ;
+    if(distrib_cache_be){
+        os << "distrib_cache_uuid: " << diskcache_be->get_uuid() <<  "\n"
+           << "distrib_cache_server: " << distrib_cache_be->get_url() << "\n";
+    }
     return os;
 }
 
@@ -2272,6 +2329,11 @@ try {
                                     "Fs123EvictPeriodMinutes=",
                                     "Fs123RefreshThreads=",
                                     "Fs123RefreshBacklog=",
+                                    "Fs123ForegroundSerialize=",
+                                    // In distrib_cache_backend:
+                                    "Fs123DistribCacheExperimental=",
+                                    "Fs123DistribCacheReflector=",
+                                    "Fs123DistribCacheMulticastLoop=",
                                     // env-vars with conventional meaning to libcurl
                                     // can be set on the command line.
                                     "http_proxy=",

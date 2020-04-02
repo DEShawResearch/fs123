@@ -225,7 +225,7 @@ size_t svscan(str_view sv, const std::tuple<Types& ...>& t, size_t start=0){
 // svto<T> is the "traditional" style, returning a T.
 template <typename T>
 T svto(str_view sv, size_t start=0){
-    T ret;
+    T ret{};
     auto nxt = svscan<T>(sv, &ret, start);
     if(nxt != sv.size() && svscan(sv, nullptr, nxt) != sv.size())
         throw std::invalid_argument("svto: non-whitespace following converted string: " + std::string(sv.substr(nxt, 30)));

@@ -11,22 +11,31 @@
 #   mkdir build
 #   cd build
 #   make -f ../GNUmakefile
-
+#
+# See http://make.mad-scientist.net/papers/multi-architecture-builds/
+# for a possible alternative...
+.SECONDARY:
 mkfile_path := $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST))
 top/ := $(dir $(mkfile_path))
-VPATH=$(top/)lib:$(top/)client:$(top/)exportd
+abstop/ := $(realpath $(top/))/
+VPATH=$(top/)lib:$(top/)client:$(top/)exportd:$(top/)examples
 # default PREFIX if none specified
 PREFIX?=/usr/local
+# Link with $(CXX), not $(CC)!
+LINK.o = $(CXX) $(LDFLAGS) $(TARGET_ARCH)
 
 # First, let's define the 'all' target so a build with no arguements
 # does something sensible:
 binaries=fs123p7
 binaries+=fs123p7exportd
+binaries+=ex1server
 
 unit_tests=ut_diskcache
 unit_tests += ut_seektelldir
 unit_tests += ut_content_codec
 unit_tests += utx_cc_rules
+
+libs=libfs123.a
 
 EXE = $(binaries) $(unit_tests)
 
@@ -37,36 +46,48 @@ all: $(EXE)
 check: $(EXE)
 	$(top/)test/runtests
 
+.PHONY: core123-check
+core123-check:
+	-mkdir core123
+	$(MAKE) -C core123 -f $(top/)core123/GNUmakefile check
+
 OPT?=-O3 # if not explicitly set
 CPPFLAGS += -iquote $(top/)include
 CPPFLAGS += -I $(top/)core123/include
-CXXFLAGS += -Wno-deprecated-declarations
 CXXFLAGS += -DFUSE_USE_VERSION=26
-CXXFLAGS += -std=c++17 -ggdb -Wall -Wshadow -Werror
+CXXFLAGS += -std=c++17 -ggdb -Wall -Wshadow
+CXXFLAGS += -Werror
 CXXFLAGS += -Wextra
 CXXFLAGS += $(OPT)
 CXXFLAGS += -D_FILE_OFFSET_BITS=64
 CFLAGS += -std=c99 -ggdb
 CFLAGS += $(OPT)
 LDFLAGS += -pthread
-LDFLAGS += -L. # so the linker can find ./libfs123.a
-LDLIBS += -lfs123
 
-# git desribe --exclude would be b
 GIT_DESCRIPTION?=$(cd $(top/) shell git describe --always --dirty || echo not-git)
 CXXFLAGS += -DGIT_DESCRIPTION=\"$(GIT_DESCRIPTION)\"
 
-# libfs123.a:
-# code shared by client and server, and that might be useful for
-# other servers
-libs:=libfs123.a
-$(EXE): | $(libs)
-libobjs:=content_codec.o secret_manager.o sharedkeydir.o
-libfs123.a : $(libobjs)
+# < libfs123 >
+libfs123_cppsrcs:=content_codec.cpp secret_manager.cpp sharedkeydir.cpp fs123server.cpp
+CPPSRCS += $(libfs123_cppsrcs)
+libfs123_objs:=$(libfs123_cppsrcs:%.cpp=%.o)
+libfs123.a : $(libfs123_objs)
 	$(AR) $(ARFLAGS) $@ $?
 
-# fs123p7: the client, linked into a single binary with a few utilities
-fs123p7obj := fs123p7.o app_mount.o app_setxattr.o app_ctl.o fuseful.o backend123.o backend123_http.o diskcache.o special_ino.o inomap.o opensslthreadlock.o openfilemap.o
+# ut_content_codec needs libsodium
+ut_content_codec : LDLIBS += -lsodium
+
+# < /libfs123 >
+
+# <client fs123p7>
+fs123p7_cppsrcs:=fs123p7.cpp app_mount.cpp app_setxattr.cpp app_ctl.cpp fuseful.cpp backend123.cpp backend123_http.cpp diskcache.cpp special_ino.cpp inomap.cpp openfilemap.cpp distrib_cache_backend.cpp
+CPPSRCS += $(fs123p7_cppsrcs)
+fs123p7_objs :=$(fs123p7_cppsrcs:%.cpp=%.o)
+
+fs123p7_csrcs:=opensslthreadlock.c
+CSRCS += $(fs123p7_csrcs)
+fs123p7_objs +=$(fs123p7_csrcs:%.c=%.o)
+
 ifndef NO_OPENSSL
 fs123p7 : LDLIBS += -lcrypto
 endif
@@ -74,28 +95,42 @@ fs123p7 : LDLIBS += -lsodium
 FUSELIB?=fuse # if not  explicitly set
 fs123p7 : LDLIBS += -l$(FUSELIB) -ldl # -ldl is needed for static linking.  Should be harmless otherwise
 fs123p7 : LDLIBS += $(shell curl-config --libs) -lz # -lz is needed for static linking.  Should be harmless otherwise
-fs123p7 : $(fs123p7obj)
+fs123p7 : LDLIBS += $(serverlibs)
+fs123p7 : $(fs123p7_objs)
+
+# link ut_diskcache links with some client-side .o files
+ut_diskcache : diskcache.o backend123.o 
 
 backend123_http.o : CPPFLAGS += $(shell curl-config --cflags)
+#</client>
 
-# fs123p7exportd: the server
-serverobj := crfio.o stringtree.o selector_manager.o selector_manager111.o do_request.o fs123request.o fs123p7exportd_common.o cc_rules.o options.o
-fs123p7exportd : LDLIBS+=-levent -lsodium
-fs123p7exportd : $(serverobj)
+serverlibs=-levent -levent_pthreads -lsodium
+# <fs123p7exportd>
+fs123p7exportd_cppsrcs := exportd_handler_main.cpp exportd_handler.cpp exportd_cc_rules.cpp
+CPPSRCS += $(fs123p7exportd_cppsrcs)
+fs123p7exportd_objs := $(fs123p7exportd_cppsrcs:%.cpp=%.o)
+fs123p7exportd: LDLIBS += $(serverlibs)
+fs123p7exportd: $(fs123p7exportd_objs)
+	$(LINK.o) $^ $(LOADLIBES) $(LDLIBS) -o $@
+# </fs123p7exportd>
 
-# A few unit tests need a bit of extra help:
-ut_diskcache : diskcache.o backend123.o 
-ut_diskcache : LDLIBS += -lsodium
-ut_content_codec : LDLIBS += -lsodium
-utx_cc_rules : cc_rules.o
+# <ex1server>
+ex1_cppsrcs := ex1server.cpp
+CPPSRCS += $(ex1_cppsrcs)
+ex1_objs := $(ex1_cppsrcs:%.cpp=%.o)
+ex1server: LDLIBS += $(serverlibs)
+ex1server: $(ex1_objs)
+	$(LINK.o) $^ $(LOADLIBES) $(LDLIBS) -o $@
+# </ex1server>
 
-# Boilerplate
-LINK.o = $(CXX) $(LDFLAGS) $(TARGET_ARCH)
+# Why doesn't this work if it's higher up?
+$(EXE): libfs123.a
 
 .PHONY: clean
 clean:
-	make -f $(top/)core123/GNUmakefile clean
-	rm -f $(EXE) *.o *.d *.gcno *.gcda *.gcov *.a *.so
+	rm -f $(EXE) *.o *.gcno *.gcda *.gcov *.a *.so
+	[ ! -d core123 ] || rm -rf core123
+	[ ! -d "$(DEPDIR)" ] || rm -rf $(DEPDIR)
 
 .PHONY: install
 install : $(binaries) $(libs)
@@ -104,14 +139,25 @@ install : $(binaries) $(libs)
 	cp -a $(libs) $(PREFIX)/lib
 	cp -a $(top/)include/fs123 $(PREFIX)/include
 
-# the paulandlesley.com autodepends hack, lifted from makefragments,
-# but don't do a recursive descent into all subdirs (which would be
-# *very* bad if we have a mountpoint running in .!)
-%.o: %.cpp
-	$(CXX) -c $(CPPFLAGS) $(CXXFLAGS) $(TARGET_ARCH) -MD -MP -MF $*.d -MT "$@" $< -o "$@" || (rm -f $*.d $*.o  && false)
+# <autodepends from http://make.mad-scientist.net/papers/advanced-auto-dependency-generation>
+# Modified to work with CSRCS and CPPSRCS instead of just SRCS...
+DEPDIR := .deps
+DEPFLAGS = -MT $@ -MMD -MP -MF $(DEPDIR)/$*.d
 
-# Cancel the no-.o rules.  Always make a .o, and hence always make a .d
-%: %.cpp
-%: %.c
+COMPILE.c = $(CC) $(DEPFLAGS) $(CFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -c
 
-include $(wildcard *.d)
+%.o : %.c
+%.o : %.c $(DEPDIR)/%.d | $(DEPDIR)
+	$(COMPILE.c) $(OUTPUT_OPTION) $<
+
+COMPILE.cpp = $(CXX) $(DEPFLAGS) $(CXXFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -c
+%.o : %.cpp
+%.o : %.cpp $(DEPDIR)/%.d | $(DEPDIR)
+	$(COMPILE.cpp) $(OUTPUT_OPTION) $<
+
+$(DEPDIR): ; @mkdir -p $@
+
+DEPFILES := $(CSRCS:%.c=$(DEPDIR)/%.d) $(CPPSRCS:%.cpp=$(DEPDIR)/%.d)
+$(DEPFILES):
+include $(wildcard $(DEPFILES))
+# </autodepends>

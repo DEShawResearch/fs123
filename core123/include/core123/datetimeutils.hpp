@@ -47,6 +47,11 @@ double tpuntildbl(const std::chrono::time_point<Clock, Duration>& tp){
     return dur2dbl(tp - Clock::now());
 }
 
+template <typename Clock, typename Duration>
+Duration until(const std::chrono::time_point<Clock, Duration>& tp){
+    return tp - Clock::now();
+}
+
 inline std::string timet_to_httpdate(time_t epoch){
     char buf[128]; // more than enough
     // N.B.  %a and %b are locale-dependent.  We should be ok as long

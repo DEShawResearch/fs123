@@ -15,7 +15,7 @@ port install coreutils
 
 # To compile on MacOS, with Xcode 10.2 something like this works:
 
-PATH=/opt/local/libexec/gnubin:/opt/local/bin:/usr/bin; FUSELIB=osxfuse CPPFLAGS="-I/opt/local/include -I/opt/local/include/osxfuse" LDFLAGS=-L/opt/local/lib make -f ../GNUmakefile -j check
+PATH=/opt/local/libexec/gnubin:/opt/local/bin:/usr/bin; FUSELIB=osxfuse CPPFLAGS="-I/opt/local/include -I/opt/local/include/osxfuse -Wno-attributes" LDFLAGS=-L/opt/local/lib make -f ../GNUmakefile -j check
 
 /opt/local/libexec/gnubin is necessary to run the tests because /usr/bin/mktemp doesn't recognize -p.
 

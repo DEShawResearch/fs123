@@ -7,7 +7,7 @@ We have used these scripts to build and test fs123 in docker images.
 For example, we tested fs123 in an ubuntu:18.04 (bionic) image with
 this sequence of commands:
 
-$ docker run --device /dev/fuse -rm --cap-add SYS_PTRACE --cap-add SYS_ADMIN -it --mount=type=bind,src=/u/nyc/salmonj/g/gardenfs,destination=/fs123  ubuntu:18.04
+$ docker run --device /dev/fuse --rm --cap-add SYS_PTRACE --cap-add SYS_ADMIN --security-opt apparmor:unconfined -it --mount=type=bind,src=/u/nyc/salmonj/g/fs123,destination=/fs123  ubuntu:bionic
 root@14dcae91065e:/# . /fs123/misc/prereqs.ubuntu:bionic
 ...
 root@14dcae91065e:/# mkdir /tmp/build

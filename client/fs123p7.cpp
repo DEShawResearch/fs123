@@ -7,6 +7,7 @@
 #include "fs123/sharedkeydir.hpp"
 #include "fs123/content_codec.hpp"
 #include <iostream>
+#include <core123/uchar_span.hpp>
 #include <core123/strutils.hpp>
 #include <core123/pathutils.hpp>
 #include <core123/diag.hpp>
@@ -52,6 +53,19 @@ int app_cachedump(int argc, char **argv) {
     for (int i = 1; i < argc; i++) {
         string url;
         auto r = diskcache::deserialize_no_unlink(-1, argv[i], &url);
+        if(!r.valid()){
+            // deserialize_no_unlink does not throw on ENOENT.
+            // Instead it returns an 'invalid' reply, which serves its
+            // intended purpose, but is confusing here.  Normally, we
+            // don't expect to see 'invalid' replies in the cache, but
+            // this is a debug tool, so ...
+            struct stat sb;
+            if(::stat(argv[i], &sb) < 0){
+                cout << argv[i] << " : " << strerror(errno) << "\n";
+                continue;
+            }
+            cout << argv[i] << " : WARNING - reply is 'invalid'.  This file shouldn't be cached\n";
+        }
         cout << argv[i] << " : errno     " << r.eno << "\n";
         cout << argv[i] << " : expires   " << str(r.expires) << "\n";
         cout << argv[i] << " : etag64    " << r.etag64 << "\n";
@@ -86,25 +100,25 @@ int app_secretbox(int argc , char **argv) {
         exit(1);
     }
     sharedkeydir sm(sew::open(argv[1], O_DIRECTORY), "encoding", 120);
-    char buf[sizeof(fs123_secretbox_header)];
+    unsigned char buf[sizeof(fs123_secretbox_header)];
     size_t nread = sew::read(0, buf, sizeof(buf));
-    fs123_secretbox_header hdr(str_view(buf, nread)); // throws if nread too small
+    fs123_secretbox_header hdr(tcb::span<unsigned char>(buf, nread)); // throws if nread too small
     
     uint32_t recordsz = ntohl(hdr.recordsz_nbo);
-    string in(hdr.wiresize()+recordsz, 0);
+    uchar_blob in(hdr.wiresize()+recordsz);
     DIAG(_secretbox, "nread: " << nread << " hdr.wiresize: " << hdr.wiresize() << " recordsz: " << recordsz << " in.size(): " << in.size() << "\n");
     if(nread > in.size()){
         complain(LOG_WARNING, "app_secretbox:  Ignoring extra bytes at end of input");
         nread = in.size();
     }
-    ::memcpy(&in[0], buf, nread);
+    ::memcpy(in.data(), buf, nread);
     while(nread < in.size()){
-        auto nr = sew::read(0, &in[nread], in.size() - nread);
+        auto nr = sew::read(0, in.data() + nread, in.size() - nread);
         if(nr == 0)
             throw std::runtime_error("app_secretbox:  Premature EOF on stdin");
         nread += nr;
     }
-    auto ret = content_codec::decode(content_codec::CE_FS123_SECRETBOX, in, sm);
+    auto ret = content_codec::decode(content_codec::CE_FS123_SECRETBOX, padded_uchar_span(in), sm);
     sew::write(1, ret.data(), ret.size());
     return 0;
 }

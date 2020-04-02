@@ -33,12 +33,12 @@ struct diskcache : public backend123{
     // responsible for evictions, and the others poll for updates to
     // the 'injection_probability' at regular intervals.  Fancy and
     // non-fancy clients can safely share the same cache.
-    diskcache(std::unique_ptr<backend123>, const std::string& root,
+    diskcache(backend123*, const std::string& root,
               uint64_t hash_seed_first, bool fancy_sharing, volatiles_t& vols);
+    void set_upstream(backend123* upstream) { upstream_ = upstream; }
     bool refresh(const req123& req, reply123*) override; 
     std::ostream& report_stats(std::ostream& os) override;
-    // override set_disconnected(bool) so it passes the news upstream.
-    bool set_disconnected(bool d) override { upstream_->set_disconnected(d); return backend123::set_disconnected(d); }
+    std::string get_uuid() override;
 
     // FIXME - hash, serialize, deserialize and update_expiration are
     // 'internal', so they could be protected.  But that would make
@@ -78,13 +78,14 @@ protected:
     acfd statusfd_;
     bool custodian_ = false;
 
-    std::unique_ptr<backend123> upstream_;
+    backend123* upstream_;
     acfd rootfd_;
     size_t Ndirs_;
     size_t dir_to_evict_ = 0;
     size_t files_evicted_ = 0;
     size_t files_scanned_ = 0;
     size_t bytes_scanned_ = 0;
+    size_t overfull_ = 0;
     std::default_random_engine urng_; // not seeded.  Should we care...
     std::string rootpath_; // only used in diagnostics and error reports
     unsigned hexdigits_;
@@ -109,5 +110,7 @@ protected:
     void detached_update_expiration(const reply123& r, const std::string& path) noexcept;
     std::unique_ptr<core123::threadpool<void>> tp;
     volatiles_t& vols_;
+    std::string uuid;
+    bool foreground_serialize;
 };
 

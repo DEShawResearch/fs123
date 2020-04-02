@@ -1,0 +1,7 @@
+Examples:
+
+ex1server - a tiny server with two (mostly non-conflicting) goals:
+- demonstrate (close to) the minimum amount of code needed to
+  get a server running
+- provide a low-overhead, high-speed server that can be used for
+  benchmarking the libfs123 server implementation.

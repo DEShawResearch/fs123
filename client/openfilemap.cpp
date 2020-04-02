@@ -24,6 +24,7 @@ namespace{
 openfilemap_stats_t stats;
 
 auto _ofmap = diag_name("ofmap");
+auto _shutdown = diag_name("shutdown");
 
 // Our basic data structure is a hybird priority-queue/map.  We need
 // to do the following quickly (O(1) or O(lg(N))
@@ -252,8 +253,10 @@ void scan(){
         // decrement it back to its "normal" value, with the possible
         // side-effect of erasing mi, and if mi was erased, or if we
         // got an error from begetattr, we're done with this pqrecord.
-        if(decrefcnt(mr) == 0 || r.eno)
+        if(decrefcnt(mr) == 0 || r.eno){
+            DIAGf(_ofmap, "scan:  newreply ino=%lu refcount(mr) == 0 || r.eno=%d.  Not reinserting", ino, r.eno);
             continue;
+        }
         DIAGfkey(_ofmap, "emplacing newreply in ofpq\n");
         stats.of_pq_reinserted++;
         if(mr.qiter_dereferenceable){
@@ -283,11 +286,14 @@ void scanloop(){
     while(true)
         try {
             std::unique_lock<std::mutex> lk(mtx);
+            if(loopdone)
+                break;
             auto b = ofpq.begin();
-            if(b == ofpq.end())
+            if(b == ofpq.end()){
                 loopcv.wait(lk);
-            else
+            }else{
                 loopcv.wait_until(lk, std::max(b->expires, clk123_t::now()) + std::chrono::milliseconds(750));
+            }
             stats.of_wakeups++;
             // The extra 750msec means we don't cycle too fast, allows
             // for clock skew and gives swr refreshes time to finish.
@@ -308,9 +314,9 @@ void scanloop(){
         }
     complain(LOG_NOTICE, "openfilemap::scanloop:  broke out of scan loop.  We must be shutting down\n");
     if(!ofpq.empty())
-        complain(LOG_WARNING, "openfilemap::scanloop exiting with loopdone=true, but ofpq non-empty.  Bug?");
+        complain(LOG_WARNING, "openfilemap::scanloop exiting with ofpq non-empty.  Reads on open files will get ENOTCONN after shutdown.");
     if(!ofmap.empty())
-        complain(LOG_WARNING, "openfilemap::scanloop exiting with loopdone=true, but ofmap non-empty.  Bug?");
+        complain(LOG_WARNING, "openfilemap::scanloop exiting with ofmap non-empty.  Reads on open files will get ENOTCONN after shutdown.");
 }
 
 } // namespace <anonymous>
@@ -324,13 +330,13 @@ void openfile_startscan(){
 
 void openfile_stopscan(){
     std::unique_lock<std::mutex> lk(mtx);
-    DIAGfkey(_ofmap, "openfile_stopscan - set loopdone and notify cv\n");
+    DIAGfkey(_ofmap||_shutdown, "openfile_stopscan - set loopdone and notify cv\n");
     loopdone = true;
-    lk.unlock();
     loopcv.notify_one();
-    DIAGfkey(_ofmap, "joining scan thread\n");
+    lk.unlock();
+    DIAGfkey(_ofmap||_shutdown, "joining scan thread loopdone = %d\n", loopdone);
     scanthread.join();
-    DIAGfkey(_ofmap, "scanthread joined.  We're done here.\n");
+    DIAGfkey(_ofmap||_shutdown, "scanthread joined.  We're done here.\n");
     complain(LOG_NOTICE, "openfile_stopscan:  scanthread joined.  Scanning stopped");
 }
 

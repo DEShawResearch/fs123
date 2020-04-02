@@ -86,7 +86,7 @@ class elastic_threadpool{
     void start_thread() try {
         std::thread([this]() {
                         ++nth;
-                        raii_ctr raii_idle(nidl);
+                        ++nidl;
                         try{
                             workunit_t wu;
                             while(!too_many_threads() && workq.dequeue(wu)){
@@ -100,14 +100,16 @@ class elastic_threadpool{
                         // but that appears to be broken/misdesigned.  See:
                         // https://stackoverflow.com/questions/59130819/tsan-complaints-with-notify-all-at-thread-exit
                         // https://cplusplus.github.io/LWG/issue3343
-                        // So we decrement the counter and call cv.notify_all ourselves *with the lock held*.
+                        // So instead of using raii_ctr, we decrement the counters and call
+                        // cv.notify_all ourselves *with the lock held*.
                         std::unique_lock<std::mutex> lk(m);
+                        --nidl;
                         --nth;
                         cv.notify_all();
                     }).detach();
     }catch(std::exception& e){
         // N.B.  Under very heavy load the thread constructor can fail
-        // with std::errc::resource_unavailable_try_agin.  That's only
+        // with std::errc::resource_unavailable_try_again.  That's only
         // a problem if a) there are no other threads running (i.e.,
         // nth==0) and b) no other tasks are submit()-ed (so we don't
         // try again).

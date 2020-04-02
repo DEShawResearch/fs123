@@ -1,3 +1,4 @@
+#define CORE123_DIAG_FLOOD_ENABLE 1
 #include "fs123/content_codec.hpp"
 #include "fs123/acfd.hpp"
 #include "fs123/sharedkeydir.hpp"
@@ -14,6 +15,8 @@ using namespace core123;
 static std::string sfname;
 static acfd sffd;
 
+auto _secretbox = diag_name("secretbox");
+
 void replace_sf(const std::string& encoding_key,
                 std::map<std::string, std::string> newcontents){
     std::ostringstream cmd;
@@ -28,26 +31,6 @@ void replace_sf(const std::string& encoding_key,
     }
     fd.close();
 }
-
-struct blob{
-    std::unique_ptr<char[]> _buf;
-    str_view _content;
-    str_view _arena;
-    blob(size_t leader, const std::string& content, size_t trailer){
-        _buf = std::make_unique<char[]>(leader + content.size() + trailer);
-        _arena = str_view(_buf.get(), leader + content.size() + trailer);
-        _content = str_view(_buf.get()+leader, content.size());
-        ::memcpy(const_cast<char*>(_content.data()), content.data(), content.size());
-    };
-    str_view arena() const { return _arena; }
-    str_view content() const { return _content; }
-    size_t leader() const { return _content.data() - _arena.data(); }
-    void replace_content(const std::string& s){
-        // no bounds checking!!!! 
-        ::memcpy(const_cast<char*>(_content.data()), s.data(), s.size());
-        _content = str_view(_content.data(), s.size());
-    }
-};
 
 void
 expect_throw(const std::string& msg, std::function<void()> f) {
@@ -70,6 +53,17 @@ void try_to_use_sfname(){
     cc.get_sharedkey(sid);
 }
     
+void replace_content(padded_uchar_span& ss, size_t leader, const std::string& s){
+    ss = ss.bounding_box().subspan(leader, 0);
+    ss = ss.append(as_uchar_span(s));
+}
+
+struct upspan : public core123::padded_uchar_span{
+    uchar_blob ub;
+    upspan(size_t pre, size_t len, size_t post) : ub(pre+len+post) {
+        (core123::padded_uchar_span&)(*this) = core123::padded_uchar_span(ub, pre, len);
+    }
+};
 
 int main(int /*argc*/, char **/*argv*/) try {
     // Testing for "success" is easy.  Encode something.  Check that
@@ -97,7 +91,7 @@ int main(int /*argc*/, char **/*argv*/) try {
     // in which one reloads the .sharedkey while the other is in
     // the process of using it.
 
-    sfname = "ut_content_codec.secret.d";
+    sfname = "ut_content_codec.secrets";
     mkdir(sfname.c_str(), 0700); // no sew - EEXIST is fine.
     sffd = sew::open(sfname.c_str(), O_RDONLY|O_DIRECTORY);
     replace_sf("1",
@@ -106,44 +100,48 @@ int main(int /*argc*/, char **/*argv*/) try {
     // Let's encode "hello"
     sharedkeydir sm(sffd, "encode", 1);
     std::string hello = "hello";
-    blob ws1(48, hello, 8);
-    core123::str_view encoded;
+    upspan ws1(48, hello.size(), 8);
+    replace_content(ws1, 48, hello);
     auto esid = sm.get_encode_sid();
     auto esecret =  sm.get_sharedkey(esid);
-    encoded = content_codec::encode(content_codec::CE_FS123_SECRETBOX, esid, esecret, ws1.content(), ws1.arena(), 4);
-    std::cout << "This should look like noise:  " << quopri({encoded.data(), encoded.size()}) << "\n";
-    auto s1 = std::string(encoded);
+    auto encoded = content_codec::encode(content_codec::CE_FS123_SECRETBOX, esid, esecret, ws1, 4);
+    auto s1 = std::string(as_str_view(encoded));
+    std::cout << "This should look like noise:  " << quopri(s1) << "\n";
     // Do it again - expect to get a different ciphertext because we'll get a different
     // nonce from /dev/urandom
-    ws1.replace_content(hello);
-    encoded = content_codec::encode(content_codec::CE_FS123_SECRETBOX, esid, esecret, ws1.content(), ws1.arena(), 4);
-    std::cout << "And this should look like different noise:  " << quopri({encoded.data(), encoded.size()}) << "\n";
-    auto s2 = std::string(encoded);
+    replace_content(ws1, 48, hello);
+
+    encoded = content_codec::encode(content_codec::CE_FS123_SECRETBOX, esid, esecret, ws1, 4);
+    auto s2 = std::string(as_str_view(encoded));
+    std::cout << "And this should look like different noise:  " << quopri(s2) << "\n";
     assert(s1 != s2);
     std::cout << "OK - two encodes with derived_nonce=false are different\n";
 
     // Check that both of them decode back to "hello"
-    auto d1 = content_codec::decode(content_codec::CE_FS123_SECRETBOX, s1, sm);
-    auto d2 = content_codec::decode(content_codec::CE_FS123_SECRETBOX, s2, sm);
-    assert(d1 == hello);
-    assert(d2 == hello);
+    auto c1 = s1;
+    auto c2 = s2;
+    auto d1 = content_codec::decode(content_codec::CE_FS123_SECRETBOX, as_uchar_span(c1), sm);
+    auto d2 = content_codec::decode(content_codec::CE_FS123_SECRETBOX, as_uchar_span(c2), sm);
+    assert(as_str_view(d1) == hello);
+    assert(as_str_view(d2) == hello);
     std::cout << "OK - roundtrip with derived_nonce=false\n";
     
     // Try it again with derived_nonce=false:
-    ws1.replace_content(hello);
-    encoded = content_codec::encode(content_codec::CE_FS123_SECRETBOX, esid, esecret, ws1.content(), ws1.arena(), 4, true);
-    auto s3 = std::string(encoded);
+    replace_content(ws1, 48, hello);
+    encoded = content_codec::encode(content_codec::CE_FS123_SECRETBOX, esid, esecret, ws1, 4, true);
+    auto s3 = std::string(as_str_view(encoded));
     assert(s3 != s2);
     std::cout << "OK - encodes with derived_nonce=true and false are different\n";
 
-    ws1.replace_content(hello);
-    encoded = content_codec::encode(content_codec::CE_FS123_SECRETBOX, esid, esecret, ws1.content(), ws1.arena(), 4, true);
-    auto s4 = std::string(encoded);
+    replace_content(ws1, 48, hello);
+    encoded = content_codec::encode(content_codec::CE_FS123_SECRETBOX, esid, esecret, ws1, 4, true);
+    auto s4 = std::string(as_str_view(encoded));
     assert(s4 == s3);
     std::cout << "OK - two encodes with derived nonce are the same\n";
 
-    auto d4 = content_codec::decode(content_codec::CE_FS123_SECRETBOX, s4, sm);
-    assert(d4 == hello);
+    // Don't unshared_copy() it this time.  Just work directly on encoded.
+    auto d4 = content_codec::decode(content_codec::CE_FS123_SECRETBOX, encoded, sm);
+    assert(as_str_view(d4) == hello);
     std::cout << "OK - roundtrip with derived_nonce=true\n";
     
     // Now let's try to break things...
@@ -152,7 +150,7 @@ int main(int /*argc*/, char **/*argv*/) try {
     // the constructor doesn't care that the file doesn't exist.  but
     // encode and decode do:
     expect_throw("secretfile does not exist (encode)", [&](){
-            ws1.replace_content(hello);
+            replace_content(ws1, 48, hello);
             smx.get_sharedkey(esid);
         });
 
@@ -160,9 +158,10 @@ int main(int /*argc*/, char **/*argv*/) try {
             {"1", "12345678 12345678 12345678 12345678 12345678 12345678 12345678 12345678 12345678 12345678 12345678 12345678\n"}});
     expect_throw("encode_sid not in sharedkeydir", [&](){
             sharedkeydir smy(sffd, "encode", 1);
-            blob b(48, "hello", 1);
+            upspan b(48, hello.size(), 1);
+            replace_content(b, 48, hello);
             auto s = smy.get_sharedkey("2");
-            content_codec::encode(content_codec::CE_FS123_SECRETBOX, "2", s, b.content(), b.arena(), 1);
+            content_codec::encode(content_codec::CE_FS123_SECRETBOX, "2", s, b, 1);
         });
 
     replace_sf("1\n",

@@ -34,5 +34,7 @@ struct fs123_ioctl_data{
 #define DC_MAXMBYTES_IOC _IOW(0, 122, fs123_ioctl_data)
 #define DC_MAXFILES_IOC _IOW(0, 123, fs123_ioctl_data)
 #define NAMECACHE_IOC _IOW(0, 124, fs123_ioctl_data)
+#define ADD_PEER_IOC _IOW(0, 125, fs123_ioctl_data)
+#define REMOVE_PEER_IOC _IOW(0, 126, fs123_ioctl_data)
 
 #endif

@@ -1,4 +1,3 @@
-#include "valgrindhacks.hpp"
 #include "fuseful.hpp"
 #include "fs123/acfd.hpp"
 #include <core123/complaints.hpp>
@@ -284,6 +283,15 @@ void handle_all_signals(){
         switch(sig){
         case SIGKILL: // We're powerless to change it.  Don't try.
         case SIGSTOP: //    ditto
+#ifdef SIGTSTP
+        case SIGTSTP: //    ditto
+#endif
+#ifdef SIGTTIN
+        case SIGTTIN: //    ditto
+#endif
+#ifdef SIGTTIN
+        case SIGTTOU: //    ditto
+#endif
         case SIGALRM: // We *hope* nobody's using it, but don't count on it.
         case SIGCHLD: // Let's not interfere with this one either...
         case SIGPIPE: // fuse_set_signal_handlers set this to a no-op. Leave it alone.
@@ -291,7 +299,10 @@ void handle_all_signals(){
         case SIGWINCH:// Normally Ignored.  Do not change.
 #endif      
 #ifdef SIGURG
-        case SIGURG:  // Normally Ignored.  Do not change.
+        case SIGURG:  //     ditto
+#endif
+#ifdef SIGCONT
+        case SIGCONT: // Normally continues a stopped process. Do not change.
 #endif
             break;
         default:
@@ -521,6 +532,7 @@ int fuseful_main_ll(fuse_args *args, const fuse_lowlevel_ops& llops,
         else
             err = fuse_session_loop(g_session);
 
+        complain(LOG_NOTICE, "fuse_session_loop returned %d.  Calling fuseful_teardown", err);
         fuseful_teardown();
 	return err ? 1 : 0;
  }catch(std::exception& e){

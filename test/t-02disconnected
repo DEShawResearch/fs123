@@ -3,12 +3,17 @@
 # See README for assumptions made by all the t-* tests
 # in this directory.
 
+reconnect(){
+    fs123p7 ctl $MTPT Disconnected 0 || true
+}
+
 die(){
+    reconnect
     1>&2 echo "$@"
     exit 1
 }
 
-trap 'echo 1>&2 $0: Exiting on ERR trap, line: $LINENO; exit 1' ERR
+trap 'echo 1>&2 $0: Exiting on ERR trap, line: $LINENO; reconnect; exit 1' ERR
 
 set -x
 
@@ -46,7 +51,7 @@ printf "%s" "$newvalue" > $EXPORT_ROOT/$f
 fs123p7 flushfile $MTPT/$f
 [ "$(cat $MTPT/$f)" = "$value" ] || die "mismatch in $me after disconnect and flush for $MTPT/$f vs $EXPORT_ROOT/$f"
 
-fs123p7 ctl $MTPT Disconnected 0
+reconnect
 sleep 10	# longer than server max_age_short
 
 fs123p7 flushfile $MTPT/$f

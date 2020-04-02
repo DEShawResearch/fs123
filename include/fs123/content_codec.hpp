@@ -1,7 +1,7 @@
 #pragma once
 #include "sodium_allocator.hpp"
 #include "secret_manager.hpp"
-#include <core123/str_view.hpp>
+#include <core123/uchar_span.hpp>
 #include <vector>
 #include <string>
 #include <memory>
@@ -20,7 +20,7 @@
 // The header is provided for informational purposes.  Users of the
 // API generally do not see headers.
 struct fs123_secretbox_header{
-    uint8_t nonce[crypto_secretbox_NONCEBYTES];
+    unsigned char nonce[crypto_secretbox_NONCEBYTES];
     uint32_t recordsz_nbo;  // network byte order!
     uint8_t idlen;
     char keyid[255];
@@ -30,8 +30,10 @@ struct fs123_secretbox_header{
     // keyid and the recordsz
     fs123_secretbox_header(const std::string& k, uint32_t recordsz){
         idlen = k.size();
+        if(idlen == 0)
+            throw std::runtime_error("fs123_secretbox_header::ctor: zero-length id");
         if(size_t(idlen) != k.size())
-            throw std::runtime_error("fs123_secretbox_header::setkeyid: key too long");
+            throw std::runtime_error("fs123_secretbox_header::ctor: key too long");
         ::memcpy(keyid, k.data(), k.size());
         recordsz_nbo = htonl(recordsz);
         // !!! The nonce is uninitialized !!! 
@@ -39,8 +41,13 @@ struct fs123_secretbox_header{
 
     // The other meant for decryptors, when we have a serialized
     // header in "wire format".
-    fs123_secretbox_header(core123::str_view onwire){
-        idlen = onwire.at(offsetof(fs123_secretbox_header, idlen));
+    fs123_secretbox_header(tcb::span<unsigned char> onwire){
+        auto off = offsetof(fs123_secretbox_header, idlen);
+        if(onwire.size() < off)
+            throw std::runtime_error("fs123_secretbox_header::ctor - size < offsetof(idlen)");
+        idlen = onwire[off];
+        if(idlen == 0)
+            throw std::runtime_error("fs123_secretbox_header::ctor: zero-length id");
         size_t len = wiresize();
         if( onwire.size() < len)
             throw std::runtime_error("fs123_secretbox_header::ctor - not enough input bytes");
@@ -67,43 +74,46 @@ struct content_codec{
         CE_FS123_SECRETBOX,
         CE_UNKNOWN};
 
-    static std::string decode(int16_t ce, const std::string& encoded, secret_manager& sm);
+    // decode takes a bytespan produced by encode and modifies it
+    // in-place, returning a bytespan that contains only the original
+    // plaintext.  The returned bytespan is guaranteed to be a subspan
+    // of the encoded input.
+    //
+    // If an error occurs (e.g., the header doesn't look right, the
+    // sizes are wrong, the key can't be found, the encoded data can't
+    // be authenticated, etc.), a std::exception is thrown.  If an
+    // exception is thrown, the data in the 'encoded' span is not
+    // modified.
+    static core123::padded_uchar_span
+    decode(int16_t ce, core123::padded_uchar_span encoded, secret_manager& sm);
 
     // encode: It's tricky because we want to be able to work
-    // "in-place" to avoid gratuitous copies (premature
-    // optimization??).  So the arguments are the 'input' string_view
-    // pointing to the plaintext, and a 'workspace' string_view, which
-    // must contain the input, and enough extra space at the front and
-    // back for headers, padding, etc.  WARNING: encode treats the
-    // workspace as writeable, regardless of the declared const-ness
-    // of the value returned by workspace.data().
+    // "in-place" to avoid gratuitous copies, but we also need extra
+    // space in front of the plaintext (the fs123_secretbox_header,
+    // and for the MAC) and space after the plaintext (for the
+    // padding).  So the plaintext input argument is a 'padded_uchar_span',
+    // which "IS A" span of bytes inside a larger "bounding box".  It
+    // is an error if there is not sufficient space in front and
+    // behind the plaintext.
+    // 
+    // encode returns a padded_uchar_span that uses more of the underlying
+    // "bounding box" than the input.
     //
-    // encode returns a pair containing a string_view pointing to the
-    // encoded data, and a boolean saying whether it actually
-    // performed the requested encoding.  Failure to perform the
-    // encoding is *not* an error; e.g., if the current value of
-    // encode_sid is 0.  If return.second is false, then return.first
-    // is the same as the original input and the entire workspace
-    // (which includes the entire input) is unmodified.  If
-    // return.second is true, then return.first points somewhere in
-    // the workspace, and encode *may* have modified *any* byte in the
-    // workspace.
-
-    // With derived_nonce=false, the nonce is obtained by calling
-    // libsodium's randombytes_buf.  Otherwise, the nonce is obtained
-    // by hashing (libsodium's generichash) the plaintext input.  The
-    // hash is keyed using bytes *starting* at
+    // Encoding requires a nonce.  With derived_nonce=false, the nonce
+    // is obtained by calling libsodium's randombytes_buf.  Otherwise,
+    // the nonce is obtained by hashing (libsodium's generichash) the
+    // plaintext input.  The hash is keyed using bytes *starting* at
     // crypto_secretbox_KEYBYTES of the encode_sid.  I.e., the hash
-    // key does not overlap with the key used for encrypting.
+    // key does not overlap with the key used for encrypting.  It is
+    // an error if there are not enough bytes in the key.
     //
     // If an error is encountered, (e.g., keying problems, not enough
     // workspace, an unknown ce, etc.) encode throws a std::exception.
-    // If an exception is thrown, the input will be unchanged, but
-    // other bytes in the workspace may have been modified.
-    static core123::str_view
+    // If an exception is thrown, the input span will be unchanged,
+    // but other bytes in the blob may have been modified.
+    static core123::padded_uchar_span
     encode(int16_t ce, const std::string& sid, secret_sp secret,
-           core123::str_view input,
-           core123::str_view workspace,
+           core123::padded_uchar_span input,
            size_t pad_alignment, bool derived_nonce=false);
 
     static int16_t encoding_stoi(const std::string&);

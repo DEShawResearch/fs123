@@ -1,4 +1,4 @@
-#include "cc_rules.hpp"
+#include "exportd_cc_rules.hpp"
 #include <core123/json.hpp>
 #include <core123/fdstream.hpp>
 #include <core123/unused.hpp>
@@ -84,8 +84,10 @@ cc_rule_cache::exruleset_sp
 cc_rule_cache::get_cc_rules_recursive(const std::string& path) /*private*/{
     DIAGkey(_cc_rules, "get_cc_rules_recursive(" << path << ")\n");
     exruleset_sp tentative = excache.lookup(path);
-    if(tentative && !tentative.expired())
+    if(tentative && !tentative.expired()){
+        DIAGkey(_cc_rules, str(__func__, "return: ", tentative->cc, "expiring in:", tentative.ttl()));
         return tentative;
+    }
     auto fpath = path.empty() ? ".fs123_cc_rules" : path + "/.fs123_cc_rules";
     exruleset_sp ret;
     try{
@@ -116,9 +118,7 @@ cc_rule_cache::get_cc_rules_recursive(const std::string& path) /*private*/{
         excache.insert(path, ret);
         return ret;
     }
-    if(path.empty())
-        return fallback_cc;
-    ret = get_cc_rules_recursive(pathsplit(path).first);
+    ret = path.empty()? fallback_cc : get_cc_rules_recursive(pathsplit(path).first);
     excache.insert(path, ret);
     return ret;
 }
@@ -134,6 +134,7 @@ cc_rule_cache::cc_rule_cache(const std::string& export_root, size_t cache_entrie
 
 std::string
 cc_rule_cache::get_cc(const std::string& path_info, bool directory)try{
+    DIAGkey(_cc_rules, strfunargs(__func__, path_info, directory));
     atomic_scoped_nanotimer _t(&stats.cc_rules_get_cc_sec);
     std::string pi = directory? path_info : pathsplit(path_info).first;
     ruleset_sp rules = get_cc_rules_recursive(pi);

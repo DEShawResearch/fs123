@@ -34,6 +34,9 @@ LINK.o = $(CXX) $(LDFLAGS) $(TARGET_ARCH)
 pylibs:=threeroe.py py_threeroe.so
 
 unit_tests:=\
+	ut_streamutils \
+	ut_uuid \
+	ut_uchar_span \
 	ut_chacha \
 	ut_counter_based_engine \
 	ut_timeit \
@@ -153,6 +156,8 @@ ut_stats : ut_stats2.o
 #ut_stacktrace : LDLIBS += -lbfd -ldl
 ut_stacktrace.o : CPPFLAGS += -DBACKWARD_HAS_DW=1
 ut_stacktrace : LDLIBS += -ldw
+
+ut_streamutils : LDFLAGS += -pthread
 
 .PHONY: runtests
 runtests: $(exe) $(shunit_tests)

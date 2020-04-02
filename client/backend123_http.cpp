@@ -4,7 +4,6 @@
 #include "fs123/content_codec.hpp"
 #include "fs123/acfd.hpp"
 #include <core123/complaints.hpp>
-#include <core123/countedobj.hpp>
 #include <core123/scoped_nanotimer.hpp>
 #include <core123/expiring.hpp>
 #include <core123/sew.hpp>
@@ -15,7 +14,6 @@
 #include <core123/strutils.hpp>
 #include <core123/svto.hpp>
 #include <core123/envto.hpp>
-#include <core123/stats.hpp>
 #include <curl/curl.h>
 #include <cctype>
 #include <deque>
@@ -35,11 +33,36 @@ static auto _http = diag_name("http");
 static auto _namecache = diag_name("namecache");
 
 namespace{
-#define STATS_STRUCT_TYPENAME backend123_http_statistics_t
-#define STATS_INCLUDE_FILENAME "backend123_http_statistic_names"
+
+#define LIBCURL_STATISTICS \
+    STATISTIC(curl_inits) \
+    STATISTIC(curl_cleanups) \
+    STATISTIC(curl_reuses) \
+    STATISTIC_NANOTIMER(backend_curl_perform_inuse_sec)
+#define STATS_STRUCT_TYPENAME libcurl_statistics_t
+#define STATS_MACRO_NAME LIBCURL_STATISTICS
 #include <core123/stats_struct_builder>
 
-backend123_http_statistics_t stats;
+libcurl_statistics_t libcurl_stats;
+    
+// libcurl docs say we should call curl_global_init when there's only
+// one thread running and we should balance it with
+// curl_global_cleanup.  See opensslthreadlock.c for
+// thread_{setup,cleanup}.  We could also do it in main, which would
+// allow us to do it after fiddling with mallopt options, but here
+// seems safer, since it will outlive any handlers running in detached
+// threads.
+struct curl_global_raii{
+    curl_global_raii(){
+        curl_global_init(CURL_GLOBAL_ALL);
+        thread_setup();
+    }
+    ~curl_global_raii(){
+        thread_cleanup();
+        curl_global_cleanup();
+    }
+};
+static curl_global_raii curl_global;
 
 // throw a system_error in the libcurl_category().  Note that by
 // convention, if the CURLcode is 0 (CURLE_OK), the catcher is "advised"
@@ -134,7 +157,7 @@ private:
 
 // Let's build some RAII autoclosing magic for CURL*.
 struct CURLcloser{
-    void operator()(CURL *c){ ::curl_easy_cleanup(c); stats.curl_cleanups++; }
+    void operator()(CURL *c){ ::curl_easy_cleanup(c); libcurl_stats.curl_cleanups++; }
 };
  using CURL_ac = autocloser_t<::CURL, CURLcloser, fs123_autoclose_err_handler>;
 
@@ -155,10 +178,10 @@ thread_local CURL_ac tl_curl;
 CURL_ac get_curl(){
     if(tl_curl){
         curl_easy_reset(tl_curl.get());
-        stats.curl_reuses++;
+        libcurl_stats.curl_reuses++;
         return std::move(tl_curl);
     }
-    stats.curl_inits++;
+    libcurl_stats.curl_inits++;
     return CURL_ac(curl_easy_init());
 }
 
@@ -174,10 +197,10 @@ CURL_ac get_curl(){
     CURL_ac ret;
     std::lock_guard<std::mutex> lg(CURLpoolmtx);
     if( CURLpool.empty() ){
-        stats.curl_inits++;
+        libcurl_stats.curl_inits++;
         ret.reset(curl_easy_init());
     }else{
-        stats.curl_reuses++;
+        libcurl_stats.curl_reuses++;
         std::swap(ret, CURLpool.back());
         CURLpool.pop_back();
     }
@@ -197,7 +220,7 @@ void release_curl(CURL_ac c){
 // stats are a singleton, so the RefcountedScopedTimerCtl ought to be
 // a singleton too, even if by some miracle we manage to instantiate
 // multiple backend_http's.
-refcounted_scoped_nanotimer_ctrl refcountedtimerctrl(stats.backend_curl_perform_inuse_sec);
+refcounted_scoped_nanotimer_ctrl refcountedtimerctrl(libcurl_stats.backend_curl_perform_inuse_sec);
 
 } // namespace <anonymous>
  
@@ -239,16 +262,17 @@ url_info::url_info(const std::string& url)
     do_not_lookup = std::regex_match(hostname, dotted_quadre);
 }
 
-struct backend123_http::curl_handler : private countedobj<backend123_http::curl_handler, decltype(stats.backend_active_handlers)>{
+struct backend123_http::curl_handler{
     // Callbacks *CAN NOT* be non-static class members.  So we provide
     // static class members and arrange that 'this' is passed through
     // the userdata argument.
     static size_t header_callback(char *buffer, size_t size, size_t nitems, void *userdata){
         curl_handler* ch = (curl_handler *)userdata;
-        atomic_scoped_nanotimer _t(&stats.backend_header_callback_sec);
+        ch->bep->stats.backend_header_callbacks++;
+        atomic_scoped_nanotimer _t(&ch->bep->stats.backend_header_callback_sec);
         try{
             ch->recv_hdr(buffer, size, nitems);
-            stats.backend_header_bytes_rcvd += size * nitems;
+            ch->bep->stats.backend_header_bytes_rcvd += size * nitems;
             return size*nitems;
         }catch(...){
             // We don't want exceptions thrown "over" the libcurl C 'perform' function.
@@ -258,11 +282,12 @@ struct backend123_http::curl_handler : private countedobj<backend123_http::curl_
     }
 
     static size_t write_callback(char *buffer, size_t size, size_t nitems, void *userdata){
-        atomic_scoped_nanotimer _t(&stats.backend_write_callback_sec);
         curl_handler* ch = (curl_handler *)userdata;
+        atomic_scoped_nanotimer _t(&ch->bep->stats.backend_write_callback_sec);
+        ch->bep->stats.backend_write_callbacks++;
         try{
             ch->recv_data(buffer, size, nitems);
-            stats.backend_body_bytes_rcvd += size * nitems;
+            ch->bep->stats.backend_body_bytes_rcvd += size * nitems;
             return size * nitems;
         }catch(...){
             // We don't want exceptions thrown "over" the libcurl C 'perform' function.
@@ -428,12 +453,15 @@ struct backend123_http::curl_handler : private countedobj<backend123_http::curl_
     // modified (a requirement of the backend123 api that should be
     // reconsidered)
     bool perform_once(CURL* curl, reply123* replyp){
-        stats.curl_performs++;
-        atomic_scoped_nanotimer _t(&stats.backend_curl_perform_sec);
-        refcounted_scoped_nanotimer _rt(refcountedtimerctrl);
-        wrap_curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_errbuf);
-        curl_errbuf[0] = '\0';
-        auto ret = curl_easy_perform(curl);
+        bep->stats.curl_performs++;
+        CURLcode ret;
+        {
+            atomic_scoped_nanotimer _t(&bep->stats.backend_curl_perform_sec);
+            refcounted_scoped_nanotimer _rt(refcountedtimerctrl);
+            wrap_curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_errbuf);
+            curl_errbuf[0] = '\0';
+            ret = curl_easy_perform(curl);
+        }
         // Retrying is a VERY slippery slope.  There is already retry
         // logic in libcurl (when there are multiple A records).
         // There is also the 'fallback' logic in perform, which calls
@@ -478,7 +506,7 @@ struct backend123_http::curl_handler : private countedobj<backend123_http::curl_
             // re-establish the connection, and then the
             // sendto/recvfrom.  But this time (assuming nothing else
             // is wrong), the recvfrom works and everything is fine.
-            stats.backend_got_nothing++;
+            bep->stats.backend_got_nothing++;
             complain(LOG_NOTICE, "CURLE_GOT_NOTHING.  Keep-alive connection closed by upstream?");
             // curl says it got nothing.  But let's check:
             if(content.empty() && hdrmap.empty())
@@ -508,11 +536,10 @@ struct backend123_http::curl_handler : private countedobj<backend123_http::curl_
     }
 
     bool getreply(reply123* replyp) {
-	DIAGkey(_http, "got status " << http_code << "\n");
 	if (_http >= 2) {
 	    for (const auto h : hdrmap)
 		DIAG(true, "header \"" << h.first << "\" : \"" << h.second << "\"" << (endswith(h.second, "\n")? ""  : "\n"));
-            DIAG(true, "content (size=" << content.size() << ") \"\"\"" << quopri({content.data(), content.size()}) << "\"\"\"\n");
+            DIAG(true, "content (size=" << content.size() << ") \"\"\"" << quopri({content.data(), std::min(size_t(512), content.size())}) << "\"\"\"\n");
 	}
         auto age = get_age();
         auto max_age = get_max_age();
@@ -534,14 +561,8 @@ struct backend123_http::curl_handler : private countedobj<backend123_http::curl_
             replyp->last_refresh = clk123_t::now() - std::chrono::seconds(age);
             replyp->expires = replyp->last_refresh + std::chrono::seconds(max_age);
             replyp->stale_while_revalidate = std::chrono::seconds(swr);
-            stats.backend_304++;
-            stats.backend_304_bytes_saved += replyp->content.size();
-            DIAGkey(_http, "getreply 304 setting age: " <<  age
-                    << ", max_age=" << max_age
-                    << ", last_refresh=" << tp2dbl(replyp->last_refresh)
-                    << ", expires=" << tp2dbl(replyp->expires)
-                    << ", swr=" <<  str(replyp->stale_while_revalidate)
-                    << "\n");
+            bep->stats.backend_304++;
+            bep->stats.backend_304_bytes_saved += replyp->content.size();
             return false; 
         }
         if( http_code != 200 ) {
@@ -555,7 +576,6 @@ struct backend123_http::curl_handler : private countedobj<backend123_http::curl_
         if(ii == hdrmap.end())
             throw se(EINVAL, "No key matching " HHERRNO " in header, need errno");
         auto eno = svto<int>(ii->second);
-        DIAGkey(_http, "errno " HHERRNO ": " << eno << "\n");
         auto et64 = get_etag64();
         std::string content_encoding;
         ii = hdrmap.find("content-encoding");
@@ -564,10 +584,8 @@ struct backend123_http::curl_handler : private countedobj<backend123_http::curl_
         else
             content_encoding = "";
         auto ce = content_codec::encoding_stoi(content_encoding);
-        DIAGkey(_http,  "content_encoding: " << content_encoding << "\n");
         ii = hdrmap.find(HHCOOKIE);
         uint64_t estale_cookie = (ii == hdrmap.end()) ? 0 : svto<uint64_t>(ii->second);
-        DIAGkey(_http, "estale_cookie: " << estale_cookie << "\n");
         *replyp = reply123(eno, estale_cookie, std::move(content), ce, age, max_age, et64, swr);
         // CAUTION:  content is no longer usable!!!
         if(eno!=0)
@@ -583,7 +601,6 @@ struct backend123_http::curl_handler : private countedobj<backend123_http::curl_
             
         ii = hdrmap.find(HHNO);
         if(ii != hdrmap.end()){
-            DIAGkey(_http, HHNO ": " + ii->second);
             // ii->second is one of:
             // 1-  whitespace* NUMBER whitespace*  
             // 2-  whitespace* NUMBER whitespace* "EOF" whitespace*
@@ -592,8 +609,6 @@ struct backend123_http::curl_handler : private countedobj<backend123_http::curl_
             // replyp->last_chunk depends on which case.
             size_t pos = svscan<int64_t>(ii->second, &replyp->chunk_next_offset, 0);
             const char *p = ii->second.data() + pos;
-            DIAGfkey(_http, HHNO ": chunk_next_offset=%jd, ii->second=%s, pos=%zd\n",
-                     (intmax_t)replyp->chunk_next_offset, ii->second.c_str(), pos);
             while( ::isspace(*p) )
                 ++p;
             if( *p == '\0')
@@ -603,7 +618,6 @@ struct backend123_http::curl_handler : private countedobj<backend123_http::curl_
             else
                 throw se(EPROTO, "Unrecognized words in " HHNO " header:" + ii->second);
         }else{
-            DIAGfkey(_http, "No " HHNO "\n");
             replyp->chunk_next_meta = reply123::CNO_MISSING;
         }
         return true;
@@ -618,7 +632,6 @@ struct backend123_http::curl_handler : private countedobj<backend123_http::curl_
         // What else can we report that might help to diagnose curl
         // errors?  Are we under heavy load??  The number of active
         // handlers is an indicator:
-        oss << "active handlers: " << stats.backend_active_handlers<< "\n";
         oss << std::fixed; // default precision of 6 gives microseconds.
         // How long did libcurl spend on the sub-tasks associated with
         // this request??
@@ -672,7 +685,6 @@ protected:
         else{
             age = svto<unsigned long>(ii->second);
         }
-	DIAGkey(_http, "get_age returning " << age << "\n");
         return age;
     }catch(std::exception& e){
         std::throw_with_nested(std::runtime_error(__func__));
@@ -703,7 +715,6 @@ protected:
         auto ii = hdrmap.find("cache-control");
         if(ii == hdrmap.end())
             return 0; //throw se(EPROTO, "No Cache-control header.  Something is wrong");
-        DIAGfkey(_http,  "get_max_age:  cache-control: %s\n", ii->second.c_str());
         std::string s = get_key_from_string(ii->second, "max-age=");
         // Should we be more strict here?  There are good reasons for no max-age,
         // e.g., there's a no-cache directive instead.  Just return 0.
@@ -711,7 +722,6 @@ protected:
             return 0;
         // OTOH, if there is a max-age, throw if we can't parse it as a long.
 	auto ret = svto<long>(s);
-	DIAGkey(_http, "get_max_age ret=" << ret << " from \"" << s << "\"\n");
         return ret;
     }catch(std::exception& e){
         std::throw_with_nested(std::runtime_error(__func__));
@@ -728,7 +738,6 @@ protected:
         if(s.empty())
             return 0;
 	auto ret = svto<long>(s);
-	DIAGkey(_http, "get_swr ret=" << ret << " from \"" << rstrip(s) << "\"\n");
         return ret;
     }catch(std::exception& e){
         std::throw_with_nested(std::runtime_error(__func__));
@@ -758,7 +767,7 @@ protected:
         double t;
 #define curlstat(NAME) \
         wrap_curl_easy_getinfo(curl, CURLINFO_##NAME##_TIME, &t); \
-        stats.curl_##NAME##_sec += 1.e9*t
+        bep->stats.curl_##NAME##_sec += 1.e9*t
         curlstat(NAMELOOKUP);
         curlstat(CONNECT);
         curlstat(PRETRANSFER);
@@ -768,7 +777,6 @@ protected:
     }
 
 };
-countedobjDECLARATION(backend123_http::curl_handler, stats.backend_active_handlers);
 
 std::ostream& backend123_http::report_stats(std::ostream& os){
     return os << stats
@@ -834,6 +842,8 @@ void backend123_http::setoptions(CURL *curl) const{
     // http://stackoverflow.com/questions/9191668/error-longjmp-causes-uninitialized-stack-frame
     // for possible workarounds, including this one (CURLOPT_NOSIGNAL):
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1);
+    // Tell curl to start by asking for content_reserve_size bytes.
+    curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, content_reserve_size);
     if(!netrcfile.empty()){
         // Too slow??  This reparses the netrc file for every request.
         // How much overhead is that??  open/close plus some
@@ -910,17 +920,14 @@ void backend123_http::setoptions(CURL *curl) const{
     }
 }
 
-backend123_http::backend123_http(const std::string& _baseurl,  size_t _content_reserve_size, const std::string& _accept_encoding, bool _disconnected, volatiles_t& _vols)
-    : backend123(_disconnected),
-      baseurls{}, content_reserve_size(_content_reserve_size),
+backend123_http::backend123_http(const std::string& _baseurl, const std::string& _accept_encoding, volatiles_t& _vols)
+    : backend123(),
+      baseurls{}, content_reserve_size(129 * 1024), // 129k leaves room for the 'validator' in a 128k request
       using_https(startswith(_baseurl, "https://")),
       accept_encoding(_accept_encoding),
       vols(_vols)
 {
     baseurls.emplace_back(_baseurl);
-    int flags = 0;
-    if(using_https)
-        flags |= CURL_GLOBAL_SSL;
     netrcfile = envto<std::string>("Fs123NetrcFile", "");
 #ifdef NO_NETRC
     if(!netrcfile.empty()){
@@ -950,13 +957,6 @@ backend123_http::backend123_http(const std::string& _baseurl,  size_t _content_r
     if(vols.transfer_timeout.load() ==0 ){
         complain(LOG_WARNING, "libcurl CURLOPT_TIMEOUT will be zero, which can cause libcurl to hang indefinitely.  If too many fuse callbacks hang, all fuse activity (not just this particular fs123) may become unresponsive");
     }
-    curl_global_init(flags); // would a static initializer be a better location?
-    thread_setup();
-}
-
-backend123_http::~backend123_http(){
-    thread_cleanup();
-    curl_global_cleanup();
 }
 
 bool
@@ -970,7 +970,7 @@ backend123_http::refresh(const req123& req, reply123* replyp) try{
     // if it does, it's older than than max-age, and hence must be
     // revalidated.
     stats.backend_gets++;
-    if(disconnected_){
+    if(vols.disconnected){
         stats.backend_disconnected++;
         throw se(EIO, "backend123_http::refresh:  disconnected");
     }
@@ -984,15 +984,13 @@ backend123_http::refresh(const req123& req, reply123* replyp) try{
     wrap_curl_easy_setopt(curl, CURLOPT_HEADERDATA, (void *)&ch);
     wrap_curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_handler::write_callback);
     wrap_curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&ch);
-    DIAGfkey(_http, "GET %s\n", req.urlstem.c_str());
+    DIAGfkey(_http, "backend123_http::refresh: GET %s\n", req.urlstem.c_str());
     if(replyp->valid() && !req.no_cache && replyp->etag64){
         ch.headers.push_back("If-None-Match: \"" + std::to_string(replyp->etag64) + "\"");
-        DIAGkey(_http, "INM: " <<  replyp->etag64 << "\n");
         stats.backend_INM++;
         _t.set_accumulator(&stats.backend_INM_sec);
     }
     
-    DIAGkey(_http, "accept_encoding: " << accept_encoding << "\n");
     if(!accept_encoding.empty())
         ch.headers.push_back("Accept-encoding: " + accept_encoding);
 
@@ -1023,12 +1021,15 @@ backend123_http::refresh(const req123& req, reply123* replyp) try{
         for(const auto& a : cache_control){
             oss << ((i++)?",":"") << a;
         }
-        DIAGfkey(_http, "%s\n", oss.str().c_str());
         ch.headers.push_back(oss.str());
     }
     bool ret = ch.perform_with_fallback(curl, replyp);
+    if(replyp->content.size() > content_reserve_size){
+        // reserve 10% more than the largest reply so far, up to 8M
+        content_reserve_size = std::min(size_t(1.1*replyp->content.size()), size_t(8192*1024));
+    }
     release_curl(std::move(curl));
-    DIAGfkey(_http, "elapsed: %llu\n", _t.elapsed());
+    DIAGfkey(_http, "backend123_http::refresh: reply.eno=%d reply.content.size(): %zd\n", replyp->eno, replyp->content.size());
     return ret;
  }catch(std::exception& e){
     std::throw_with_nested( std::runtime_error(fmt("backend123_http::get(\"%s\")", req.urlstem.c_str())));

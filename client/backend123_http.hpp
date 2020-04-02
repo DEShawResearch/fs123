@@ -1,10 +1,37 @@
+#pragma once
+
 #include "backend123.hpp"
 #include "volatiles.hpp"
 #include <core123/strutils.hpp>
-#include <core123/countedobj.hpp>
 #include <core123/addrinfo_cache.hpp>
+#include <core123/stats.hpp>
 #include <curl/curl.h>
 #include <memory>
+
+#define BACKEND_HTTP_STATISTICS \
+    STATISTIC(curl_performs) \
+    STATISTIC(curl_fallbacks)            \
+    STATISTIC_NANOTIMER(curl_NAMELOOKUP_sec)    \
+    STATISTIC_NANOTIMER(curl_CONNECT_sec)       \
+    STATISTIC_NANOTIMER(curl_PRETRANSFER_sec)   \
+    STATISTIC_NANOTIMER(curl_STARTTRANSFER_sec) \
+    STATISTIC_NANOTIMER(curl_TOTAL_sec)         \
+    STATISTIC(backend_header_bytes_rcvd)        \
+    STATISTIC(backend_body_bytes_rcvd)          \
+    STATISTIC(backend_gets)                     \
+    STATISTIC_NANOTIMER(backend_get_sec)    \
+    STATISTIC_NANOTIMER(backend_curl_perform_sec)       \
+    STATISTIC(backend_header_callbacks)                 \
+    STATISTIC_NANOTIMER(backend_header_callback_sec)    \
+    STATISTIC(backend_write_callbacks)                  \
+    STATISTIC_NANOTIMER(backend_write_callback_sec)     \
+    STATISTIC(backend_INM)                              \
+    STATISTIC_NANOTIMER(backend_INM_sec)                \
+    STATISTIC(backend_304)                              \
+    STATISTIC(backend_304_bytes_saved)                  \
+    STATISTIC(backend_couldnt_connect)                  \
+    STATISTIC(backend_got_nothing)                      \
+    STATISTIC(backend_disconnected)
 
 struct url_info{
     // Extracting the hostname from a url, and remembering the
@@ -25,11 +52,10 @@ struct url_info{
 };
 
 struct backend123_http : public backend123 {
-    backend123_http(const std::string& _baseurl, size_t _content_reserve_size, const std::string& _accept_encodings, bool _disconnected, volatiles_t& volatiles);
+    backend123_http(const std::string& _baseurl, const std::string& _accept_encodings, volatiles_t& volatiles);
     void add_fallback_baseurl(const std::string& s){
         baseurls.emplace_back(s);
     }
-    virtual ~backend123_http();
 
     // refresh MUST provide a "strong" exception guarantee.  I.e., if
     // it throws, it may not corrupt *reply123.
@@ -39,6 +65,10 @@ struct backend123_http : public backend123 {
     struct curl_handler;
 
     void regular_maintenance();
+
+    std::string get_url() const {
+        return baseurls.front().original;
+    }
 
 private:
     std::vector<url_info> baseurls;
@@ -50,6 +80,12 @@ private:
     std::string accept_encoding;
     volatiles_t& vols;
     core123::addrinfo_cache aicache;
+
+#define STATS_STRUCT_TYPENAME backend123_http_statistics_t
+#define STATS_MACRO_NAME BACKEND_HTTP_STATISTICS
+#include <core123/stats_struct_builder>
+#undef BACKEND_HTTP_STATISTICS
+    backend123_http_statistics_t stats;
 };
 
 // libcurl_category(): a singleton std::error_category() for libcurl

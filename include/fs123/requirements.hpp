@@ -6,6 +6,8 @@
 
 #if defined(__clang__)
 // 
+#elif defined(__ICC)
+// ???
 #elif defined(__GNUC__)
 #  if __GNUC__ < 6
 #    error "fs123 requires at least gcc-6.x and -std=c++17"

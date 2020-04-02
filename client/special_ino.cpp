@@ -1,4 +1,3 @@
-#include "valgrindhacks.hpp"
 #include "special_ino.hpp"
 #include "app_mount.hpp"
 #include "fuseful.hpp"
@@ -28,7 +27,6 @@ struct stat shared_getattr_special_ino(fuse_ino_t ino, struct fuse_file_info *fi
         sb.st_nlink = 1;
         sb.st_mode = S_IFREG | 0444;
         if(fi && fi->fh){
-            ANNOTATE_HAPPENS_AFTER(fi->fh);
             std::string* sp = reinterpret_cast<std::string*>(fi->fh);
             sb.st_size = sp->size();
         }
@@ -40,7 +38,6 @@ struct stat shared_getattr_special_ino(fuse_ino_t ino, struct fuse_file_info *fi
         sb.st_uid = sew::geteuid();
         sb.st_gid = sew::getegid();
         if(fi && fi->fh){
-            ANNOTATE_HAPPENS_AFTER(fi->fh);
             std::string* sp = reinterpret_cast<std::string*>(fi->fh);
             sb.st_size = sp->size();
         }
@@ -92,8 +89,10 @@ void open_special_ino(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
     struct timeval now;
     gettimeofday(&now, nullptr);
     char nowtm_buf[128];
-    struct tm* nowtm = gmtime(&now.tv_sec);
-    strftime(nowtm_buf, sizeof(nowtm_buf), "utc: %Y-%m-%dT%H:%M:%SZ\n", nowtm);
+    struct tm nowtm;
+    if(nullptr == ::gmtime_r(&now.tv_sec, &nowtm) ||
+       0 == ::strftime(nowtm_buf, sizeof(nowtm_buf), "utc: %Y-%m-%dT%H:%M:%SZ\n", &nowtm))
+        nowtm_buf[0] = '\0';
     std::ostringstream oss;
     oss << std::boolalpha;
     oss << nowtm_buf << fmt("epoch: %lu.%06lu\n", now.tv_sec, (long)now.tv_usec);
@@ -104,7 +103,6 @@ void open_special_ino(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
         report_stats(oss);
         DIAGkey(_special, "open_special_ino: " << oss.str() << "\n");
         fi->fh = reinterpret_cast<decltype(fi->fh)>(new std::string(oss.str()));
-        ANNOTATE_HAPPENS_BEFORE(fi->fh);
         fi->keep_cache = 0;
         return reply_open(req, fi);
     case SPECIAL_INO_CONFIG:
@@ -138,7 +136,6 @@ void read_special_ino(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, st
         if(!(fi && fi->fh))
             throw se(EIO, "read_special_ino:  expected non-NUL fi && fi->fh");
         // recover the contents from fi and send it out.
-        ANNOTATE_HAPPENS_AFTER(fi->fh);
         const std::string* sp = reinterpret_cast<const std::string*>(fi->fh);
         DIAGfkey(_special, "read_special_ino(ino=%lu, size=%zd, off_t=%jd, sp=%p\n",
                  ino, size, (intmax_t)off, sp);
@@ -157,7 +154,6 @@ void read_special_ino(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, st
 }
 
 void release_special_ino(fuse_req_t req, fuse_ino_t /*ino*/, struct fuse_file_info* fi){
-    ANNOTATE_HAPPENS_AFTER(fi->fh);
     if(fi->fh)
         delete reinterpret_cast<std::string*>(fi->fh);
     return reply_err(req, 0);

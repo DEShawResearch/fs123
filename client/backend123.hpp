@@ -90,6 +90,18 @@ struct reply123{
         fill_content_threeroe();
     }
         
+    // We need to copy the reply123 in certain special circumstances,
+    // but we don't want to "accidentally" do so.  So we delete the
+    // copy-assignment operator and we make the copy-constructor
+    // private.  But there's a public const copy() method that "can't"
+    // be used accidentally.
+    reply123& operator=(const reply123&) = delete;
+    reply123 copy() const{
+        return *this; // uses private copy-constructor
+    }
+    reply123(reply123&&) = default;
+    reply123& operator=(reply123&&) = default;
+
     auto max_age() const{
         return expires - last_refresh;
     }
@@ -105,6 +117,7 @@ struct reply123{
     bool valid() const { return eno>=0;}
     bool fresh() const { return valid() && clk123_t::now() < expires; }
 private:
+    reply123(const reply123&) = default; // see copy() above
     void fill_content_threeroe(){
         auto hd = core123::threeroe(content).hexdigest();
         ::memcpy(content_threeroe, hd.data(), 32);
@@ -139,12 +152,12 @@ struct req123{
     static std::atomic<int> default_stale_if_error;
     static std::atomic<int> default_past_stale_while_revalidate;
     std::string urlstem;
-    int stale_if_error;
-    int past_stale_while_revalidate;
+    int stale_if_error = default_stale_if_error.load();
+    int past_stale_while_revalidate = default_past_stale_while_revalidate.load();
     // The remaining members: no_cache, etc., are set to
     // reasonable defaults by the ctor.  The caller can set them after
     // construction if desired.
-    bool no_cache;
+    bool no_cache = false;
     // The only values of max_stale actually used are 0 and
     // MAX_STALE_UNSPECIFIED.  Should it be a bool instead?  And does
     // max-stale=0 really do what we want?  I.e., does it override the
@@ -157,12 +170,13 @@ struct req123{
     // accept cached but not-stale resources while the latter demands
     // a refresh, even for non-stale resources.
     int max_stale;
+    // no_peer_cache breaks loops in the distributed cache backend.
+    // The fact that we need a flag in the generic 'req' strongly
+    // suggests a mis-design.
+    bool no_peer_cache = false;
     req123() = delete;
     req123(const std::string& _urlstem, int _max_stale) :
         urlstem(_urlstem),
-        stale_if_error(default_stale_if_error.load()),
-        past_stale_while_revalidate(default_past_stale_while_revalidate.load()),
-        no_cache(false),
         max_stale(_max_stale) // -1 means not-specified.  0 means no-stale content!
     {}
     static std::atomic<unsigned long> cachetag;
@@ -210,12 +224,8 @@ struct backend123{
     //     reply looks like it might be usable.  But it
     //     avoids INM/304 if no_cache is true.
     virtual bool refresh(const req123& req, reply123*) = 0;
-    virtual bool get_disconnected() const { return disconnected_; }
-    virtual bool set_disconnected(bool d) { return disconnected_.exchange(d); }
+    virtual std::string get_uuid() { throw std::runtime_error("get_uuid not overridden by derived class"); }
     virtual std::ostream& report_stats(std::ostream&) = 0;
     static std::string add_sigil_version(const std::string& urlpfx);
-    backend123(bool _disconnected = false) : disconnected_(_disconnected) {}
-protected:
-    std::atomic<bool> disconnected_{0};
 };
 

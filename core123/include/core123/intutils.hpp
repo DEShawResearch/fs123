@@ -59,6 +59,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //                  refs to the types of low and high.  N.B.  this
 //                  isn't just for integers, but this seemed like the
 //                  best place to put it.
+//
+//   hexlownibble(n) - return the lower-case hex digit corresponding to
+//                  the least-significant four bits of n.
 
 #include <cinttypes>
 #include <limits>
@@ -303,4 +306,12 @@ Tx clip(const Tlow& low, const Tx& x, const Thigh& high){
     if( x<low ) return low;
     return x;
 }
+
+template <typename IntegerType>
+unsigned char hexlownibble(IntegerType i){
+    i &= 0xf;
+    return ((i>9) ? 'a'-10 : '0') + i;
+}
+
+    
 } // namespace core123

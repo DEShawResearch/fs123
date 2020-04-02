@@ -9,35 +9,29 @@ cd `mktemp -d`
 apk update
 apk add --no-cache binutils make libgcc musl-dev gcc g++
 apk add --no-cache bash
-apk add --no-cache curl
 apk add --no-cache fuse-dev
-apk add --no-cache libsodium-dev
-apk add --no-cache curl-dev
+apk add --no-cache libsodium-dev libsodium-static
+apk add --no-cache curl curl-dev curl-static
 apk add --no-cache util-linux
-apk add --no-cache libevent-dev
+apk add --no-cache libevent-dev libevent-static
+apk add --no-cache nghttp2-static openssl-libs-static zlib-static
 apk add --no-cache attr
 apk add --no-cache e2fsprogs
 apk add --no-cache valgrind
 apk add --no-cache python3
+apk add --no-cache python2
 # Alpine's libc is libmusl, not glibc.  It doesn't have backtrace, so
 # we have to jump through a few extra hoops to get stacktrace.hpp and
 # backward.hpp to work.
-apk add --no-cache libdwarf libdwarf-dev libelf-dev
+apk add --no-cache libdwarf libdwarf-dev libdwarf-static elfutils-dev
 export LDLIBS="-ldwarf -lelf"
 export CPPFLAGS="-DBACKWARD_HAS_DWARF -I/usr/include/libdwarf -I/usr/include/libelf"
 # This is sufficient to run make -f .../GNUmakefile check
 # valgrind will report a couple of false positives.
 #
-# To build staticly, we need to compile static versions of
-# nghttp2 and libfuse.
+# To build staticly, we need to compile static versions of libfuse.
 wget https://github.com/libfuse/libfuse/releases/download/fuse-2.9.9/fuse-2.9.9.tar.gz -O- | tar xfz -
 cd fuse-2.9.9
-./configure --enable-shared=no
-make -j install
-cd ..
-
-wget https://github.com/nghttp2/nghttp2/releases/download/v1.37.0/nghttp2-1.37.0.tar.xz -O- | tar xfJ -
-cd nghttp2-1.37.0
 ./configure --enable-shared=no
 make -j install
 cd ..

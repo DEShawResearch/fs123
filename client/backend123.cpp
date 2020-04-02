@@ -36,12 +36,6 @@ backend123::add_sigil_version(const std::string& urlpfx) /*static*/ {
     if(urlpfx.find("/fs123/")!=std::string::npos || endswith(urlpfx, "/fs123"))
         throw se(EINVAL, fmt("urlpfx (%s) may not contain a path component \"/fs123\"", urlpfx.c_str()));
 
-    // special case for backward-compatibility... The 7.0 servers don't
-    // grok /7/0 any better than they grok /7/1 !!
-    // N.B.  Don't carry this over to the /8/ protocol.  If and when
-    // we move to /8/, everyone should expect /8/0
-    if(proto_minor==0)
-        return urlpfx + "/fs123/" + std::to_string(fs123_protocol_major);
     return urlpfx + "/fs123/" + std::to_string(fs123_protocol_major) + '/' + std::to_string(proto_minor);
 }
 

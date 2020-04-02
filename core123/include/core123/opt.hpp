@@ -2,6 +2,29 @@
 // format, which can directly come from argv via --name=value, or
 // environment variables {SOMEPREFIX}{NAME}=value, or from the caller.
 //
+// Quick start:
+//
+//    using namespace core123;
+//    option_parser p;
+//    int nwidgets;
+//    bool verbose;
+//    p.add_option("nwidgets" "10", "How many widgets", opt_setter(nwidgets));
+//    p.add_option("verbose", "Chattiness", opt_true_setter(verbose));
+//    p.setopts_from_env("MYPROG_");
+//    p.setopts_from_argv(argc, argv);
+//
+//
+//    # specify options on the command line
+//    $ myprog --verbose --nwidgets=50 ...
+//    # specify optoins in the environment
+//    $ env MYPROG_nwidgets=99 myprog --verbose
+//    # specify options in a config file
+//    $ echo nwidgets=22 > optfile
+//    $ myprog --flagfile optfile
+//    
+//
+// Details:
+// 
 // An option_parser is declared with:
 //
 //   option_parser p;
@@ -9,7 +32,7 @@
 //
 // Individual options are declared with:
 //
-//   p.add_option("name", "description", default_value, callback);
+//   p.add_option("name", "default_value", "description", callback);
 // for options that don't take a value, or
 //   p.add_option("name", "description", callback);
 // for options that don't take a value.
@@ -44,7 +67,7 @@
 // E.g.,
 //
 //    int nthreads;
-//    p.add_option("nthreads", "number of threads", 4, opt_setter(nthreads));
+//    p.add_option("nthreads", "4", "number of threads", opt_setter(nthreads));
 //
 // When the '--nthreads=4' option is parsed, the functor returned by
 // opt_setter(nthreads) will assign 4 to its argument, nthreads.  Note

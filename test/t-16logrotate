@@ -15,6 +15,12 @@ mv $RCroot/errorlog $RCroot/errorlog.1
 kill -s SIGUSR1 $(cat $RCroot/pidfile)
 
 cat $MTPT/.fs123_server_statistics
-cat $RCroot/accesslog
+cat $RCroot/accesslog || {
+    echo No accesslog\?  Sleep for one second and try again
+    sleep 1
+    ls $RCroot
+    cat $RCroot/accesslog
+}
+                          
 
 

@@ -77,6 +77,7 @@ make -f ../GNUmakefile check
 * intutils.hpp
 * bits.hpp
 * bloomfilter.hpp
+* uchar_span.hpp
 
 ## Early access to upcoming standards
 

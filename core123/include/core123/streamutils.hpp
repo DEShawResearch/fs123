@@ -52,6 +52,11 @@
     a stringstream) without having to allocate space for and copy 
     bytes into its 'str()' method.
 
+  nullstream : a stream you can write to whose output goes nowhere.
+    The basic nullstream is fast, but its 'badbit' is set, and it's
+    always false in a bool context.  If that doesn't work, ther
+    are four alternatives:  nullstream1-4.  See the comments below.
+
 DOCUMENTATION_END*/      
 
 #include <tuple>
@@ -60,6 +65,7 @@ DOCUMENTATION_END*/
 #include <sstream>
 #include <iterator>
 #include <type_traits>
+#include <fstream>
 #include <limits>
 #include <cstdio>
 #include <cstdarg>
@@ -358,5 +364,49 @@ auto
 insbe(const COLL& coll){
     return insbe(" ", coll);
 }
+
+// There are at least four ways to implement a 'null' stream:
+// 1 - an empty struct with a templated operator<< free function.
+// 2 - an ostream with badbit set, e.g., an uninitialized ofstream.
+// 3 - an ostream with a null rdbuf.
+// 4 - an ostream with an rdbuf that implements a no-op overflow.
+//
+// N.B.  There are some timeit loops in ut_streamutils.cpp.
+// 
+// #1 is elided by the optimizer, so it's "fast", but it's not
+// "really" a stream.  Utility seems limited.
+struct nullstream1{};
+template<typename T>
+inline nullstream1& operator<<(nullstream1& ns, T){ return ns; }
+    
+// #2 is (surprisingly) a little faster than #3.  Both are false when
+// evaluated in bool context, which may or may not be desirable.  In
+// 2020, they run at around 1e8 insertions per sec.
+struct nullstream2 : public std::ofstream{
+private: // Don't let anyone open it, thinking that it's "really" an ofstream.
+    void open(const char*, ios_base::openmode);
+};
+
+struct nullstream3 : public std::ostream{
+    nullstream3() : std::ios(0), std::ostream(0){}
+};
+
+// #4 actually invokes the formatting machinery when the insertion
+// operator is used, so it's a lot slower (about 4e7/sec in 2020).
+// But if you *want* the insertion machinery to run, or if you need a
+// stream that doesn't have 'badbit' set, then #4 is for you.
+class nullstream4 : public std::ostream{
+    struct nullbuffer : public std::streambuf {
+        char d_buffer[32];
+    protected:
+        int overflow(int c){ setp(std::begin(d_buffer), std::end(d_buffer)); return traits_type::not_eof(c); }
+        std::streamsize xsputn(const char*, std::streamsize n){ return n; }
+    } buf;
+public:
+    nullstream4() : std::ostream(&buf){}
+};
+
+// Let's make #2 our default.
+using nullstream = nullstream2;
 
 } // namespace core123

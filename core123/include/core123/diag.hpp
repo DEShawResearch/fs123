@@ -493,12 +493,13 @@ struct diag_t{
             // will report GMT.  Other operating systems (e.g., MacOS,
             // BSD) may behave differently :-(.
             ::setenv("TZ", ":/etc/localtime", 0);
-            struct tm *now_tm = ::localtime(&now_timet); // how slow  is localtime?   Do we care?
-            if(now_tm){
+            struct tm now_tm;
+            struct tm *now_tmp = ::localtime_r(&now_timet, &now_tm); // how slow  is localtime?   Do we care?
+            if(now_tmp){
                 // N.B.  this is actually faster than stringprintf (gcc6, 2017)
                 auto oldfill = os.fill('0');
                 // E.g., "19:09:51.779321 mount.fs123p7.cpp:862 [readdir] "
-                os << std::setw(2)  << now_tm->tm_hour << ':' << std::setw(2) << now_tm->tm_min << ":" << std::setw(2) << now_tm->tm_sec << "." << std::setw(6) << musec << ' ';
+                os << std::setw(2)  << now_tm.tm_hour << ':' << std::setw(2) << now_tm.tm_min << ":" << std::setw(2) << now_tm.tm_sec << "." << std::setw(6) << musec << ' ';
                 os.fill(oldfill);
             }
         }

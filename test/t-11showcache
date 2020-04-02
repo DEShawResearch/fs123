@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -x
 
 # See README for assumptions made by all the t-* tests
 # in this directory.
@@ -17,4 +17,9 @@ if test ! -d "$cache/0"; then
 	echo "$0: cache \"$cache\" does not seem to exist or is not populated" >&2
 	exit 1
 fi
-exec fs123p7 cachedump $(find "$cache" -type f -not -name 'stats*' -print| head -1)
+fname=$(find "$cache" -mindepth 2 -type f -not -name 'stats*' -print| head -1)
+if [ -f "$fname" -a ! -s "$fname" ]; then
+    echo "$0: file exists but is zero length.  Give it a few seconds..."
+    sleep 5
+fi
+exec fs123p7 cachedump $fname
