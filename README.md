@@ -55,7 +55,7 @@ To run the tests (invoked by make check) the following are needed.  The standard
 - time 
 - attr
 - curl
-- python2, python3
+- python3
 - e2fsprogs
 
 ## Compiling

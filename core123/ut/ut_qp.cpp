@@ -36,7 +36,7 @@ void dotest(const char *fname) {
     auto nb = sew::write(tf, s.data(), s.size());
     sew::fsync(tf);
     DIAGf(_ut, "wrote %zd bytes to tempfile %s\n", nb, tname);
-    std::string pycmd("python2 -c 'import sys, binascii; sys.stdout.write(binascii.a2b_qp(sys.stdin.read()))' < ");
+    std::string pycmd("python3 -c 'import sys, binascii; sys.stdout.buffer.write(binascii.a2b_qp(sys.stdin.read()))' < ");
     pycmd += tname;
     core123::ac::PIPEFILE<> p = sew::popen(pycmd.c_str(), "r");
     std::unique_ptr<char[]>cbuf2(new char[testsize]);
