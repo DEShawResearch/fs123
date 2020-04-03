@@ -326,7 +326,7 @@ public:
     // std::string, std::array.
     template<typename V>
     threeroe& update(const V& v){
-        return update((void*)v.data(), v.size()*sizeof(*v.data()));
+        return update(reinterpret_cast<const void*>(v.data()), v.size()*sizeof(*v.data()));
     }    
 
     // Output functions and types

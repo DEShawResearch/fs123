@@ -29,12 +29,19 @@
 // padded_uchar_span (not just a uchar_span), so they retain the
 // bounding box.
 
-// Converting between uchar_span and str_view is not recommended but
-// sometimes unavoidable or just really convenient.  The free
-// functions: as_uchar_span, as_str_view should be used with caution.
-// Note that as_uchar_span throws away const-ness and
-// reinterpret_casts from char* to unsigned char*, both of which are
-// potentially UB.  Try to refactor rather than using these!
+// The free function: as_str_view converts from a uchar_span to a
+// str_view.
+
+// The free function: as_uchar_span returns a uchar_span over the
+// contents of a *non*-const string reference.  Note that it avoids
+// const_cast, but it does a reinterpret_cast from char* to unsigned
+// char*, which seems safe (famous last words).
+
+// Note that as_uchar_span will not accept a str_view or a const
+// reference because doing so would implicitly throw away const-ness.
+// Doing so is a bad smell in general, and catastrophic if std::string
+// is copy-on-write, which is "still a thing" in 2020 thanks to
+// Redhat's devtoolset reliance on libstdc++ from 4.9.5.
 
 #pragma once
 #include "span.hpp"
@@ -133,14 +140,30 @@ public:
         ::memcpy(data()+size(), more.data(), more.size());
         return ret;
     }
+    padded_uchar_span prepend(str_view more){
+        auto ret = grow_front(more.size());
+        ::memcpy(ret.data(), more.data(), more.size());
+        return ret;
+    }
+    padded_uchar_span append(str_view more){
+        auto ret = grow_back(more.size());
+        ::memcpy(data()+size(), more.data(), more.size());
+        return ret;
+    }
 };
 
 inline str_view as_str_view(uchar_span sp){
-    return {(char*)sp.data(), sp.size()};
+    return {reinterpret_cast<const char*>(sp.data()), sp.size()};
 }
 
-inline uchar_span as_uchar_span(str_view sv){
-    return {(unsigned char*)sv.data(), sv.size()};
+// See comments above about why as_uchar_span doesn't accept a const
+// reference or str_view.
+inline uchar_span as_uchar_span(std::string& s){
+    // We have to use reinterpret_cast to convert from char to
+    // unsigned char.  Add a static_assert to be absolutely sure we're
+    // not discarding const-ness.
+    static_assert( !std::is_const<decltype(&s[0])>::value, "Expected &s[0] to be non-const");
+    return {reinterpret_cast<unsigned char*>(&s[0]), s.size()};
 }
 
 } // namespace core123

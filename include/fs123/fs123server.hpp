@@ -381,7 +381,7 @@ private:
     }
     void copy_to_pbuf(core123::str_view s){
         allocate_pbuf(s.size());
-        buf = buf.append(core123::as_uchar_span(s));
+        buf = buf.append(s);
     }
     // The reply methods are private.  There are friend versions that take
     // a up 'this' argument that are public.

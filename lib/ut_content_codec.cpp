@@ -55,7 +55,7 @@ void try_to_use_sfname(){
     
 void replace_content(padded_uchar_span& ss, size_t leader, const std::string& s){
     ss = ss.bounding_box().subspan(leader, 0);
-    ss = ss.append(as_uchar_span(s));
+    ss = ss.append(s);
 }
 
 struct upspan : public core123::padded_uchar_span{

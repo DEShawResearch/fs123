@@ -1028,7 +1028,7 @@ bool req::add_dirent(core123::str_view name, long offset, int type, uint64_t est
     size_t osslen = core123::ostream_size(oss);
     if(osslen >= buf.avail_back())  // >=, not > so there's room for the final newline
         return false;
-    buf = buf.append(core123::as_uchar_span(oss.str()));
+    buf = buf.append(oss.str());
     dir_lastoff = offset;
     return true;
 }
@@ -1064,7 +1064,7 @@ void req::d_reply(bool at_eof, uint64_t etag64, uint64_t esc, const std::string&
         }else{
             final_telldir = dir_lastoff;
         }
-        buf = buf.append(as_uchar_span("\n"));            // N.B.  we left room for this in dirbuf.add()
+        buf = buf.append("\n");            // N.B.  we left room for this in dirbuf.add()
         add_hdr(ohdrs, HHNO, std::to_string(final_telldir) + (at_eof?" EOF":""));
         common_reply200(cc, etag64);
  }catch(std::exception& e) { exception_reply(e); }
@@ -1081,7 +1081,7 @@ void req::f_reply(size_t nread, uint64_t content_validator, uint64_t etag64, uin
         DIAGf(_fs123server, "prepend content validator (%llu) to buf.  buf.avail_front() = %zd, buf.avail_back()=%zd",
               (unsigned long long)content_validator, buf.avail_front(), buf.avail_back());
         if(proto_minor >= 2) // always?
-            buf = buf.prepend(as_uchar_span(core123::netstring(std::to_string(content_validator))));
+            buf = buf.prepend(core123::netstring(std::to_string(content_validator)));
 
         add_hdr(ohdrs, HHCOOKIE, std::to_string(esc));
         common_reply200(cc, etag64);
