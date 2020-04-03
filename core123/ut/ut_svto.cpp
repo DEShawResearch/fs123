@@ -17,7 +17,7 @@ using core123::str_view;
 // really there because scanx (should) throw before we try
 // to do comparisons with overflowing constant expresions.
 #pragma GCC diagnostic ignored "-Woverflow"
-//#pragma GCC diagnostic ignored "-Wint-in-bool-context"
+#pragma GCC diagnostic ignored "-Wint-in-bool-context"
 
 int FAIL = 0;
 #define Assert(P) do{ if(!(P)){ std::cerr << "Assertion failed on line " << __LINE__ << ": "  #P << std::endl; FAIL++; } } while(0)

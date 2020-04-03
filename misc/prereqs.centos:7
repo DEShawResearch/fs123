@@ -5,6 +5,7 @@ yum -y install centos-release-scl
 yum -y install devtoolset-8
 yum -y install fuse fuse-devel
 yum -y install libsodium-devel
+yum -y install elfutils-devel
 yum -y install curl-devel openssl-devel
 yum -y install libevent-devel
 yum -y install time attr e2fsprogs

@@ -1,3 +1,11 @@
+#if defined(__ICC)
+#include <stdio.h>
+int main(int, char **){
+    printf(__FILE__ " Icc (through version 18) doesn't fully support gcc's 'vector' extensions.");
+    return 0;
+}
+#else
+#pragma GCC diagnostic ignored "-Wpsabi" // see comments in simd_threefry.hpp
 #include <core123/simd_threefry.hpp>
 #include <core123/streamutils.hpp>
 #include <core123/timeit.hpp>
@@ -85,3 +93,4 @@ int main(int argc, char **argv){
 
     return 0;
 }
+#endif // not __ICC

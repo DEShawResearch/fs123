@@ -39,21 +39,15 @@ script:
         --mount=type=bind,src=$(pwd -P),destination=/fs123
         --device /dev/fuse --cap-add SYS_PTRACE --cap-add SYS_ADMIN --security-opt apparmor:unconfined
         ${DOCKER_IMAGE}
-        /bin/sh -e -c "cd /fs123 && . ./misc/prereqs.${DOCKER_IMAGE} && make && make check && make install"
+        /bin/sh -e -c "cd /fs123 && . ./misc/prereqs.${DOCKER_IMAGE} && make -j4 && make -j4 check && make -j4 core123-check && make install"
 
 # There must be a better way ...
 after_failure:
-    - echo CAT S/FS123.DIAG
     - cat s/fs123.diag
-    - echo CAT S/ERRORLOG
     - cat s/errorlog.1 s/errorlog
-    - echo CAT S/EXPORTD.STAR
     - cat s/exportd.*
-    - echo CAT C/FS123.DIAG
     - cat c/fs123.diag
-    - echo CAT C/FS123.ERR
     - cat c/fs123.err
-    - echo CAT C/FS123.EXSTATUS
     - cat c/fs123.exstatus
 
 # vim: ts=4:sw=4:et:ai

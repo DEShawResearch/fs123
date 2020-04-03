@@ -17,7 +17,7 @@ using core123::str_view;
 #pragma GCC diagnostic ignored "-Woverflow"
 #pragma GCC diagnostic ignored "-Wtype-limits"
 #pragma GCC diagnostic ignored "-Wbool-compare"
-//#pragma GCC diagnostic ignored "-Wint-in-bool-context"
+#pragma GCC diagnostic ignored "-Wint-in-bool-context"
 
 int FAIL = 0;
 #define Assert(P) do{ if(!(P)){ std::cerr << "Assertion failed: "  #P << std::endl; FAIL++; } } while(0)

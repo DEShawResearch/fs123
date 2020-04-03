@@ -1,4 +1,5 @@
 #include <core123/histogram.hpp>
+#include <core123/ut.hpp>
 #include <cmath>
 #include <iostream>
 #include <numeric>
@@ -21,16 +22,20 @@ checkCorners(const histogram& h){
         double x = h.bottom(p);
         printf("Checking bounds near cut: %a\n", x);
         auto q = h.find(x);
-        assert(q == p);
+        EQUAL(q, p);
         q = h.find(nextafter(x, INFINITY));
-        assert(q == p);
+        EQUAL(q, p);
         q = h.find(nextafter(x, -INFINITY));
-        assert(q+1 == p);
+        EQUAL(q+1, p);
         x = h.top(p);
         q = h.find(x);
-        assert(q == p+1);
+        EQUAL(q, p+1);
         q = h.find(nextafter(x, -INFINITY));
-        assert(q == p);
+        printf("q=h.find(nextafter(%a, -INFINITY)=%a\n", x, nextafter(x, -INFINITY));
+        // N.B.  icpc fails this when x == 0.0.  Probably something to
+        // do with rounding and extended-precision.  We don't use icc
+        // in production, so there's little motivation to "fix" it.
+        EQUAL(q, p);
     }
 }
 
@@ -79,7 +84,7 @@ int main(int argc, char **argv){
     double moment1 = 0.;
     double moment2 = 0.;
     for(auto p=h.first_bindex() ; p<=h.last_bindex(); ++p){
-        assert(h.finiteRange(p));
+        CHECK(h.finiteRange(p));
         double midpt = 0.5*(h.top(p) + h.bottom(p));
         auto c = h.count(p);
         moment0 += c;
@@ -98,5 +103,10 @@ int main(int argc, char **argv){
     std::cout << "Checking corner cases with 'normal' round-to-nearest\n";
     checkCorners(h);
 
-    return 0;
+    auto ret = utstatus();
+#if defined(__ICC)
+    if(ret)
+        fprintf(stderr, "Note:  icc with default float options misbehaves on bin boundaries near 0.\n");
+#endif
+    return ret;
 }

@@ -75,22 +75,21 @@
 //
 //    warning: AVX512F vector return without AVX512F enabled changes the ABI [-Wpsabi]
 //
-// It's possible to silence these warnings with:
-//  #pragma GCC diagnostic push
-//  #pragma GCC diagnostic ignored "-Wpsabi"
-//  #include <core123/simd_threefry.hpp>
-//  #pragma GCC diagnostic pop
+// It's possible to silence these warnings by uncommenting the #pragmas below.
 //
 // Since this is header-only code, it tempting to think that ABI
 // issues don't matter - the caller is unavoidably compiled with the
 // same ABI as the callee because they're in the same translation
 // unit.  But I know enough to know I don't know for sure.
+// See:  https://stackoverflow.com/a/52391447/989586
 
 #pragma once
 #ifndef __GNUC__
 #error "This header relies on GNUC Vector Extensions.  It is unusable/meaningless without them"
 #endif
 
+//#pragma GCC diagnostic push
+//#pragma GCC diagnostic ignored "-Wpsabi"
 #include "threefry.hpp"
 
 using uint64_tx8 = uint64_t __attribute__ ((__vector_size__ (64))); // aka __v8du in <immintrin.h>
@@ -131,6 +130,7 @@ inline
 uint32_tx2 rotl<uint32_tx2>(uint32_tx2 x, unsigned s){
     return (x<<s) | (x>>(32u-s));
 }
+//#pragma GCC diagnostic pop
 
 // There's really a lot of repetition here... Fix it?
 template<>

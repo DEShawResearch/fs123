@@ -290,6 +290,10 @@ public:
         return is >> static_cast<common_type&>(f);
     }
 
+    // N.B.  when #include-ed in simd_threefry.hpp, gcc says this, even with warnings disabled:
+    // ../include/core123/threefry.hpp: In member function ‘core123::threefry<4, Uint, R, Constants>::_ctr_type core123::threefry<4, Uint, R, Constants>::operator()(core123::threefry<4, Uint, R, Constants>::_ctr_type) const [with Uint = __vector(8) long unsigned int; unsigned int R = 12; Constants = core123::threefry_constants<4, __vector(8) long unsigned int>]’:
+    // ../include/core123/threefry.hpp:293:15: note: the ABI for passing parameters with 64-byte alignment has changed in GCC 4.6
+    // AFAIK, this is a non-issue, but I don't know how to silence it.
     _ctr_type operator()(_ctr_type c) const { 
         Uint ks[5];
         Uint c0, c1, c2, c3;

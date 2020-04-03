@@ -46,6 +46,7 @@
 #pragma once
 #include "span.hpp"
 #include "str_view.hpp"
+#include <string>
 #include <cstddef>
 #include <memory>
 #include <cstring>

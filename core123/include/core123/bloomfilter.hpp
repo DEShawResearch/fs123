@@ -117,7 +117,7 @@ public:
     size_t numhashes() const { return nhashes_; }
     size_t numentries() const { return nentries_; }
     // probability of false positive
-    const double falseprob() const {
+    double falseprob() const {
         return bloom_estimate_falseprob(bits_.sizebits(), nhashes_, nentries_);
     }
     friend std::ostream& operator<<(std::ostream& out, const bloomfilter& b) {

@@ -2,5 +2,5 @@
 set -x
 apt-get update
 apt-get -y upgrade
-apt-get -y install build-essential fuse libfuse-dev libsodium-dev libcurl4-openssl-dev libevent-dev libssl-dev zlib1g-dev
+apt-get -y install build-essential fuse libfuse-dev libsodium-dev libcurl4-openssl-dev libevent-dev libssl-dev zlib1g-dev libdw-dev
 apt-get -y install git valgrind time attr curl strace python3

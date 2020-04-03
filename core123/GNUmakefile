@@ -6,11 +6,10 @@
 #
 #  cd /path/to/build-dir
 #  make -C /path/to/checked-out-core123
-
-# Everything in this file is fairly generic, it is invoked by various dmk-* scripts
-# after they set up the environment appropriately.
-# If you have all the needed dependencies and the right compiler as CC, CXX,
-# this may just work using make
+#
+# Everything in this file is fairly generic.  If necessary, use an
+# external script to install dependencies and/or set variables like
+# CC, CXX, CPPFLAGS, LDLIBS, etc.
 
 mkfile_path := $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST))
 top/ := $(dir $(mkfile_path))
@@ -21,13 +20,33 @@ OPT?=-O3 # if not explicitly set
 PREFIX?=/usr/local
 
 CPPFLAGS+=-I$(top/)include
-CXXFLAGS+=-Wno-deprecated-declarations
 CXXFLAGS+=$(OPT)
-CXXFLAGS+=-Wall
+# N.B.  we use the '#pragma GCC diagnostic ignore  ...' to selectively turn
+# off a few warnings.  One of them is -Wint-in-bool-context, which is
+# so new that that older compilers complain when we try to ignore it.
+# So we addd -Wno-pragmas to keep the older compiler from complaining.
+CXXFLAGS+=-Wall -Werror -Wno-pragmas
 CXXFLAGS+=-std=c++17
+CXXFLAGS+=-ggdb
+LDFLAGS+=-L.
+TARGET_ARCH+=-pthread
+
+# Note - warning options are completely non-standard.  It's a mess!
+#
+# To compile the unit tests with icc, use something like:
+# CXXFLAGS+=" -wd61"   # integer operation result is out of range (ut_svto.cpp:127, 129, 131)
+# CXXFLAGS+=" -wd10006" # -Wno-pragmas in the GNUmakefile.  Ugh.
+#
+# To compile the unit tests with clang, use something like:
+# CXXFLAGS+="-Wno-unknown-warning-option " # -Wno-pragmas in the GNUmakefile
+#
+
 ifndef NOLIBRT
 LDLIBS+=-lrt # needed to link core123 with glibc<2.17, not harmful otherwise
 endif
+
+.PHONY: all
+all: check
 
 LINK.o = $(CXX) $(LDFLAGS) $(TARGET_ARCH)
 
@@ -93,17 +112,18 @@ unit_tests:=\
 
 shunit_tests:=ut_configparser
 
-# ut_configparser is a shell script.  It needs test_configparser to run, but
-# it is not compiled, so use the | construct.
-ut_configparser : | testconfigparser
+unit_tests.out:=$(addsuffix .out, $(unit_tests) $(shunit_tests))
+ut_%.out : ut_%
+	./$< > $@.tmp && mv $@.tmp $@
 
-exe:=$(unit_tests) $(shunit_tests)
+ut_diagtime_flood.out: ut_diagtime_flood
+	DIAG_OPTS=flood ./$< > $@.tmp && mv $@.tmp $@
 
-all: $(exe)
-.PHONY: all
+ut_configparser.out: ut_configparser testconfigparser
+	TESTDATA=$(top/)/ut/testdata ./$< > $@.tmp && mv $@.tmp $@
 
 .PHONY: check
-check: runtests
+check: $(unit_tests.out)
 
 .PHONY: install
 install:
@@ -111,19 +131,11 @@ install:
 	mkdir -p $(PREFIX)/include/core123 $(PREFIX)/lib
 	cp -a $(top/)include/core123/* $(PREFIX)/include/core123
 
-# XXX should we build unit tests with static too? instead?
-
-# Unit tests are in ut
-$(exe): LDFLAGS+=-L.
-$(exe): LDFLAGS+=-pthread
-$(addsuffix .o, $(exe)): CXXFLAGS+=-ggdb
+# Special cases for specific unit tests:
 
 ut_expiring.o : CPPFLAGS += $(VALGRIND_CPPFLAGS)
 
-ut_svto.o ut_scanint.o: CPPFLAGS+=-Wno-int-in-bool-context
-
-ut_configparser: ut_configparser.sh
-	cp -av $< $@
+ut_scanint.o: CXXFLAGS+=-Wno-int-in-bool-context  # Why?  There's a pragma in the code.
 
 ut_diagtime_flood: ut_diagtime_flood.o
 ut_diagtime_flood.o: ut_diagtime.cpp
@@ -134,20 +146,23 @@ ut_diagstatic_initializers : ut_diagstatic_initializersB.o
 ut_stats.o ut_stats2.o : CPPFLAGS+=-I$(top/)ut
 ut_stats : ut_stats2.o
 
-#ut_stacktrace.o : CPPFLAGS += -DBACKWARD_HAS_BFD=1
-#ut_stacktrace : LDLIBS += -lbfd -ldl
+# We default to BACKWARD_HAS_DW.  To use something different,
+# put a -DBACKWARD_HAS_SOMETHING=1 in CPPFLAGS and whatever
+# else is needed in LDLIBS.  See ../misc/prereqs.alpine:* for
+# possibilities.
+ifeq (,$(findstring BACKWARD_HAS,$(CPPFLAGS)))
 ut_stacktrace.o : CPPFLAGS += -DBACKWARD_HAS_DW=1
 ut_stacktrace : LDLIBS += -ldw
+endif
 
 ut_streamutils : LDFLAGS += -pthread
 
-.PHONY: runtests
-runtests: $(exe) $(shunit_tests)
-	for t in $(unit_tests) $(shunit_tests); do echo Running $$t; DIAG_OPTS=flood TESTDATA=$(top/)ut/testdata ./$$t || exit 1; echo Finished $$t; done
+ut_configparser: ut_configparser.sh
+	cp -av $< $@
 
 .PHONY: clean
 clean:
-	rm -f $(exe) *.o *.d *.a *.so *.core
+	rm -f $(unit_tests) $(shunit_tests) *.o *.d *.a *.so *.core ut_*.out ut_*.out.tmp testconfigparser
 
 # the paulandlesley.com autodepends hack, lifted from makefragments,
 # but don't do a recursive descent into all subdirs (which would be

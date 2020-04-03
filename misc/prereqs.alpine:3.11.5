@@ -24,11 +24,11 @@ apk add --no-cache python3
 # backward.hpp to work.
 apk add --no-cache libdwarf libdwarf-dev libdwarf-static elfutils-dev
 export LDLIBS="-ldwarf -lelf"
-export CPPFLAGS="-DBACKWARD_HAS_DWARF -I/usr/include/libdwarf -I/usr/include/libelf"
+export CPPFLAGS="-DBACKWARD_HAS_DWARF=1 -I/usr/include/libdwarf"
 # This is sufficient to run make -f .../GNUmakefile check
 # valgrind will report a couple of false positives.
 #
-# To build staticly, we need to compile static versions of libfuse.
+# To build staticly, we need to compile a static versions of libfuse.
 wget https://github.com/libfuse/libfuse/releases/download/fuse-2.9.9/fuse-2.9.9.tar.gz -O- | tar xfz -
 cd fuse-2.9.9
 ./configure --enable-shared=no
