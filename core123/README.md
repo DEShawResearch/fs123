@@ -15,8 +15,6 @@ Most of the code is original, but a few libraries are available
 elsewhere and are included here under the original authors' terms
 (e.g., an MIT license).
 
-One header file (threeroe) also has python bindings.
-
 # Build and installation
 
 A GNUmakefile is provided to build the library.  E.g.,

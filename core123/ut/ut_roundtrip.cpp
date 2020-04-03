@@ -14,8 +14,8 @@ template <typename T>
 void roundtrip(T t){
     std::string st = str(t);
     T tst = svto<T>(st);
-    if(isnan(t)){
-        CHECK(isnan(tst));
+    if(std::isnan(t)){
+        CHECK(std::isnan(tst));
     }else{
         EQUAL(tst, t);
     }

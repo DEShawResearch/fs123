@@ -31,8 +31,6 @@ endif
 
 LINK.o = $(CXX) $(LDFLAGS) $(TARGET_ARCH)
 
-pylibs:=threeroe.py py_threeroe.so
-
 unit_tests:=\
 	ut_streamutils \
 	ut_uuid \
@@ -93,8 +91,6 @@ unit_tests:=\
 	ut_bits \
 	ut_bloom
 
-pyunit_tests:=ut_pythreeroe.py
-
 shunit_tests:=ut_configparser
 
 # ut_configparser is a shell script.  It needs test_configparser to run, but
@@ -103,31 +99,17 @@ ut_configparser : | testconfigparser
 
 exe:=$(unit_tests) $(shunit_tests)
 
-all: $(pylibs) $(exe)
+all: $(exe)
 .PHONY: all
 
 .PHONY: check
-check: runtests pyruntests
+check: runtests
 
 .PHONY: install
-install: $(pylibs)
+install:
 	[ -n "$(PREFIX)" ] || ( echo PREFIX must be set to install; false )
 	mkdir -p $(PREFIX)/include/core123 $(PREFIX)/lib
 	cp -a $(top/)include/core123/* $(PREFIX)/include/core123
-	cp -a $(pylibs) $(PREFIX)/lib
-
-# the nifty VPATH strategy interacts badly with files whose
-# names don't change when they are "built".  If threeroe.py
-# was in our VPATH, make would decide that it doesn't need to
-# build it (i.e., copy it) in the current working directory
-# because it's already up-to-date.  So we put our python
-# files in a sub-directory that's not in VPATH.
-%.py : python/%.py
-	cp -av $< $@
-
-py_threeroe.o : CXXFLAGS+=-fPIC
-py_threeroe.so : py_threeroe.o
-	$(CXX) $(LDFLAGS) $(TARGET_ARCH) -shared $^ -o $@
 
 # XXX should we build unit tests with static too? instead?
 
@@ -163,13 +145,9 @@ ut_streamutils : LDFLAGS += -pthread
 runtests: $(exe) $(shunit_tests)
 	for t in $(unit_tests) $(shunit_tests); do echo Running $$t; DIAG_OPTS=flood TESTDATA=$(top/)ut/testdata ./$$t || exit 1; echo Finished $$t; done
 
-.PHONY: pyruntests
-pyruntests: $(pylibs) $(pyunit_tests)
-	for t in $(pyunit_tests); do echo Running $$t; python ./$$t || exit 1; echo Finished $$t; done
-
 .PHONY: clean
 clean:
-	rm -f $(exe) *.o *.d *.pyc *.a *.so *.core *.py
+	rm -f $(exe) *.o *.d *.a *.so *.core
 
 # the paulandlesley.com autodepends hack, lifted from makefragments,
 # but don't do a recursive descent into all subdirs (which would be

@@ -5,6 +5,7 @@
 #include <fenv.h>
 #include <sstream>
 #include <cstdio>
+#include <cmath>
 #include <iterator>
 using core123::histogram;
 using core123::uniform_histogram;
@@ -34,7 +35,7 @@ checkCorners(const uniform_histogram& h){
         double bottom = h.bottom(p);
 
         printf("Checking bounds on bin [%a, %a)\n", h.bottom(p), h.top(p));
-        if(!isinf(top)){
+        if(!std::isinf(top)){
             auto q = h.find(top);
             if(!(p<q)){
                 printf("Failed p<h.find(%a)\n", top);
@@ -45,7 +46,7 @@ checkCorners(const uniform_histogram& h){
                 printf("Failed p == h.find(%a)\n", topminus);
             }
         }
-        if(!isinf(bottom)){
+        if(!std::isinf(bottom)){
             auto q = h.find(bottom);
             if(!(p==q)){
                 printf("Failed p == h.find(%a)\n", bottom);

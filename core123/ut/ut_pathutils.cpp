@@ -128,7 +128,7 @@ void test_makedirs(){
     try {
         core123::makedirsat(namefd, "abc//hij/xyzz/", 0777);
         CHECK(geteuid() == 0); // root doesn't get EACCES
-        sew::unlinkat(namefd, "abc//hij/xyzz/", 0);
+        sew::unlinkat(namefd, "abc//hij/xyzz/", AT_REMOVEDIR);
     } catch (std::system_error& xe) {
         EQUAL (xe.code().value(), EACCES);
     }

@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 
 #### This test is most reliable if the client is run under valgrind.
 #### See comments near drh.close(rfd1) around line 96.
@@ -33,7 +33,7 @@ wfd = os.open(wfname, os.O_RDWR|os.O_CREAT, 0O644)
 # --estale_cookie=setxattr.  Don't worry if it fails - we should
 # be running with st_ino in that case.
 os.system("fs123p7 setxattr %s"%(wfname))
-os.write(wfd, '0001'*1024)  # 4k bytes 0001 repeated 1k times...
+os.write(wfd, b'0001'*1024)  # 4k bytes 0001 repeated 1k times...
 os.close(wfd)
 
 # First read from the middle of the file

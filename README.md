@@ -37,25 +37,27 @@ prerequisites in different distros.
 The prerequisites to compile and link the client and server are:
 
 - gcc
-    8.3.1 (Fedora29), 8.2.0 (bionic), 9.2.1 (xenial), devtoolset-8-gcc-8.2.1 (CentOS7) have been tested. Any compiler with full C++17 support should work.
+    10.0.1 (Fedora32), 9.2.0 (alpine 3.11.5), 8.3.1 (Fedora29), 8.2.0 (bionic), 9.2.1 (xenial), devtoolset-8-gcc-8.2.1 (CentOS7) have been tested. Any compiler with full C++17 support should work.
 - gmake
     3.82 has been tested.
 - libfuse
-    2.9.9 (on Fedora29), 2.9.7 (on bionic), 2.9.4 (on xenial), 2.9.2 (on CentOS7) have been tested
+    2.9.9 (on Fedora29), 2.9.8 (alpine 3.11.5), 2.9.7 (on bionic), 2.9.4 (on xenial), 2.9.2 (on CentOS7) have been tested
 - libsodium
-    1.0.17 (on Fedora29, CentOS7), 1.0.16 (on bionic), 1.0.8 (on xenial)
+    1.10.18 (on Fedora32, alpine 3.11.5), 1.0.17 (on Fedora29, CentOS7), 1.0.16 (on bionic), 1.0.8 (on xenial) have been tested
 - libcurl
-    7.61 (on Fedora29), 7.58.0 (on bionic), 7.43.0 (on xenial), 7.19.0 (on CentOS7) have been tested
+    7.69 (on Fedora32), 7.67 (on alpine 3.11.5), 7.61 (on Fedora29), 7.58.0 (on bionic), 7.43.0 (on xenial), 7.19.0 (on CentOS7) have been tested
 - libevent
-    2.1.8 (on Fedora29, bionic), 2.0.21 (on xenial, CentOS7) have been tested
+    2.1.11 (on alpine 3.11.5), 2.1.8 (on Fedora32, Fedora29, bionic), 2.0.21 (on xenial, CentOS7) have been tested
     
+Although only a few combinations have been tested, it's very likely that other combinations will work.
+
 To run the tests (invoked by make check) the following are needed.  The standard distro versions should be fine:
 
 - valgrind
 - time 
 - attr
 - curl
-- python2, python3
+- python3
 - e2fsprogs
 
 ## Compiling
