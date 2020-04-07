@@ -1,4 +1,4 @@
-## This is an fs123p7exportd option file.  Each non-blank/non-comment
+## This is an fs123p7 exportd option file.  Each non-blank/non-comment
 ## line is equivalent to a command-line --option.  Blank lines and
 ## lines starting with # are ignored.  Whitespace at the beginning
 ## (but not at the end) of lines is ignored.
@@ -26,7 +26,7 @@
 #--libevent_debug=false
 #--async_reply_mechanism=false
 
-#### The remaining options are specific to fs123p7exportd:
+#### The remaining options are specific to fs123p7 exportd:
 
 #### options related to initialization
 #--export_root="."

@@ -107,7 +107,7 @@ $ env CC=gcc-6 CXX=g++-6 make -f .../GNUmakefile check
 
 To start the server, run
 ```bash
-$ fs123p7exportd --log_destination %stderr --port 4321 --chroot=  --export_root=/some/where
+$ fs123p7 exportd --log_destination %stderr --port 4321 --chroot=  --export_root=/some/where
 N[0.0]+0.000 complaint_delta_timestamp start time: 1554218181.000765 2019-04-02 15:16:21+0000
 N[1.0]+0.001 main thread started on 127.0.0.1:4321 at 0.000358426
 ```
@@ -172,7 +172,7 @@ $ cd /tmp/mnt
 $ ...
 ```
 
-If you started `fs123p7exportd` with `--bindaddr=0.0.0.0`, then you should be able
+If you started `fs123p7 exportd` with `--bindaddr=0.0.0.0`, then you should be able
 to mount the exported filesystem on another machine, e.g.,
 ```bash
 $ mkdir /tmp/mnt
@@ -184,8 +184,8 @@ $ ...
 ```
 # Documentation
 
-Documentation is a work-in-progress.  The fs123p7 and fs123p7exportd
-accept --help options, which give a complete list of options with
+Documentation is a work-in-progress.  The fs123p7 binary has a
+--help option, which give a complete list of options with
 extremely cursory descriptions.  Files in the docs/ directory describe
 certain aspects of fs123 in great detail, but there are large gaps,
 and occasional anachronisms.

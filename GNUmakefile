@@ -27,7 +27,6 @@ LINK.o = $(CXX) $(LDFLAGS) $(TARGET_ARCH)
 # First, let's define the 'all' target so a build with no arguements
 # does something sensible:
 binaries=fs123p7
-binaries+=fs123p7exportd
 binaries+=ex1server
 
 unit_tests=ut_diskcache
@@ -67,6 +66,8 @@ LDFLAGS += -pthread
 GIT_DESCRIPTION?=$(cd $(top/) shell git describe --always --dirty || echo not-git)
 CXXFLAGS += -DGIT_DESCRIPTION=\"$(GIT_DESCRIPTION)\"
 
+serverlibs=-levent -levent_pthreads -lsodium
+
 # < libfs123 >
 libfs123_cppsrcs:=content_codec.cpp secret_manager.cpp sharedkeydir.cpp fs123server.cpp
 CPPSRCS += $(libfs123_cppsrcs)
@@ -81,6 +82,7 @@ ut_content_codec : LDLIBS += -lsodium
 
 # <client fs123p7>
 fs123p7_cppsrcs:=fs123p7.cpp app_mount.cpp app_setxattr.cpp app_ctl.cpp fuseful.cpp backend123.cpp backend123_http.cpp diskcache.cpp special_ino.cpp inomap.cpp openfilemap.cpp distrib_cache_backend.cpp
+fs123p7_cppsrcs += app_exportd.cpp exportd_handler.cpp exportd_cc_rules.cpp
 CPPSRCS += $(fs123p7_cppsrcs)
 fs123p7_objs :=$(fs123p7_cppsrcs:%.cpp=%.o)
 
@@ -104,15 +106,6 @@ ut_diskcache : diskcache.o backend123.o
 backend123_http.o : CPPFLAGS += $(shell curl-config --cflags)
 #</client>
 
-serverlibs=-levent -levent_pthreads -lsodium
-# <fs123p7exportd>
-fs123p7exportd_cppsrcs := exportd_handler_main.cpp exportd_handler.cpp exportd_cc_rules.cpp
-CPPSRCS += $(fs123p7exportd_cppsrcs)
-fs123p7exportd_objs := $(fs123p7exportd_cppsrcs:%.cpp=%.o)
-fs123p7exportd: LDLIBS += $(serverlibs)
-fs123p7exportd: $(fs123p7exportd_objs)
-	$(LINK.o) $^ $(LOADLIBES) $(LDLIBS) -o $@
-# </fs123p7exportd>
 
 # <ex1server>
 ex1_cppsrcs := ex1server.cpp

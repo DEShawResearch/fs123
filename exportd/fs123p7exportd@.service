@@ -13,7 +13,7 @@ User=root
 Type=simple
 Restart=on-failure
 WorkingDirectory=/
-ExecStart=/usr/sbin/fs123p7exportd --flagfile /etc/fs123p7exportd/%i.gflags
+ExecStart=/usr/sbin/fs123p7 exportd --flagfile /etc/fs123p7exportd/%i.gflags
 LimitNOFILE=65536
 LimitCORE=16G
 

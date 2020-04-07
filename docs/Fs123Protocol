@@ -20,7 +20,7 @@ Protocol, described in this document.  Earlier protocols are no longer
 in service and will probably never be revived.  On the other hand,
 there may be an eighth or ninth protocol one day.  So the protocol
 number is incorporated into the names of executables, (mount.fs123p7,
-fs123p7exportd), the names of rpms and packages (fs123p7-client), the
+fs123p7exportd), the names of rpms and packages (fs123p7), the
 names of config directories (/etc/fs123p7exportd), etc.  This allows
 clients and servers for multiple protocols to coexist on the same
 machine.

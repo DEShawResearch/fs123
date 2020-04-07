@@ -91,7 +91,7 @@ fi
 : ${cookie_src:=st_ino}
 rm ${EXPORT_ROOT}/abc
 
-for f in $initd/fs123p7exportd ${RCroot}/sbin/fs123p7exportd; do
+for f in $initd/fs123p7exportd; do
 	if test -f $f; then
 		mv $f $f.removeme.$$
 		rm -f $f.removeme.$$ || true
@@ -99,7 +99,7 @@ for f in $initd/fs123p7exportd ${RCroot}/sbin/fs123p7exportd; do
 done
 
 clientexe=${MTroot}/sbin/mount.fs123p7
-serverexe=${RCroot}/sbin/fs123p7exportd
+serverexe=${RCroot}/sbin/fs123p7
 
 # currently copy init script, daemon and executables to rc.
 # cp -av or ln -s?  do we need a "copy" in addition to stop and start?
@@ -113,8 +113,6 @@ sed -i.bak -e "s,RCroot=[^}]*,RCroot=$RCroot," $initd/fs123p7exportd
 PATH=$OBJDIR:$PATH
 export OBJDIR PATH
 
-$CPEXE $OBJDIR/fs123p7exportd ${RCroot}/sbin/fs123p7exportd
-$CPEXE $OBJDIR/fs123p7exportd ${RCroot}/sbin/fs123p7exportd
 $CPEXE $OBJDIR/fs123p7 ${RCroot}/sbin/fs123p7
 $CPEXE $OBJDIR/fs123p7 ${MTroot}/sbin/fs123p7
 $CPEXE $OBJDIR/fs123p7 $clientexe
@@ -190,7 +188,7 @@ EOF
 
 # Only test --threadpool-max if it's supported (requires linkage with
 # libevent >= 2.1.9)
-if "$serverexe" --threadpool-max 4 --argcheck 1 ; then
+if "$serverexe" exportd --threadpool-max 4 --argcheck 1 ; then
     cat >> $etc/fs123p7exportd.gflags <<- EOF
 --threadpool-max=4
 --threadpool-idle=1
@@ -224,7 +222,7 @@ for f in fs123.diag exportd.err accesslog errorlog; do
    if [ -f \$f ]; then  mv $RCroot/\$f $RCroot/\$f.\$hms 2>/dev/null; fi
 done
 # N.B.  Try --run-libc-freeres=no if this segfaults.  See http://valgrind.org/docs/manual/faq.html#faq.exit_errors 
-server="$serverexe --flagfile $RCroot/etc/fs123p7exportd/fs123p7exportd.gflags --pidfile $RCroot/pidfile --portfile $RCroot/portfile \$FS123_TEST_SERVER_ARGS"
+server="$serverexe exportd --flagfile $RCroot/etc/fs123p7exportd/fs123p7exportd.gflags --pidfile $RCroot/pidfile --portfile $RCroot/portfile \$FS123_TEST_SERVER_ARGS"
 if [ x"\${FS123_TEST_WITH_VALGRIND}" = xyes ]; then
    server="valgrind --error-exitcode=99 --soname-synonyms=somalloc=NONE --suppressions=$MTroot/fs123.supp \$server"
 fi

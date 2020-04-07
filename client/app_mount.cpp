@@ -1845,7 +1845,7 @@ void fs123_ioctl(fuse_req_t req, fuse_ino_t ino, int cmd, void *arg, struct fuse
     // helpful because fuse (at least the version on CentOS7) won't
     // let us do ioctl's on directories.  (See FUSE_CAP_IOCTL_DIR in
     // the libfuse tree).  Also, it's not particularly useful because
-    // we can just say fs123p7exportd --estale-cookie-src=st_ino with
+    // we can just say fs123p7 exportd --estale-cookie-src=st_ino with
     // the same effect, and no system call.
 
     // Even with -odefault_permissions, users with only

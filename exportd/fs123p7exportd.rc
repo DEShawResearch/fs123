@@ -29,7 +29,7 @@ prog="fs123p7exportd"
 # non-root, somewhere other than /etc.  E.g., in the
 # test/server-side/run script
 : ${RCroot=}
-exec="$RCroot/sbin/$prog"
+exec="$RCroot/sbin/fs123p7"
 
 # N.B. - the fs123p7exportd daemon is one-process/one-export-root/one-configuration.
 # If you want to export more than one directory, then do the following:
@@ -55,7 +55,7 @@ start() {
     [ -f $flagfile ] || exit 6
     echo -n $"Starting $rcname: "
     # if not running, start it up here, usually something like "daemon $exec"
-    start_daemon -p $pidfile $exec --daemonize --pidfile=$pidfile --flagfile "$flagfile" >/dev/null 2>&1
+    start_daemon -p $pidfile $exec exportd --daemonize --pidfile=$pidfile --flagfile "$flagfile" >/dev/null 2>&1
     retval=$?
     if [ $retval -eq 0 ]; then
 	touch $lockfile

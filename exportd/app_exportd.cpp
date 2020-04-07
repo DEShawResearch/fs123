@@ -11,7 +11,7 @@ namespace{
 char PROGNAME[] = "exportd_handler";
 }
 
-int main(int argc, char *argv[]) try
+int app_exportd(int argc, char *argv[]) try
 {
     the_diag().opt_tid = true;
     // There is one option_parser.

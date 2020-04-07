@@ -605,7 +605,7 @@ void exportd_global_setup(const exportd_options& exportd_opts){
 "  but not if /path/to/executable is on NFS.\n"));
                 // P.S.  There may be a way to do this with capsh, but only
                 // if the kernel supports 'ambient' capabilities (>=4.3).
-                // sudo capsh --keep=1 --uid=$(id -u) --caps="cap_sys_chroot=pei"  -- -c "obj/fs123p7exportd --chroot=/scratch ..."
+                // sudo capsh --keep=1 --uid=$(id -u) --caps="cap_sys_chroot=pei"  -- -c "obj/fs123p7 exportd --chroot=/scratch ..."
                 // only gets us '[P]ermitted' cap_sys_chroot, but not [E]ffective.
                 // Maybe with more code we could upgrade from P to E?
             }

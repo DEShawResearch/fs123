@@ -25,7 +25,7 @@ auto _init = diag_name("init");
 
 const string fs123p7pfx = "fs123p7";
 const string mountprog = "mount." + fs123p7pfx;
-const string usage = "Usage: "+fs123p7pfx+" OP OPARGS\n       where OP is one of mount, cachedump, ctl, flushfile, secretbox or setxattr";
+const string usage = "Usage: "+fs123p7pfx+" OP OPARGS\n       where OP is one of mount, exportd, cachedump, ctl, flushfile, secretbox or setxattr";
 
 // Just enough of a capabilities "API" to allow us to acquire
 // CAP_DAC_OVERRIDE in setxattr and drop all capabilities
@@ -128,6 +128,7 @@ int app_secretbox(int argc , char **argv) {
 extern int app_mount(int argc, char **argv);
 extern int app_ctl(int argc, char **argv);
 extern int app_setxattr(int argc, char **argv);
+extern int app_exportd(int argc, char **argv);
 
 // The original, unmodified argc and argv are sometimes useful for
 // the 'apps'.  E.g., to re-exec the whole thing under a debugger
@@ -169,6 +170,8 @@ int main(int argc, char *argv[]) try {
     if(sew::geteuid() != 0){
         if(op == "setxattr")
             acquire_cap(CAP_DAC_OVERRIDE);
+        else if(op == "exportd")
+            acquire_cap(CAP_SYS_CHROOT);
         else
             drop_caps();
     }
@@ -186,6 +189,8 @@ int main(int argc, char *argv[]) try {
         return app_flushfile(argc, args);
     else if (op == "cachedump")
         return app_cachedump(argc, args);
+    else if (op == "exportd")
+        return app_exportd(argc, args);
     else {
         cerr << usage << endl;
         exit(1);
