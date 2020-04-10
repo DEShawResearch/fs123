@@ -134,10 +134,10 @@ clean:
 
 .PHONY: install
 install : $(binaries) $(libs)
-	mkdir -p $(PREFIX)/include $(PREFIX)/lib $(PREFIX)/bin
-	cp -a $(binaries) $(PREFIX)/bin
-	cp -a $(libs) $(PREFIX)/lib
-	cp -a $(top/)include/fs123 $(PREFIX)/include
+	mkdir -p $(DESTDIR)$(PREFIX)/include $(DESTDIR)$(PREFIX)/lib $(DESTDIR)$(PREFIX)/bin
+	cp -a $(binaries) $(DESTDIR)$(PREFIX)/bin
+	cp -a $(libs) $(DESTDIR)$(PREFIX)/lib
+	cp -a $(top/)include/fs123 $(DESTDIR)$(PREFIX)/include
 
 # <autodepends from http://make.mad-scientist.net/papers/advanced-auto-dependency-generation>
 # Modified to work with CSRCS and CPPSRCS instead of just SRCS...
