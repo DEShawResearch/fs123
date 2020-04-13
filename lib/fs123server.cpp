@@ -437,18 +437,12 @@ req::maybe_encode_content(){
     if(!svr.the_secret_manager)
         return {};
     auto esid = svr.the_secret_manager->get_encode_sid();
-    // The secret_manager DO_NOT_ENCRYPT takes precedence over allow_unencrypted_replies=false
-    if(esid == secret_manager::DO_NOT_ENCODE_SID)
-        return {};
-    // N.B.  ace=CE_UNKNOWN is perfectly reasonable, e.g., when
-    // a cache accepts "gzip".  Just ignore it.
     if(accept_encoding != content_codec::CE_FS123_SECRETBOX){
-        if(svr.gopts->allow_unencrypted_replies)
-            return {};
-        else
-            httpthrow(406, "Request must specify Accept-encoding: fs123-secretbox");
+        httpthrow(406, "Request must specify Accept-encoding: fs123-secretbox");
     }
     // OK - let's do this...  We're encoding with secretbox!
+    if(!blob) 
+        allocate_pbuf(0);
     auto esecret = svr.the_secret_manager->get_sharedkey(esid);
     buf = content_codec::encode(accept_encoding, esid, esecret, buf, secretbox_padding);
     DIAGf(_secretbox, "encoded has length %zd, trsum %s\n", buf.size(), threeroe(buf).hexdigest().c_str());
@@ -485,8 +479,6 @@ req::parse_and_handle(req::up req) try {
 
     struct server& svr = req->svr;
     if(svr.the_secret_manager &&
-       svr.the_secret_manager->get_encode_sid() != secret_manager::DO_NOT_ENCODE_SID &&
-       !svr.gopts->allow_unencrypted_replies &&
        req->accept_encoding != content_codec::CE_FS123_SECRETBOX)
         httpthrow(406, "Request must specify Accept-encoding: fs123-secretbox");
 
@@ -572,6 +564,9 @@ req::parse_and_handle(req::up req) try {
         }
         DIAG(_fs123server, "/e request converted to:  query: " << req->query << ", function: " << req->function << ", path_info: " << req->path_info);
     }else{
+        // not /e-ncrypted.  Are we willing to look at it?
+        if(svr.the_secret_manager && !svr.gopts->allow_unencrypted_requests)
+            httpthrow(406, "Requests must be encrypted and authenticated");
         // [?QUERY]
         const char *q = evhttp_uri_get_query(uri);
         req->query = q ? q : str_view{nullptr, 0};
@@ -700,7 +695,7 @@ req::log_and_send_destructively(int status) try {
  }
 
 void /* private */
-req::common_reply200(const std::string& cc, uint64_t etag64, const char* fs123_errno/*="0"*/){
+req::common_reply200(const std::string& cc, uint64_t etag64/*=0*/, const char* fs123_errno/*="0"*/){
     evhttp_request* evreq = evhr;
     svr.incast_collapse_workaround(evreq);
     auto ohdrs = evhttp_request_get_output_headers(evreq);
@@ -715,19 +710,6 @@ req::common_reply200(const std::string& cc, uint64_t etag64, const char* fs123_e
         add_hdr(ohdrs, "ETag", etag_mangle(etag64, esid));
     }
 
-    if(svr.gopts->allow_unencrypted_replies){
-        // As long as we allow unencrypted replies, we might
-        // return different content to different clients,
-        // according to the Accept-encoding header.  So it makes
-        // sense to add a Vary header.  Note that
-        // --allow-unencrypted-replies actually *defeats* any
-        // security provided by encryption, so it should only be
-        // used to transition from no-secretbox to with-secretbox
-        // operation.  Thus, the Vary header will only appear
-        // during such transitions.
-        add_hdr(ohdrs, "Vary", "Accept-encoding");
-    }
-    
     auto ob = evhttp_request_get_output_buffer(evreq);
     size_t content_len = 0;
     core123::threeroe tr;
@@ -980,11 +962,8 @@ req::~req(){
 }
 
 void req::errno_reply(int eno, const std::string& cc) {
-    auto ohdrs = evhttp_request_get_output_headers(evhr);
     DIAGf(_errs, "errno_reply(eno=%d, cc=%s)\n", eno, cc.c_str());
-    add_hdr(ohdrs, HHERRNO, std::to_string(eno));
-    add_hdr(ohdrs, "Cache-control", cc.c_str());
-    log_and_send_destructively(200);
+    common_reply200(cc, 0, std::to_string(eno).c_str());
 }
 
 void req::not_modified_reply(const std::string& cc) {

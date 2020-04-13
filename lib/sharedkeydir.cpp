@@ -98,8 +98,6 @@ sharedkeydir::refresh_encode_sid() /*private*/{
     ifs >> ret;
     if(!ifs)
         throw std::runtime_error("Error reading from " + fname);
-    if(ret == DO_NOT_ENCODE_SID) // before is_legal!
-        return ret;
     if(!legal_sid(ret))
        throw std::runtime_error("Illegal sid: '" + sid + "' in " + fname);
     return ret;

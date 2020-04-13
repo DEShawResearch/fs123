@@ -5,9 +5,6 @@
 #include <cctype>
 #include <algorithm>
 
-/*static*/const std::string
-secret_manager::DO_NOT_ENCODE_SID = ".NONE";
-
 bool
 secret_manager::legal_sid(const std::string& sv){
     // A sid is "legal" if it's '
@@ -16,7 +13,6 @@ secret_manager::legal_sid(const std::string& sv){
     //   doesn't start with '.' 
     //   is alphanumeric with underscore, hyphen and period,
     //
-    // Note that DO_NOT_ENCODE_SID is intentionally "illegal".
     if(sv.size() == 0)
         return false;
     if(sv.size() > 255)

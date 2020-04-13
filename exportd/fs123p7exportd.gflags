@@ -18,7 +18,6 @@
 #--exit_after_idle=0.
 #### libfs123 options related to encryption and shared secrets
 #--allow_unencrypted_requests=true
-#--allow_unencrypted_replies=false
 #--sharedkeydir=""
 #--sharedkeydir_refresh=43200
 #--encoding_keyid_file="encoding"

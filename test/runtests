@@ -185,7 +185,6 @@ cat > $etc/fs123p7exportd.gflags <<- EOF
 --sharedkeydir=$RCroot/secrets.d
 --sharedkeydir_refresh=1
 --allow_unencrypted_requests=true
---allow_unencrypted_replies=true
 --no_rules_cc=max-age=3, stale-while-revalidate=3
 EOF
 

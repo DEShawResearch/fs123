@@ -33,6 +33,9 @@ content_codec::libsodium_initialized = static_initialize_libsodium();
 
 int16_t
 content_codec::encoding_stoi(const std::string& encoding) /*static*/{
+    // FIXME - this ignores the ;q=Number clause of the accept-encoding
+    // string.  It returns the wrong result for something like:
+    //     Accept-encoding:  fs123-secretbox;q=0
     if(encoding.find("fs123-secretbox") != std::string::npos)
         return CE_FS123_SECRETBOX;
     if(encoding.empty() || encoding.find("identity") != std::string::npos)
@@ -146,10 +149,6 @@ content_codec::encode(int16_t ce, const std::string& sid,
     if(ce == CE_IDENT)
         return input;
     atomic_scoped_nanotimer _t(&stats.secretbox_encrypt_sec);
-    // If the current encoding_sid is the designated
-    // DO_NOT_ENCODE_SID, then return the input unchanged
-    if(sid == secret_manager::DO_NOT_ENCODE_SID)
-        return input;
 
     if(secret->size() < crypto_secretbox_KEYBYTES)
         throw std::runtime_error(fmt("secret[%s] is too short (%zu), needed %u",

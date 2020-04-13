@@ -30,7 +30,6 @@ struct secret_manager {
     virtual void regular_maintenance(){}
     virtual std::ostream& report_stats(std::ostream& os){return os;}
     virtual ~secret_manager(){}
-    static const std::string DO_NOT_ENCODE_SID;
     // hex2bin forwards to sodium_hex2bin, unless our version of
     // libsodium is too old, in which case it uses a private
     // implementation.

@@ -184,7 +184,6 @@ acfd sharedkeydir_fd;
 unsigned sharedkeydir_refresh;
 std::string encoding_keyid_file;
 std::unique_ptr<secret_manager> secret_mgr;
-bool allow_unencrypted_replies;
 bool encrypt_requests;
 
 // configurable, but can't be changed after startup
@@ -488,8 +487,8 @@ bool retrying_berefresh(const req123& req, reply123* reply){
 bool berefresh_decode(const req123& req, reply123* reply){
     bool ret = retrying_berefresh(req, reply);
     if(secret_mgr){
-        if(reply->content_encoding == content_codec::CE_IDENT && !allow_unencrypted_replies)
-            throw se(EIO, "server replied in cleartext but client has allow_encrypted_replies=false");
+        if(reply->content_encoding == content_codec::CE_IDENT)
+            throw se(EIO, "server replied in cleartext but client has a secret manager and requires encryption");
         auto sp = content_codec::decode(reply->content_encoding, as_uchar_span(reply->content), *secret_mgr); // might throw, trashes content
         // FIXME: If reply->content were a span, we'd just put it on
         // the lhs of the assignment above and we'd be done.  But
@@ -562,20 +561,18 @@ pair_from_a_reply(const std::string& sv) try {
 void encrypt_request(req123& req){
     if(secret_mgr){
         auto esid = secret_mgr->get_encode_sid();
-        if(esid != secret_manager::DO_NOT_ENCODE_SID){
-            size_t sz = req.urlstem.size();
-            const size_t leader = sizeof(fs123_secretbox_header) + crypto_secretbox_MACBYTES; // crypto_secretbox_MACBYTES == 16
-            const size_t padding = 8;
-            uchar_blob ub(sz + leader + padding); // enough space for zerobytes and padding.
-            padded_uchar_span ps(ub, leader, sz);
-            ::memcpy(ps.data(), req.urlstem.data(), sz);
-            secret_sp secret = secret_mgr->get_sharedkey(esid);
-            padded_uchar_span encoded = content_codec::encode(content_codec::CE_FS123_SECRETBOX,
-                                                 esid, secret,
-                                                 ps,
-                                                 padding, true/*derived_nonce*/);
-            req.urlstem = "/e/" + macaron::Base64::Encode(std::string(as_str_view(encoded)));
-        }
+        size_t sz = req.urlstem.size();
+        const size_t leader = sizeof(fs123_secretbox_header) + crypto_secretbox_MACBYTES; // crypto_secretbox_MACBYTES == 16
+        const size_t padding = 8;
+        uchar_blob ub(sz + leader + padding); // enough space for zerobytes and padding.
+        padded_uchar_span ps(ub, leader, sz);
+        ::memcpy(ps.data(), req.urlstem.data(), sz);
+        secret_sp secret = secret_mgr->get_sharedkey(esid);
+        padded_uchar_span encoded = content_codec::encode(content_codec::CE_FS123_SECRETBOX,
+                                                          esid, secret,
+                                                          ps,
+                                                          padding, true/*derived_nonce*/);
+        req.urlstem = "/e/" + macaron::Base64::Encode(std::string(as_str_view(encoded)));
     }
 }
 
@@ -937,9 +934,10 @@ void fs123_init(void *, struct fuse_conn_info *conn_info) try {
     std::string accepted_encodings;
     
     if(!sharedkeydir_name.empty()){
-        accepted_encodings = "fs123-secretbox";
+        // *only* accept fs123-secretbox.  The *;q=0 sub-clause says that every other
+        // encoding is explicitly forbidden.
+        accepted_encodings = "fs123-secretbox,*;q=0";
         encoding_keyid_file = envto<std::string>("Fs123EncodingKeyidFile", "encoding");
-        allow_unencrypted_replies = envto<bool>("Fs123AllowUnencryptedReplies", true);
         sharedkeydir_fd = sew::open(sharedkeydir_name.c_str(), O_DIRECTORY|O_RDONLY);
         secret_mgr = std::make_unique<sharedkeydir>(sharedkeydir_fd, encoding_keyid_file, sharedkeydir_refresh);
         encrypt_requests = envto<bool>("Fs123EncryptRequests", false);
@@ -2149,7 +2147,6 @@ std::ostream& report_config(std::ostream& os){
        << "Fs123PrivilegedServer: " << privileged_server << "\n"
        << "Fs123Sharedkeydir: " << sharedkeydir_name << "\n"
        << "Fs123SharedkeydirRefresh: " << sharedkeydir_refresh << "\n"
-       << "Fs123AllowUnencryptiedReplies: " << allow_unencrypted_replies << "\n"
        << "Fs123EncodingKeyidFile: " << encoding_keyid_file << "\n"
        << "Fs123EncryptRequests: " << encrypt_requests << "\n"
        << "Fs123RetryTimeout: " << volatiles->retry_timeout << "\n"

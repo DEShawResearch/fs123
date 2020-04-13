@@ -364,7 +364,7 @@ private:
     core123::str_view inm; // empty unless there was an If-Not-Modified header
     core123::str_view function;
     core123::uchar_blob blob;
-    core123::padded_uchar_span buf;    // used by f() and d()
+    core123::padded_uchar_span buf;    // the body of the http reply (padded so we can prepend and append to it in-place)
     server& svr;
     async_reply_mechanism *arm;
     bool replied;
@@ -487,7 +487,6 @@ public:
 
 #define ALLOPTS \
 OPTION(bool, allow_unencrypted_requests, true, "if false, then only accept requests encoded in the /e/ envelope");\
-OPTION(bool, allow_unencrypted_replies, false, "allow unencrypted replies to clients that don't have Accept-encodings: fs123-secretbox.  WARNING - this defeats the use of a --sharedkeydir");\
 OPTION(unsigned, nlisteners, 4, "run with this many listening processes");\
 OPTION(std::string, bindaddr, "127.0.0.1", "bind to this address");\
 OPTION(uint16_t, port, 0, "bind to this port.  If 0, an ephemeral port is chosen.  The port number in use is available via server::get_sockaddr_in.");\
@@ -535,12 +534,12 @@ OPTION(bool, async_reply_mechanism, false, "guarantee that evhttp_send_reply is 
 
 struct server_options {
 #define OPTION(type, name, default, desc)        \
-    type name;
+    type name
 ALLOPTS
 #undef OPTION
     server_options(core123::option_parser& op){
 #define OPTION(type, name, dflt, desc) \
-        op.add_option(#name, core123::str(dflt), desc, core123::opt_setter(name));
+        op.add_option(#name, core123::str(dflt), desc, core123::opt_setter(name))
 ALLOPTS
 #undef OPTION
 #undef ALLOPTS
