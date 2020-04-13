@@ -284,7 +284,7 @@ void handle_all_signals(){
         case SIGKILL: // We're powerless to change it.  Don't try.
         case SIGSTOP: //    ditto
 #ifdef SIGTSTP
-        case SIGTSTP: //    ditto
+        case SIGTSTP: // Closely related to SIGSTOP.  Don't touch it.
 #endif
 #ifdef SIGTTIN
         case SIGTTIN: //    ditto
