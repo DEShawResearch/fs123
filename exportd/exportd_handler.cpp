@@ -269,12 +269,24 @@ exportd_handler::cache_control(int eno, str_view path, const struct stat* sb){
     // but then the negative result sits in cache (maybe even in the
     // kernel) for a long time thereafter.
     //
-    // But what about other errnos?  We currently give them short
-    // timeouts on the grounds that they *might* be transient.  I.e.,
-    // we wouldn't want a transient EIO to stick around in caches for
-    // months or years!  This policy may be refined in the future...
-    if(eno != 0 && eno != ENOENT)
+    // But what about other errnos?  If we're "certain" that the result
+    // is non-transient (e.g., ENOTSUP), we give it a 1-day max-age:
+    //   "max-age=86400,stale-while-revalidate=864000"
+    //
+    // If we don't "know" if it's transient, we give it the
+    // --generic-error-cc option that defaults to:
+    //   "max-age=30,stale-while-revalidate=30,stale-if-error=10000000")
+    // The default is quite short because we wouldn't want a transient
+    // EIO to stick around in caches for a long time.
+    switch(eno){
+    case 0:
+    case ENOENT: // handle as if eno were 0.
+        break; 
+    case ENOTSUP: // seems unlikely to change...
+        return "max-age=86400,stale-while-revalidate=864000";
+    default:
         return opts.generic_error_cc;
+    }
 
     // strip off the leading '/'.  Note that we've already 'validated'
     // the path_info to guarantee that it is either empty or starts
