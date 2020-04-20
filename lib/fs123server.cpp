@@ -374,7 +374,7 @@ req::maybe_call_logger(int status) {
         strcpy(date, "-");
     }
 #if !defined(HAVE_SET_DEFAULT_CONTENT_TYPE)
-    evhttp_add_header(headers, "Content-Type", "text/plain");
+    evhttp_add_header(headers, "Content-Type", "application/octet-stream");
 #endif
 
     server_stats.reply_bytes += length;
@@ -848,12 +848,10 @@ server::setup_evhttp(struct evhttp *eh, async_reply_mechanism* arm) {
     evhttp_set_gencb(eh, req::http_cb, cbargs.back().get());
     // N.B.  libevent defaults to
     //    Content-Type: text/html; charset=ISO-8859-1 )
-    // which is definitely not right.  application/octet-stream is
-    // arguably better, but if you happen to enter an fs123 URL in a
-    // browser, it tries to save to a file while text/plain
-    // is pretty readable.
+    // which is definitely not right.  application/octet-stream
+    // is correct for data that might be (often is) binary.
 #if defined(HAVE_SET_DEFAULT_CONTENT_TYPE)
-    evhttp_set_default_content_type(eh, "text/plain");
+    evhttp_set_default_content_type(eh, "application/octet-stream");
 #endif
     // some default settings for all http listeners
     evhttp_set_max_headers_size(eh, gopts->max_http_headers_size);
