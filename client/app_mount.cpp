@@ -179,6 +179,10 @@ std::unique_ptr<core123::periodic> maintenance_task;
 // in multiple places are declared as std::atomic members of volatiles.
 std::unique_ptr<volatiles_t> volatiles;
 
+// If we run a subprocess, we assign it to a unique_ptr in fs123_init and join
+// it just before returning from main().
+std::unique_ptr<std::thread> subprocess;
+
 std::string sharedkeydir_name;
 acfd sharedkeydir_fd;
 unsigned sharedkeydir_refresh;
@@ -1026,6 +1030,20 @@ void fs123_init(void *, struct fuse_conn_info *conn_info) try {
         named_pipe_thread = std::thread(named_pipe_func);
     }
 
+    auto subprocesscmd = envto<std::string>("Fs123Subprocess", "");
+    // N.B.  it's tempting to just 'detach' the thread and let it run,
+    // but if we return to our caller while something like system("bash")
+    // is running, we find ourselves with two processes reading
+    // from stdin.  To avoid that, we do subprocess->join() just before
+    // returning to our caller at the end of main.
+    if(!subprocesscmd.empty())
+        subprocess = std::make_unique<std::thread>([](std::string cmd){
+                        complain(LOG_NOTICE, "subprocess thread:  system(\"%s\") starting.  Will call fuseful_teardown when it finishes", cmd.c_str());
+                        int ret = ::system(cmd.c_str()); // not sew!
+                        complain(LOG_NOTICE, "subprocess thread:  system(\"%s\") returned %d.  Calling fuseful_teardown", cmd.c_str(), ret);
+                        fuseful_teardown();
+                                                   }, subprocesscmd);
+    
     // Start the maintenance_task last and destroy it first (in
     // fs123_destroy) so that the maintenance function can safely
     // assume that all subsystems (volatiles, backends, secret
@@ -1052,6 +1070,16 @@ void fs123_init(void *, struct fuse_conn_info *conn_info) try {
     }
  }
 
+// N.B.  Unlke the other lowlevel ops, the destroy op is *not* called
+// by a libfuse thread.  In libfuse it would normally be called by
+// fuse_session_destroy, but (see comments in fuseful_main_ll) we call
+// it directly from fuseful_teardown.  fuseful_teardown gets called in
+// a variety of normal and abnormal contexts.  It is protected by an
+// atomic_flag that guarantees that it will return immediately without
+// side-effects (such as calling the destroy op) after the first
+// invocation.  Bottom line - it's safe to assume that fs123_destroy
+// will be called exactly once, but it's not safe to assume anything
+// about which thread (or signal handler) might call it.
 void fs123_destroy(void*){
     complain(LOG_NOTICE, "top of fs123_destroy");
     DIAG(_shutdown, "top of fs123_destroy");
@@ -1064,6 +1092,8 @@ void fs123_destroy(void*){
     // Various subsystems were initialized in fs123_init.  Shut them
     // down in LIFO order so that any inter-dependencies are respected.
     maintenance_task.reset();
+    // N.B.  Don't join the subprocess here!  This_thread *might* be the
+    // subprocess thread, and a thread can't join itself.
     if(!named_pipe_name.empty()){
         unlink(named_pipe_name.c_str());
         named_pipe_done = true;
@@ -2183,6 +2213,7 @@ std::ostream& report_config(std::ostream& os){
         Prt(Fs123ProtoMinor, fs123_protocol_minor_max)
         //Prt(Fs123LogDestination, "%stderr")
         Prt(Fs123CommandPipe, "<unset>")
+        Prt(Fs123Subprocess, "<unset>")
         Prt(Fs123LogMinLevel, "LOG_INFO")
         //Prt(Fs123Chunk)
         Prt(Fs123LocalLocks, "false")
@@ -2275,6 +2306,7 @@ try {
                                     "Fs123LogMaxHourlyRate=",
                                     "Fs123LogRateWindow=",
                                     "Fs123CommandPipe=",
+                                    "Fs123Subprocess=",
                                     "Fs123Chunk=",
                                     "Fs123LocalLocks=",
                                     "Fs123Rundir=",
@@ -2540,9 +2572,19 @@ try {
     const char *sig_report = (signal_filename.empty()) ? nullptr : signal_filename.c_str();
     int ret = fuseful_main_ll(&args, fs123_oper, sig_report, fs123_crash);
     complain(LOG_NOTICE, str("app_mount:  fuse_main_ll returned", ret, " return from app_mount() at", std::chrono::system_clock::now()));
+    if(subprocess){
+        complain(LOG_NOTICE, "app_mount:  join-ing subprocess thread.  wait for subprocess to finish");
+        subprocess->join();      DIAG(_shutdown, "subprocess joined");
+        subprocess.reset();
+    }
     return ret;
  }catch(std::exception& e){
     complain(LOG_CRIT, e, "%s:  nested exception caught in main:", argv[0]);
     fuseful_teardown();
+    if(subprocess){
+        complain(LOG_NOTICE, "app_mount:  join-ing subprocess thread.  wait for subprocess to finish");
+        subprocess->join();      DIAG(_shutdown, "subprocess joined");
+        subprocess.reset();
+    }
     return 1;
  }

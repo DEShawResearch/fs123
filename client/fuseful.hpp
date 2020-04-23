@@ -113,8 +113,12 @@ int fuseful_main_ll(fuse_args* args, const fuse_lowlevel_ops& llops,
 // signals are restored, mounts are unmounted.  May be called when
 // things are crashing or failing or the system is critically short of
 // resources like memory or threads, in which case a best-effort is
-// made to clean up as much as possible.
-void fuseful_teardown();
+// made to clean up as much as possible.  It is safe (but not
+// necessarily advisable) to call recursively, or concurrently from
+// multiple threads, in which case only the "first" call shuts
+// everything down (and returns true) and all other calls return
+// immediately with no side-effects.
+bool fuseful_teardown();
 
 // fuseful_report - report statistics.
 std::string fuseful_report();

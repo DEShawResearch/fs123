@@ -135,8 +135,13 @@ void complain_and_abort(){
 }
 
 void do_fuse_unmount(){
+    static std::atomic_flag entered = ATOMIC_FLAG_INIT;
+    if(entered.test_and_set()){
+        complain(LOG_NOTICE, "do_fuse_unmount:  Return immediately from re-invocation");
+        return;
+    }
     if(!g_channel){
-        complain(LOG_NOTICE,  "do_fuse_unmount:  g_channel==nullptr.  Assume it's already unmounted.");
+        complain(LOG_NOTICE,  "do_fuse_unmount:  g_channel==nullptr.  Was it never mounted?  Return immediately");
         return;
     }
     // <diagnostic only>
@@ -543,11 +548,14 @@ int fuseful_main_ll(fuse_args *args, const fuse_lowlevel_ops& llops,
                            
 // fuseful_teardown is called "normally" immediately after
 // fuse_session_loop returns.  It's also called "abnormally" when
-// something throws unexpectedly in fuse_main_ll and by the top-level
-// exception handler around app_mount (i.e., "main") and by our
-// terminate handler.  Thus, it takes some extra care to check that
-// pointers are non-NULL before using them.
-void fuseful_teardown() try {
+// something throws unexpectedly in fuse_main_ll, by the top-level
+// exception handler around app_mount (i.e., "main"), by our terminate
+// handler and by the Fs123Subprocess-running thread.  It uses a
+// std::atomic flag to guarantee that it returns immediately with no
+// side-effects after the first call.  When it runs, it also takes
+// extra care to zero out g_session and g_channel after it has
+// "destroyed" them.
+bool fuseful_teardown() try {
     // ????? What's the right order here ?????
     // It seems that the shutdown sequence suggested by examples/hello_ll.c
     // results in spurious calls to fusermount /path/to/mountpoint, which
@@ -587,6 +595,11 @@ void fuseful_teardown() try {
     // g_ll_destroy, *before* calling fuse_unmount.  We avoid calling
     // it again by nulling it out of the callback in the lowlevel_ops
     // structure we pass to fuse_lowelevel_new.
+    static std::atomic_flag entered = ATOMIC_FLAG_INIT; // N.B. ATOMIC_FLAG_INIT is unnecessary and deprecated in C++20
+    if(entered.test_and_set()){
+        complain(LOG_WARNING, "fuseful_teardown:  Return immediately from re-invocation");
+        return false;
+    }
     invaltp.reset();
     if(g_session)
         fuse_remove_signal_handlers(g_session);
@@ -602,6 +615,8 @@ void fuseful_teardown() try {
         fuse_session_destroy(g_session);
         g_session = nullptr;
     }
+    return true;
  }catch(std::exception& e){
     complain(LOG_CRIT, e, "fuseful_teardown: ignoring exception.  This probably won't end well.");
+    return false;
  }
