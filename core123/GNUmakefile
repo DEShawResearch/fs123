@@ -51,6 +51,7 @@ all: check
 LINK.o = $(CXX) $(LDFLAGS) $(TARGET_ARCH)
 
 unit_tests:=\
+	ut_http_error_category \
 	ut_streamutils \
 	ut_uuid \
 	ut_uchar_span \
