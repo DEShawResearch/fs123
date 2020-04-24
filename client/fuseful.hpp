@@ -8,6 +8,11 @@
 #include <core123/diag.hpp>
 #include <fuse/fuse_lowlevel.h>
 #include <core123/complaints.hpp>
+#include <iostream>
+#include <atomic>
+
+// Keep track of the net (opens - releases)
+extern std::atomic<int> fuseful_net_open_handles;
 
 // The fuse_reply_xxx functions return -errno
 // of the writev call made by fuse_kern_chan_send to
@@ -73,7 +78,15 @@ inline void reply_readlink(fuse_req_t req, const char *buf){
 }
 
 inline void reply_open(fuse_req_t req, const fuse_file_info *fi){
+    fuseful_net_open_handles++;
     int ret = fuse_reply_open(req, fi);
+    if( ret )
+        core123::complain("fuse_%s failed with ret=%d", __func__, ret);
+}
+
+inline void reply_release(fuse_req_t req){
+    int ret = fuse_reply_err(req, 0);
+    fuseful_net_open_handles--;
     if( ret )
         core123::complain("fuse_%s failed with ret=%d", __func__, ret);
 }
@@ -120,8 +133,16 @@ int fuseful_main_ll(fuse_args* args, const fuse_lowlevel_ops& llops,
 // immediately with no side-effects.
 bool fuseful_teardown();
 
+// fuseful_initiate_shutdown - call this when it's time to bring it
+// all down.  This is the way to shut things down when some external
+// event says it's time to go.  It calls kill(getpid(), SIGTERM),
+// which starts the process from a signal handler, allowing the
+// calling thread to carry on and eventually join with the main
+// thread.
+void fuseful_initiate_shutdown();
+
 // fuseful_report - report statistics.
-std::string fuseful_report();
+std::ostream& fuseful_report(std::ostream&);
 
 // fuse_options_to_envvars - convert any options like:
 //   -o FOO=bar

@@ -156,7 +156,7 @@ void read_special_ino(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, st
 void release_special_ino(fuse_req_t req, fuse_ino_t /*ino*/, struct fuse_file_info* fi){
     if(fi->fh)
         delete reinterpret_cast<std::string*>(fi->fh);
-    return reply_err(req, 0);
+    return reply_release(req);
 }
 
 void forget_special_ino(fuse_ino_t /*ino*/, uint64_t /*nlookup*/){

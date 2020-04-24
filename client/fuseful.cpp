@@ -18,6 +18,7 @@ std::string g_mountpoint;
 struct fuse_session* g_session;
 fuse_ino_t g_mount_dotdot_ino = 1;
 std::atomic<bool> g_destroy_called;
+std::atomic<int> fuseful_net_open_handles{0};
 
 // fuse_device_option will be set by fuse_parse_cmdline, called
 // by fuse_main_ll.
@@ -432,8 +433,15 @@ void fuse_options_to_envvars(fuse_args* args, const std::string& desc, std::init
         fuse_opt_add_arg(args, "-osubtype=fs123");
 }
 
-std::string fuseful_report(){
-    return str(stats);
+std::ostream& fuseful_report(std::ostream& os){
+    // N.B.  Because of an idiosyncracy in the way the
+    // .fs123_statistics is handled in fs123_special_ino.cpp, the
+    // fuseful_report gets called *before* reply_open, and therefore
+    // fuseful_net_open_handles reported in the .fs123_statisics file
+    // doesn't count the .fs123_statistics file itself.  Surprising,
+    // but probably a good thing.
+    return os << "fuseful_net_open_handles: " << fuseful_net_open_handles.load() << "\n"
+              << stats;
 }
 
 // fuseful_main_ll - inspired by examples/hello_ll.c in the fuse 2.9.2 tree.
@@ -620,3 +628,13 @@ bool fuseful_teardown() try {
     complain(LOG_CRIT, e, "fuseful_teardown: ignoring exception.  This probably won't end well.");
     return false;
  }
+
+// fuseful_initiate_shutdown - call this when you want to tear things down.  Don't call
+// fuseful_teardown directly, because the shutdown process might try to join the thread
+// you've called teardown from, and that doesn't end well.
+void fuseful_initiate_shutdown(){
+    // N.B.  Don't use 'raise(3)'.  It calls tgkill, which sends the signal to
+    // the thread that called it, and that thread probably doesn't have the
+    // signal handler we're trying to initiate.
+    sew::kill(sew::getpid(), SIGTERM);
+}

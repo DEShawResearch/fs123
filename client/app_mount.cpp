@@ -42,6 +42,7 @@
 #include <core123/diag.hpp>
 #include <core123/expiring.hpp>
 #include <core123/scoped_nanotimer.hpp>
+#include <core123/scoped_timer.hpp>
 #include <core123/svto.hpp>
 #include <core123/exnest.hpp>
 #include <core123/http_error_category.hpp>
@@ -201,6 +202,19 @@ std::string executable_path;
 std::string cache_dir;
 std::string diag_destination;
 std::string log_destination;
+
+unsigned idle_timeout = 0;
+atomic_timer<std::chrono::system_clock> idle_timer;
+void update_idle_timer(){
+    if(idle_timeout)
+        idle_timer.restart();
+}
+
+bool idle_timeout_expired(){
+    return (idle_timeout)
+        ? (idle_timer.elapsed() > std::chrono::minutes(idle_timeout))
+        : false;
+}
 
 void massage_attributes(struct stat* sb, fuse_ino_t ino){
     sb->st_ino = ino & st_ino_mask;
@@ -866,6 +880,11 @@ void regular_maintenance(){
     if(distrib_cache_be)
         distrib_cache_be->regular_maintenance();
 
+    if(fuseful_net_open_handles.load()==0 && idle_timeout_expired()){
+        complain(LOG_NOTICE, "idle timeout exceeded.  No open files.  Initiating shutdown.");
+        fuseful_initiate_shutdown();
+    }
+    
 #if __has_include(<mcheck.h>)
     if(getenv("MALLOC_CHECK_")){
         mcheck_check_all();
@@ -1038,12 +1057,14 @@ void fs123_init(void *, struct fuse_conn_info *conn_info) try {
     // returning to our caller at the end of main.
     if(!subprocesscmd.empty())
         subprocess = std::make_unique<std::thread>([](std::string cmd){
-                        complain(LOG_NOTICE, "subprocess thread:  system(\"%s\") starting.  Will call fuseful_teardown when it finishes", cmd.c_str());
+                        complain(LOG_NOTICE, "subprocess thread:  system(\"%s\") starting.  Will shut down when it finishes", cmd.c_str());
                         int ret = ::system(cmd.c_str()); // not sew!
-                        complain(LOG_NOTICE, "subprocess thread:  system(\"%s\") returned %d.  Calling fuseful_teardown", cmd.c_str(), ret);
-                        fuseful_teardown();
+                        complain(LOG_NOTICE, "subprocess thread:  system(\"%s\") returned %d.  Initiating shutdown", cmd.c_str(), ret);
+                        fuseful_initiate_shutdown();
                                                    }, subprocesscmd);
     
+    idle_timeout = envto<unsigned>("Fs123IdleTimeout", 0);
+
     // Start the maintenance_task last and destroy it first (in
     // fs123_destroy) so that the maintenance function can safely
     // assume that all subsystems (volatiles, backends, secret
@@ -1148,6 +1169,7 @@ void fs123_lookup(fuse_req_t req, fuse_ino_t ino, const char *name) try
 {
     const auto pino = ino;  // it's really the parent ino.  It's called ino for CATCH_ERRS
     stats.lookups++;
+    update_idle_timer();
     atomic_scoped_nanotimer _t(&stats.lookup_sec);
     DIAGfkey(_lookup, "lookup(%p, %ju, %s)\n", req, (uintmax_t)pino, name);
     if(lookup_special_ino(req, pino, name))
@@ -1203,6 +1225,7 @@ using fh_state_sp = std::shared_ptr<fh_state>;
 void fs123_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info* fi) try
 {    
     stats.getattrs++;
+    update_idle_timer();
     atomic_scoped_nanotimer _t(&stats.getattr_sec);
     if(fi)
         stats.getattrs_with_fi++;
@@ -1228,6 +1251,7 @@ void fs123_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info* fi) tr
 
 void fs123_opendir(fuse_req_t req, fuse_ino_t  ino, struct fuse_file_info *fi) try {
     stats.opendirs++;
+    update_idle_timer();
     atomic_scoped_nanotimer _t(&stats.opendir_sec);
     fi->fh = reinterpret_cast<decltype(fi->fh)>(new fh_state_sp(std::make_shared<fh_state>()));
     DIAGfkey(_opendir, "opendir(%ju, fi=%p, fi->fh = %p)\n", (uintmax_t)ino, fi, (void*)fi->fh);
@@ -1254,6 +1278,7 @@ void fs123_readdir(fuse_req_t req, fuse_ino_t ino,
                       size_t size, off_t off, struct fuse_file_info *fi) try
 {
     stats.readdirs++;
+    update_idle_timer();
     DIAGfkey(_opendir, "readdir(ino=%ju, size=%zu, off=%jd, fi=%p, fi->fh=%p)\n",
              (uintmax_t)ino, size, (intmax_t)off, fi, fi?(void*)fi->fh:nullptr);
     atomic_scoped_nanotimer _t(&stats.readdir_sec);
@@ -1411,10 +1436,11 @@ void fs123_releasedir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
 {
     DIAGfkey(_opendir, "releasedir(%ju, fi=%p, fi->fh=%p)\n", (uintmax_t)ino, fi, fi?(void*)fi->fh:nullptr);
     stats.releasedirs++;
+    update_idle_timer();
     if(fi == nullptr || fi->fh == 0)
         throw se(EINVAL, "fs123_releasedir called with fi==nullptr or fi->fh=0.  This is totally unexpected!");
     delete reinterpret_cast<fh_state_sp*>(fi->fh);
-    return reply_err(req, 0);
+    return reply_release(req);
 }CATCH_ERRS
 
 
@@ -1443,6 +1469,7 @@ void fs123_getxattr(fuse_req_t req, fuse_ino_t ino,
 #endif
 {
     stats.getxattrs++;
+    update_idle_timer();
     atomic_scoped_nanotimer _t(&stats.getxattr_sec);
     return do_xattr(req, ino, name, size);
 } CATCH_ERRS
@@ -1450,6 +1477,7 @@ void fs123_getxattr(fuse_req_t req, fuse_ino_t ino,
 void fs123_listxattr(fuse_req_t req, fuse_ino_t ino, size_t size) try
 {
     stats.listxattrs++;
+    update_idle_timer();
     atomic_scoped_nanotimer _t(&stats.listxattr_sec);
     return do_xattr(req, ino, nullptr, size);
 } CATCH_ERRS
@@ -1457,6 +1485,7 @@ void fs123_listxattr(fuse_req_t req, fuse_ino_t ino, size_t size) try
 void fs123_readlink(fuse_req_t req, fuse_ino_t ino) try
 {
     stats.readlinks++;
+    update_idle_timer();
     atomic_scoped_nanotimer _t(&stats.readlink_sec);
     auto lip = linkmap->lookup(ino);
     if(!lip.expired()){
@@ -1473,6 +1502,7 @@ void fs123_readlink(fuse_req_t req, fuse_ino_t ino) try
 
 void fs123_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) try {
     stats.opens++;
+    update_idle_timer();
     atomic_scoped_nanotimer _t(&stats.open_sec);
     DIAGfkey(_open, "open(%p, %ju, flags=%#o)\n", req, (uintmax_t)ino, fi->flags);
     // According to the fuse docs: "Open flags (with the exception of O_CREAT,
@@ -1599,6 +1629,7 @@ content_parse_7_2(str_view whole){
 
 void fs123_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi) try {
     stats.reads++;
+    update_idle_timer();
     atomic_scoped_nanotimer _t(&stats.read_sec);
     if(ino > 1 && ino <= max_special_ino)
         return read_special_ino(req, ino, size, off, fi);
@@ -1740,14 +1771,16 @@ void fs123_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct f
 void fs123_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) try {
     DIAGfkey(_open, "release(%ju, %p)\n", (uintmax_t)ino, fi);
     stats.releases++;
+    update_idle_timer();
     if(ino > 1 && ino <= max_special_ino)
         return release_special_ino(req, ino, fi);
     if(enhanced_consistency && fi->fh)
         openfile_release(ino, fi->fh);
-    reply_err(req, 0);
+    reply_release(req);
  } CATCH_ERRS
 
 void fs123_statfs(fuse_req_t req, fuse_ino_t ino) try {
+    update_idle_timer();
     auto reply = begetstatfs(ino);
     if( reply.eno ){
          // somebody/something is confused.  Report
@@ -1777,6 +1810,7 @@ struct fuse_forget_data{
 void fs123_forget_multi(fuse_req_t req, size_t count, struct fuse_forget_data *forgets){
     stats.forget_inos += count;
     stats.forget_calls++;
+    update_idle_timer();
     while(count--){
         do_forget(forgets->ino, forgets->nlookup);
         forgets++;
@@ -1786,6 +1820,7 @@ void fs123_forget_multi(fuse_req_t req, size_t count, struct fuse_forget_data *f
 
 void fs123_forget(fuse_req_t req, fuse_ino_t ino, unsigned long nlookup){
     fuse_forget_data ffd;
+    update_idle_timer();
     ffd.ino = ino;
     ffd.nlookup = nlookup;
     fs123_forget_multi(req, 1, &ffd); // will call reply_none
@@ -1802,6 +1837,7 @@ void fs123_ioctl(fuse_req_t req, fuse_ino_t ino, int cmd, void *arg, struct fuse
     // downstream code.
     
     stats.ioctls++;
+    update_idle_timer();
     DIAGfkey(_ioctl, "ioctl(ino=%ju, cmd=%d, arg=%p)\n", (uintmax_t)ino, cmd, arg);
 
     // N.B.  It's tempting to try to implement an FS_IOC_GETVERSION
@@ -2127,6 +2163,8 @@ std::ostream& report_stats(std::ostream& os){
     if(secret_mgr)
         secret_mgr->report_stats(os);
     content_codec::report_stats(os);
+    // N.B.  it's not useful to report the idle_time because we wouldn't
+    // be asking if we hadn't received a request a couple of msec ago.
     os << "syslogs_per_hour: " << get_complaint_hourly_rate() << "\n";
     os << "inomap_size: " << ino_count() << "\n";
     os << "attrcache_size: " << attrcache->size() << "\n"
@@ -2139,7 +2177,7 @@ std::ostream& report_stats(std::ostream& os){
        << "linkmap_hits: " << linkmap->hits() << "\n"
        << "linkmap_expirations: " << linkmap->expirations() << "\n"
        << "linkmap_misses: " << linkmap->misses() << "\n"
-       << fuseful_report()
+       << fuseful_report
        << vm_report;
     return os;
 }
@@ -2214,6 +2252,7 @@ std::ostream& report_config(std::ostream& os){
         //Prt(Fs123LogDestination, "%stderr")
         Prt(Fs123CommandPipe, "<unset>")
         Prt(Fs123Subprocess, "<unset>")
+        Prt(Fs123IdleTimeout, "0")
         Prt(Fs123LogMinLevel, "LOG_INFO")
         //Prt(Fs123Chunk)
         Prt(Fs123LocalLocks, "false")
@@ -2307,6 +2346,7 @@ try {
                                     "Fs123LogRateWindow=",
                                     "Fs123CommandPipe=",
                                     "Fs123Subprocess=",
+                                    "Fs123IdleTimeout=",
                                     "Fs123Chunk=",
                                     "Fs123LocalLocks=",
                                     "Fs123Rundir=",
