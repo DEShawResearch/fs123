@@ -6,6 +6,8 @@
 
 using namespace std::chrono;
 using core123::scoped_timer;
+using core123::timer;
+using core123::atomic_timer;
 using core123::tp2dbl;
 
 #define K 1000
@@ -31,22 +33,48 @@ void dotest(int imax) {
 	}
 	count += CALCITER;
     }
-    printf("%llu iter in %llu ns, %g iter/sec\n", (unsigned long long)count, (unsigned long long)dt.count(),
+    printf("With scoped_timer:  %llu iter in %llu ns, %g iter/sec\n", (unsigned long long)count, (unsigned long long)dt.count(),
 	   count/(std::chrono::duration<double>(dt).count()));
     if (ix != 22415) {
 	fprintf(stderr, "ix %d != 22415\n", ix);
     }
-    // test explicit accumulation by adding t.count() to dt
+    // test explicit accumulation by adding t.count() to dt.  Use a plain-old timer
+    // rather than a scoped_timer
+    timer<> tt;
     for (int i = 0; i < imax; i++) {
-	scoped_timer snt;
+	tt.restart();
 	ix = INT_LOGISTIC_MAP_INIT;
 	for (int k = 0; k < CALCITER; k++) {
 	    ix = INT_LOGISTIC_MAP(ix);
 	}
-	dt += snt.elapsed();
+	dt += tt.elapsed();
 	count += CALCITER;
     }
-    printf("%llu iter in %llu nsec, %g iter/sec\n", (unsigned long long)count, (unsigned long long)dt.count(),
+    if (ix != 22415) {
+	fprintf(stderr, "ix %d != 22415\n", ix);
+    }
+    printf("with timer: %llu iter in %llu nsec, %g iter/sec\n", (unsigned long long)count, (unsigned long long)dt.count(),
+	   count/(std::chrono::duration<double>(dt).count()));
+
+    // and again with atomic_timer.
+    atomic_timer<> at;
+    printf("atomic_timer<> %s lock free\n", at.is_lock_free()? "is" : "is not");
+#if __cpp_lib_atomic_is_always_lock_free >= 201603
+    printf("atomic_timer<> %s always lock free\n", decltype(at)::is_always_lock_free? "is" : "is not");
+#endif
+    for (int i = 0; i < imax; i++) {
+	at.restart();
+	ix = INT_LOGISTIC_MAP_INIT;
+	for (int k = 0; k < CALCITER; k++) {
+	    ix = INT_LOGISTIC_MAP(ix);
+	}
+	dt += at.elapsed();
+	count += CALCITER;
+    }
+    if (ix != 22415) {
+	fprintf(stderr, "ix %d != 22415\n", ix);
+    }
+    printf("with atomic_timer: %llu iter in %llu nsec, %g iter/sec\n", (unsigned long long)count, (unsigned long long)dt.count(),
 	   count/(std::chrono::duration<double>(dt).count()));
 }
 

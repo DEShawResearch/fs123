@@ -65,24 +65,52 @@
 namespace core123{
 template <typename ClkT = std::chrono::steady_clock>
 class timer {
-protected:
-    typename ClkT::time_point tstart_;
-
 public:
-    timer() : tstart_(ClkT::now()){}
-    using duration = typename ClkT::duration;
-
-    duration elapsed() const {
-        return ClkT::now() - tstart_;
+    using clk_type = ClkT;
+    using duration = typename clk_type::duration;
+    using time_point = typename clk_type::time_point;
+    timer(time_point asif_now=ClkT::now()) : tstart_{asif_now}{}
+    duration elapsed(time_point asif_now = ClkT::now()) const {
+        return asif_now - tstart_;
     }
-    duration restart() {
+    duration restart(time_point asif_now = ClkT::now()) {
         auto ts = tstart_;
-        tstart_ = ClkT::now();
-        return tstart_ - ts;
+        tstart_ = asif_now;
+        return asif_now - ts;
     }
     auto started_at() const {
         return tstart_;
     }
+private:
+    typename ClkT::time_point tstart_;
+};
+
+// atomic_timer: like timer, but all methods are thread-safe.  Also
+//  has an is_lock_free() method and an is_always_lock_free static
+//  bool constexpr.
+template <typename ClkT = std::chrono::steady_clock>
+class atomic_timer{
+public:
+    using clk_type = ClkT;
+    using duration = typename clk_type::duration;
+    using time_point = typename clk_type::time_point;
+    atomic_timer(time_point asif_now = ClkT::now()) : tstart_{asif_now}{}
+    bool is_lock_free() const noexcept { return tstart_.is_lock_free(); }
+#if __cpp_lib_atomic_is_always_lock_free >= 201603
+    static constexpr bool is_always_lock_free = std::atomic<time_point>::is_always_lock_free;
+#endif
+    duration elapsed(time_point asif_now = ClkT::now()) const {
+        return asif_now - tstart_.load();
+    }
+    duration restart(time_point asif_now = ClkT::now()){
+        auto ts = tstart_.exchange(asif_now);
+        return asif_now - ts;
+    }
+    time_point started_at() const {
+        return tstart_.load();
+    }
+protected:
+    std::atomic<time_point> tstart_;
 };
 
 // Define operator+= for:
