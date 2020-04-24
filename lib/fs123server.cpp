@@ -711,7 +711,6 @@ req::common_reply200(const std::string& cc, uint64_t etag64/*=0*/, const char* f
     }
 
     auto ob = evhttp_request_get_output_buffer(evreq);
-    size_t content_len = 0;
     core123::threeroe tr;
     if(method == fs123p7::GET){
         unsigned char* blobptr = blob.release();
@@ -728,7 +727,7 @@ req::common_reply200(const std::string& cc, uint64_t etag64/*=0*/, const char* f
     }
     if(fs123_errno)
         add_hdr(ohdrs, HHERRNO, fs123_errno);
-    if(method == fs123p7::GET && esid.empty() && content_len > 0)
+    if(method == fs123p7::GET && esid.empty())
         add_hdr(ohdrs, HHTRSUM, tr.hexdigest());
 
     log_and_send_destructively(200);
