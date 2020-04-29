@@ -90,16 +90,6 @@ struct exportd_options{
 #undef ADD_OPTION
     exportd_options(core123::option_parser& p,  const char* progname) : PROGNAME(progname){
         p.add_option("help", "print this message to stderr", core123::opt_true_setter(help));
-        // <TEMPORARY - allow some obsolete options - until we've upgraded our production configs>
-        auto ignore_opt = [](const std::string newvalue, const core123::option&  before){
-                              if(newvalue!="ignored") core123::complain(LOG_WARNING, "Option: %s is obsolete.  Value ignored\n", before.name.c_str());
-                          };
-        p.add_option("decentralized-cache-control", "ignored", "Obsolete option.  Ignored", ignore_opt);
-        p.add_option("max-age-long", "ignored", "Obsolete option.  Ignored", ignore_opt);
-        p.add_option("max-age-short", "ignored", "Obsolete option.  Ignored", ignore_opt);
-        p.add_option("stale-while-revalidate-long", "ignored", "Obsolete option.  Ignored", ignore_opt);
-        p.add_option("stale-while-revalidate-short", "ignored", "Obsolete option.  Ignored", ignore_opt);
-        // </TEMPORARY>
 #define ADD_OPTION(TYPE, NAME, DEFAULT, DESC) p.add_option(#NAME, core123::str(DEFAULT), DESC, core123::opt_setter(NAME))
         ADD_ALL_OPTIONS;
 #undef ADD_OPTION

@@ -543,9 +543,6 @@ ALLOPTS
 ALLOPTS
 #undef OPTION
 #undef ALLOPTS
-        // <TEMPORARY - allow some obsolete options - until we've upgraded our production configs>
-        op.add_option("nprocs", "4", "(deprecated) use --nlisteners instead", core123::opt_setter(nlisteners));
-        // </TEMPORARY>
     }
 };
 

@@ -8,9 +8,7 @@ The design of the protocol (see Fs123Protocol) is flexible with
 respect to cache control policy.  Cache-control is exclusively through
 manipulation of max-age and stale-while-revalidate, but the origin
 server *may* implement very complicated and/or fine-grained control
-over them.  This note describes the specific rules and configurable
-options in fs123p7exportd in April 2018.  These rules may
-be refined or completely replaced in the future.
+over them.
 
 It's worth noting that once a large value of max-age has been
 "released", it may be cached in both intermediate proxies and in the
@@ -21,74 +19,5 @@ for directories whose contents is truly immutable.
 
 =======================================
 
-Cache control information is stored in a single 'CRF' (cdb record
-format) file at a location named by the command line option:
 
-   --cache-control-file=...
-
-If the environment variable is not set, then all replies carry the
-'short' cache control directive (see below).
-
-The format of a CRF file is described at
-https://cr.yp.to/cdb/cdbmake.html.  The records
-currently have zero-length values.  The keys are directory names,
-relative to the mount-point of the fs123 filesystem.  In other words,
-the file is little more than a list of directory names with some punctuation.
-For example:
-
-+38,0:/anton2/v2mdsim/2014.07.10-num03-daily->
-+24,0:/lbfgs/1.0.7.1-D+Release->
-+22,0:/lbfgs/1.0.7.1-D+Debug->
-+20,0:/treetop/144-Desmond->
-+15,0:/destiny/0.2-49->
-
-Note that a final blank line is required.  It is an error if any
-directory in the file is the parent of any other.  It is also an error
-if there is any deviation from the strict CDB record format.  In the
-event of an error, a message is written to syslog, but fs123p7exportd
-continues to run with its old data.
-
-The cache_control_file is stat-ed every time the origin server generates
-a Cache-Control header.  It is re-parsed, in its entirety, whenever a
-change is detected in the file's metadata (ino, mtime or size).  Thus,
-if an external process updates the file, it should do so "atomically",
-e.g., by creating the new file, in its entirety, and using rename(2)
-or mv(1) to replace the existing file.
-
-There are only two possible values for the max-age directive, abbreviated
-LONG and SHORT below.  They are taken from command line options:
-
-   --max_age_short  [default 60]
-   --max_age_long   [defualt 86400]
-
-The max-age is set in all replies sent from the origin server as
-follows:
-
-- if the request is for a file that is outside of, or the parent of
-any directory named in the cache_control_file, the reply will have
-max-age=SHORT.  (Note that this is true for both successful and
-failed requests, regardless of errno)
-
-- if the request fails for any reason other than ENOENT, then the
-reply will have max-age=SHORT.
-
-- Otherwise, the reply will have max-age=LONG.  I.e., if the request
-  is for a file that is at or within a directory named in
-  cache_control_file, and the request is either successful or it
-  failed with errno=ENOENT, then the reply will have max-age=LONG.
-
-
-stale-while-revalidate
-----------------------
-
-The command line options:
-
-  --stale_while_revalidate_short [default 30]
-  --stale_while_revalidate_long  [default 43200]
-
-control the value of the stale-while-revalidate directive in the
-Cache-control header in the same way that the --max-age-{long,short}
-options control the max-age header.  If the relevant option is equal
-to "0", then no stale-while-revalidate directive is included in the
-Cache-control header.
-
+FIXME - describe the current server-side options!
