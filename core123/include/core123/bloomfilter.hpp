@@ -84,10 +84,9 @@ public:
         for (auto n = 0u; n < nhashes_; n++) {
             auto i = h.first % bits_.sizebits();
 	    h.first += h.second;
-	    auto b = bits_.get(i);
+	    auto b = bits_.set(i);
             ret &= b;
 	    DIAG(_bloom>1, "n " << n << " i=" << i << " bit=" << b << " ret=" << ret);
-            bits_.set(i);
         }
         return ret;
     }
