@@ -22,6 +22,9 @@ unsigned testfalse(const core123::bloomfilter& bf, unsigned nf,
 }
 
 int main(int argc, char **argv) {
+    // Does adding to a default-construct bloom segfault?
+    core123::bloomfilter bfdefault;
+    bfdefault.add("hello world");
     EQUAL(core123::bloom_estimate_entries(2397, 17, 1e-5), 101);
     CHECK(core123::bloom_estimate_falseprob(2397, 17, 100)-9.98338e-06 < 2e-8);
     EQUAL(core123::bloom_estimate_bits(100, 1e-5), 2397);

@@ -23,7 +23,7 @@ inline size_t bloom_estimate_entries(size_t nbits, size_t nhashes,
 }
 inline double bloom_estimate_falseprob(size_t nbits, size_t nhashes,
 						 size_t nentries) {
-    return pow(1. - exp(-(double)nhashes/((double)nbits/nentries)), nhashes);
+    return nhashes ? pow(1. - exp(-(double)nhashes/((double)nbits/nentries)), nhashes) : 1.0;
 }
 inline size_t bloom_estimate_bits(size_t nentries, double falseprob) {
     return ceil( (nentries*log(falseprob))/log(1./pow(2.,log(2.))) );
@@ -38,15 +38,15 @@ private:
     bits bits_;
     size_t nhashes_, nentries_;
     static constexpr const char* magic_ = "desres_bloom";
-    // default-constructed bloomfilter sets nhashes=1 so it will call
-    // a default-constructed bits_ which will null-dereference
-    // (whereas 0 would appear to work silently, never set anything and
-    // check would always return true)  Assumption is that a default
-    // bloomfilter will always be read-into.
-    static const auto defhashes_ = 1u;
 public:
-    // need to load from stream or call init() after default constructor!
-    bloomfilter() : nhashes_{defhashes_}, nentries_{0} {}
+    // default-constructed bloomfilter has a default-constructed
+    // bits_, which would segfault if accessed.  But nhashes_ is zero,
+    // so add() and check() always return true and we never access
+    // bits_.  Assumption is that a default bloomfilter serves no
+    // useful purpose, and must be copied- or read-into to be useful.
+    // Nevertheless, it is well-defined to check() or add() to it.
+    // falseprob() returns 1.0.
+    bloomfilter() : nhashes_{0}, nentries_{0} {}
     // ready for use after this, though can still be overwritten from stream!
     bloomfilter(size_t nvals, double fprob, size_t maxbits = 0) { init(nvals, fprob, maxbits); }
     void init(size_t nvals, double fprob, size_t maxbits = 0) {
