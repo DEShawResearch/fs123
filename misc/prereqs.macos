@@ -1,9 +1,11 @@
 #!/bin/sh
 set -x
-# WARNING!  fs123 does NOT pass its own regressions on MacOS with MacPorts and OSXfuse.
+# WARNING!  fs123 does NOT pass its own regressions on MacOS with
+# MacPorts and OSXfuse.
 
-# It does compile and provide some basic functionality.  These notes are a starting point,
-# but don't deliver a fully functional fs123.
+# It does compile and provide some basic functionality.  These notes
+# are a starting point, but don't deliver a fully functional fs123.
+# See Notes.macosx for more info.
 
 # This may not be a complete set of prereqs
 
@@ -15,17 +17,5 @@ port install coreutils
 
 # To compile on MacOS, with Xcode 10.2 something like this works:
 
-PATH=/opt/local/libexec/gnubin:/opt/local/bin:/usr/bin; FUSELIB=osxfuse CPPFLAGS="-I/opt/local/include -I/opt/local/include/osxfuse -Wno-attributes" LDFLAGS=-L/opt/local/lib make -f ../GNUmakefile -j check
+PATH=/opt/local/libexec/gnubin:/opt/local/bin:/usr/bin; FUSELIB=osxfuse CPPFLAGS="-I/opt/local/include -I/opt/local/include/osxfuse -Wno-attributes" LDFLAGS=-L/opt/local/lib make -f ../GNUmakefile -j
 
-/opt/local/libexec/gnubin is necessary to run the tests because /usr/bin/mktemp doesn't recognize -p.
-
-But note that make check fails a few of the regression tests:
-
-- t-15cornercases and t-02disconnectd fail because fs123p7 ctl fails.
-
-- t-09w2r and t-07modified fails because fs123 is apparently *not*
-satisfying its consistency guarantees.  The kernel-side caching with
-OSXfuse might be *very* different from Linux, which could easily break
-things.  This may be difficult to fix.
-
-Also note that the tests don't shut down cleanly because osxfuse doesn't have fusermount!

@@ -24,7 +24,11 @@ namespace {
 auto _init = diag_name("init");
 
 const string fs123p7pfx = "fs123p7";
+#ifndef __APPLE__
 const string mountprog = "mount." + fs123p7pfx;
+#else
+const string mountprog = "mount_" + fs123p7pfx;
+#endif
 const string usage = "Usage: "+fs123p7pfx+" OP OPARGS\n       where OP is one of mount, exportd, cachedump, ctl, flushfile, secretbox or setxattr";
 
 // Just enough of a capabilities "API" to allow us to acquire

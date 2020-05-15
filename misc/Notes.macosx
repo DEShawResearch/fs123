@@ -1,0 +1,139 @@
+It's possible to build fs123p7 on MacOS.  The prerequisites are
+available in MacPorts (and probably Fink and HomeBrew as well).
+
+These are the prerequisites in MacPorts:
+
+port install curl
+port install libevent
+port install osxfuse
+port install libsodium
+port install coreutils
+
+With the prereqs in place, something like this works:
+
+PATH=/opt/local/libexec/gnubin:/opt/local/bin:/usr/bin; FUSELIB=osxfuse CPPFLAGS="-I/opt/local/include -I/opt/local/include/osxfuse -W
+no-attributes" LDFLAGS=-L/opt/local/lib make -f <path-to-fs123-toplevel>/GNUmakefile -j
+
+The binary can be installed into /usr/local/bin with a plain-old cp.  Or:
+
+PATH=/opt/local/libexec/gnubin:/opt/local/bin:/usr/bin:/bin:/usr/sbin:/sbin; FUSELIB=osxfuse CPPFLAGS="-I/opt/local/include -I/opt/local/include/osxfuse -W
+no-attributes" LDFLAGS=-L/opt/local/lib sudo make -f <path-to-fs123-toplevel>/GNUmakefile -j install
+
+which will install binaries, the libfs123.a static library and header
+files in /usr/local.
+
+It's possible to run 'make check', but it requires
+/opt/local/libexec/gnubin in PATH because /usr/bin/mktemp doesn't
+recognize -p.
+
+But make check fails a few of the regression tests:
+
+- t-15cornercases and t-02disconnectd fail because fs123p7 ctl fails.
+
+- t-09w2r and t-07modified fails because fs123 is apparently *not*
+satisfying its consistency guarantees.  The kernel-side caching with
+OSXfuse might be *very* different from Linux, which could easily break
+things.  This may be difficult to fix.
+
+Also note that the 'special' files:.fs123_{config,statistics,server_statistics} 
+always appear empty because osxfuse treats st_size=0 differently from
+Linux fuse.
+
+Also note that the tests don't shut down cleanly because osxfuse
+doesn't have fusermount!
+
+----- System Configuration
+
+Nevertheless, it works well enough for some purposes.  It's certainly
+possible to export a read-only directory to a home or office.  Here
+are some notes on how to set that up.
+
+MacOS uses 'launchd' to manage daemons.  There's a man-page that's
+pretty opaque.  There's a nice cheat-sheet here:
+
+https://apple.stackexchange.com/questions/29056/launchctl-difference-between-load-and-start-unload-and-stop
+
+To start a server, create a file called something like:
+
+/Library/LaunchDaemons/org.thesalmons.org.fs123alfaPhotos.plist
+
+with contents like:
+
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>org.thesalmons.fs123alfaPhotos</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>/usr/local/bin/fs123p7</string>
+      <string>exportd</string>
+      <string>--port=8800</string>
+      <string>--bindaddr=0.0.0.0</string>
+      <string>--export-root=/Volumes/alfaPhotos</string>
+      <string>--estale-cookie-src=st_ino</string>
+      <string>--log-destination=%stderr</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+  </dict>
+</plist>
+
+TODO - OSX docs say that daemons shouldn't chdir or chroot themselves.  There
+are keys in the plist that tell launchd to do that for them.  We *could* use
+those.  There are also keys to indicate port numbers, which (theoretically)
+allows the service to start on demand.  And (maybe?) keeps other services
+away from "your" port.   Worth investigating?  Finally, OSX warns about
+daemons that are always running.  It's not clear this is anything to worry
+about.
+
+N.B.  Since the server is "111" (1 server, 1 export-root, 1-port) we'll need a new
+plist (with a new label!!) for every exported directory.
+
+Then tell launchd about it:
+
+$ sudo launchctl -w /Library/LaunchDaemons/org.thesalmons.fs123alfaPhotos.plist
+
+N.B.  I think the -w is only  necessary the very first time it's loaded.
+
+-------
+Mounting the client:
+
+On MacOS there's no avoiding the automounter.  The file /etc/fstab
+is actually part of the automounter configuration via these two lines
+in /etc/auto_master:
+
+/Network/Servers -fstab
+/-               -static
+
+The first one deals with lines in /etc/fstab that have the 'net'
+option, while the second deals with everything else.
+
+To edit (or create!) an /etc/fstab on MacOS, use vifs(1).
+
+Lines are in the usual format, so a line like this seems to work:
+
+http://sockeye:8800 /fs123/alfaPhotos fs123p7 allow_other 0 0
+
+Note that this automatically creates /fs123.  We don't have to
+create it ourselves.
+
+The 'filesytem type' (fs123p7) maps to this executable on MacOS
+
+/Library/Filesystems/fs123p7.fs/Contents/Resources/mount_fs123p7
+
+Therefore, we have to do this once:
+
+sudo mkdir -p /Library/Filesystems/fs123p7.fs/Contents/Resources
+sudo ln -s /usr/local/bin/mount.fs123p7 /Library/Filesystems/fs123p7.fs/Contents/Resources/mount_fs123p7
+
+N.B.  /Volumes is managed by diskarbitrationd on MacOS.  It may be
+just fine to put things in /Volumes via /etc/fstab, but unless there's
+a compelling reason, maybe it's better to steer clear and put
+stuff somewhere conflict-free, e.g., /fs123.
+
+To see Fuse fileysystems on the desktop, open Finder->Preferences and
+enable "Connected servers" in "Show these items on desktop".
