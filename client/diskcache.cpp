@@ -732,8 +732,9 @@ diskcache::hash(const std::string& s){
     return hd.substr(0, hexdigits_) + "/" + hd.substr(hexdigits_);
 }
 
-reply123
+void
 diskcache::deserialize_no_unlink(int rootfd, const std::string& path,
+                                 reply123 *ret,
                                  std::string *returlp) {
     atomic_scoped_nanotimer _t(&stats.diskcache_deserialize_sec);
     refcounted_scoped_nanotimer _rt(deserialize_nanotimer_ctrl);
@@ -742,7 +743,8 @@ diskcache::deserialize_no_unlink(int rootfd, const std::string& path,
                         ::openat(rootfd, path.c_str(), O_RDONLY);
     if(!fd){
         DIAGkey(_diskcache, "diskcache::deserialize(" << path << ") miss\n");
-        return {}; // invalid!
+        *ret = reply123{}; // invalid!
+        return;
     }
     DIAGkey(_diskcache, "diskcache::deserialize(" << path << ") hit\n");
     
@@ -772,9 +774,8 @@ diskcache::deserialize_no_unlink(int rootfd, const std::string& path,
         throw se(EINVAL, "diskcache::deserialize: not a regular file");
     // ?? anything else ?? E.g., limits on st_size?? Ownership and permissions?
     size_t content_len;
-    reply123 ret;
     struct iovec iov[3];
-    iov[0].iov_base = (char *)&ret + reply123_pod_begin;
+    iov[0].iov_base = (char *)ret + reply123_pod_begin;
     iov[0].iov_len = reply123_pod_length;
     iov[1].iov_base = &content_len;
     iov[1].iov_len = sizeof(content_len);
@@ -783,10 +784,11 @@ diskcache::deserialize_no_unlink(int rootfd, const std::string& path,
     if(nread != (iov[0].iov_len + iov[1].iov_len))
         throw se(EINVAL, fmt("diskcache::deserialize: expected to read %zd+%zd bytes.  Only got %zd\n",
                                      iov[0].iov_len, iov[1].iov_len, nread));
-    if( ret.magic != ret.MAGIC ){
+    if( ret->magic != ret->MAGIC ){
         complain(LOG_NOTICE, "Rejecting cache file with incorrect magic number (got %d, expected  %d): %s",
-                 ret.magic, ret.MAGIC, path.c_str());
-        return {};
+                 ret->magic, ret->MAGIC, path.c_str());
+        *ret = reply123{}; // invalid
+        return;
     }
     // Prior to 0.34.0, there was no url and this test demanded an
     // exact match between the size of the file and the size deduced
@@ -801,8 +803,8 @@ diskcache::deserialize_no_unlink(int rootfd, const std::string& path,
     if((size_t)sb.st_size < bytes_not_counting_url)
         throw se(EINVAL, fmt("diskcache::deserialize: st_size=%jd, should be >= %zu\n",
 			     (intmax_t)sb.st_size, bytes_not_counting_url));
-    ret.content.resize(content_len);
-    nread = sew::read(fd, &ret.content[0], content_len);
+    ret->content.resize(content_len);
+    nread = sew::read(fd, &ret->content[0], content_len);
     stats.diskcache_deserialize_bytes += nread;
     if(nread != content_len){
         // Sep 2017 - we're seeing these, and I don't know why... Try
@@ -837,20 +839,21 @@ diskcache::deserialize_no_unlink(int rootfd, const std::string& path,
         }
     }
     fd.close();
-    // ret.content_threeroe is not NUL-terminated, so we have to use the
+    // ret->content_threeroe is not NUL-terminated, so we have to use the
     // four-argument string::compare.
-    static const size_t thirtytwo = sizeof(ret.content_threeroe);
-    if(threeroe(ret.content).hexdigest().compare(0, thirtytwo, ret.content_threeroe, thirtytwo) != 0){
+    static const size_t thirtytwo = sizeof(ret->content_threeroe);
+    if(threeroe(ret->content).hexdigest().compare(0, thirtytwo, ret->content_threeroe, thirtytwo) != 0){
         throw se(EINVAL, fmt("diskcache::deserialize:  threeroe mismatch:  threeroe(data): %s, threeroe(stored_in_header): %.32s. content: %zu@%p, initial bytes: %s\n",
-                             threeroe(ret.content).hexdigest().c_str(), ret.content_threeroe,
-                             ret.content.size(), ret.content.data(), hexdump(ret.content.substr(0, 512), true).c_str()));
+                             threeroe(ret->content).hexdigest().c_str(), ret->content_threeroe,
+                             ret->content.size(), ret->content.data(), hexdump(ret->content.substr(0, 512), true).c_str()));
     }
-    return ret;
 }
 
 reply123
 diskcache::deserialize(const std::string& path) try { 
-    return deserialize_no_unlink(rootfd_, path);
+    reply123 ret;
+    deserialize_no_unlink(rootfd_, path, &ret);
+    return ret;
  }catch(std::exception& e){
     // Unlink files that give us trouble deserializing?  In theory,
     // nothing in the cache is precious.  So if something trips us up,

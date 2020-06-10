@@ -56,7 +56,12 @@ void drop_caps(){
 int app_cachedump(int argc, char **argv) {
     for (int i = 1; i < argc; i++) {
         string url;
-        auto r = diskcache::deserialize_no_unlink(-1, argv[i], &url);
+        reply123 r;
+        try{
+            diskcache::deserialize_no_unlink(-1, argv[i], &r, &url);
+        }catch(std::system_error& se){
+            complain(LOG_WARNING, se, "%s : WARNING:  deserialization caught an error.  Be suspicious of the reported values.", argv[i]);
+        }
         if(!r.valid()){
             // deserialize_no_unlink does not throw on ENOENT.
             // Instead it returns an 'invalid' reply, which serves its

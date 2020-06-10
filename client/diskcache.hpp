@@ -58,9 +58,14 @@ struct diskcache : public backend123{
     // parse!
     reply123 deserialize(const std::string&);
 
-    // convenience routine for read-only deserialization
-    static reply123 deserialize_no_unlink(int rootfd, const std::string& path,
-                                          std::string *returlp = nullptr);
+    // deserialize_no_unlink - convenience routine for read-only
+    // deserialization and debugging.
+    //
+    // N.B.  If it throws, *reply and *returlp are not guaranteed to
+    // reflect the on-disk data.
+    static void deserialize_no_unlink(int rootfd, const std::string& path,
+                                      reply123* reply,
+                                      std::string *returlp = nullptr);
 
 
 protected:
