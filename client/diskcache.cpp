@@ -897,10 +897,13 @@ diskcache::serialize(const reply123& r, const std::string& path, const std::stri
         stats.serialize_stale++;  // used to return, but that denies a lot of swr and sie opportunities.
 
     std::string pathnew = path + ".new";
-    const char* unlink_me = pathnew.c_str();
     acfd fd = ::openat(rootfd_, pathnew.c_str(), O_WRONLY|O_CREAT|O_EXCL, 0600);
-    // O_EXCL|O_CREAT guarantees that only one process can possibly
-    // own the .new file
+    // O_EXCL|O_CREAT guarantees that only one thread can have a valid
+    // fd for the file known as pathnew.  Any thread attempting to
+    // open an existing pathnew will get a 'false' fd.  This remains
+    // true until pathnew is unlink-ed or rename-ed, which means we
+    // must try *very* hard to unlink or rename a successfully open-ed
+    // pathnew when we're done with it (see below).
     DIAGkey(_diskcache, "diskcache::serialize opened " << pathnew << " " << fd.get() << "\n");
     if(!fd){
         switch(errno){
@@ -967,30 +970,28 @@ diskcache::serialize(const reply123& r, const std::string& path, const std::stri
 #endif
         size_t wrote = sew::writev(fd, iov, 6);
         stats.diskcache_serialize_bytes += wrote;
-        // Don't close before renaming, as that would leave a window
-        // for another thread to trash the file before we rename it.
-        sew::renameat(rootfd_, pathnew.c_str(), rootfd_, path.c_str());
-        // But if fd.close() throws, unlink the 'path', without the
-        // appended ".new".
-        unlink_me = path.c_str(); // c_str() is nothrow
+        // see comments above about O_EXCL|O_CREAT.  We have exclusive
+        // access to the file known as pathnew until it has been
+        // rename-ed even if we close the file descriptor associated
+        // with it.
         fd.close();
-        // If fd.close() throws, there's conceivably a window for
-        // another thread to read the corrupt(?) file between the
-        // failed close and the unlinkat in the catch block.  But
-        // we're already defending against data corruption in several
-        // ways (magic numbers, threeroe sums or cryptographic
-        // authentication, length consistency checks).  We'd probably
-        // be safe even if we never unlinked the file.  We've made a
-        // conscious decision to accept the risk.
+        sew::renameat(rootfd_, pathnew.c_str(), rootfd_, path.c_str());
 	DIAGkey(_diskcache, "diskcache::serialize wrote " << path << "\n");
     }catch(std::exception& e){
-        // unlinking the bad path is an attempt to avoid cascading errors.
-        // There's a good chance this unlink will fail, e.g., if the
-        // original error was ENOENT.  But let's try anyway, and record
-        // the result for posterity in the nested exception.
-        int ret = ::unlinkat(rootfd_, unlink_me, 0);
-        std::throw_with_nested(std::runtime_error(fmt("diskcache::serialize(path=%s): unlinkat(%s) returned %d errno=%d",
-                                                      path.c_str(), unlink_me, ret, errno)));
+        // it's critical that we unlink pathnew.  Otherwise, we'll
+        // never successfully open it again.  (see comments about
+        // O_EXCL|O_CREAT).
+        int ret = ::unlinkat(rootfd_, pathnew.c_str(), 0);
+        if(ret && errno != ENOENT)
+            complain(LOG_CRIT, "diskcache::serialize:  Unable to unlink " + pathnew + ".  Reason: %m.  Because of O_EXCL logic, it will be impossible to serialize " + path + " in the future.");
+        // Unlinking path isn't strictly necessary.  The next attempt
+        // to read it will almost certainly decide it needs to be
+        // refreshed.  But it seems worthwhile to try to clear out as
+        // much cruft as possible to avoid cascading errors.
+        ret = ::unlinkat(rootfd_, path.c_str(), 0);
+        if(ret && errno != ENOENT)
+            complain(LOG_CRIT, "diskcache::serialize:  Unable to unlink " + path + " after serialization failure.  Reason: %m");
+        std::throw_with_nested(std::runtime_error("diskcache::serialize(path=" + path + "): failed"));
     }
 }
 
@@ -1006,9 +1007,18 @@ diskcache::detached_update_expiration(const reply123& r, const std::string& path
     // promises that write and writev are atomic.  I.e., that we can write over
     // the header bytes in the file and that readers will see either the new
     // or the old data, but never a mixture.
-    acfd fd = sew::openat(rootfd_, path.c_str(), O_WRONLY);
-    auto nwrote = sew::write(fd, (char*)&r + reply123_pod_begin, reply123_pod_length);
-    stats.diskcache_update_bytes += nwrote;
+    acfd fd = sew::openat(rootfd_, path.c_str(), O_RDWR);
+    // Defend against another thread replacing the contents of path with completely different
+    // data while we were twiddling our thumbs...
+    uint64_t ondisketag64;
+    auto nread = sew::pread(fd, &ondisketag64, sizeof(uint64_t), offsetof(reply123, etag64) - reply123_pod_begin);
+    if(nread == sizeof(uint64_t) && ondisketag64 == r.etag64){
+        auto nwrote = sew::write(fd, (char*)&r + reply123_pod_begin, reply123_pod_length);
+        stats.diskcache_update_bytes += nwrote;
+    }else{
+        stats.diskcache_failed_updates++;
+        complain(LOG_WARNING, "on-disk etag64 does not match reply that got 304 for " + path + " .  This can happen when a 200 and a 304 'overlap', but it shouldn't happen often");
+    }
     fd.close();
  }catch(std::exception& e){
     // unlinking the bad path is an attempt to avoid cascading errors.
