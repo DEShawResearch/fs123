@@ -21,6 +21,15 @@ MTPT = os.getenv('MTPT')
 opj = os.path.join
 wdname = tempfile.mkdtemp(prefix='t-09w2r', dir=EXPORT_ROOT)
 os.chmod(wdname, 0O755)
+with open(opj(wdname, '.fs123_cc_rules'), 'w') as f:
+    f.write("""
+ {
+ "rulesfile-maxage": 5,
+ "cc": "max-age=4,stale-while-revalidate=4"
+}
+""")
+    
+
 basedname = os.path.basename(wdname)
 drh = dualroot.Hndl(opj(MTPT,basedname), opj(EXPORT_ROOT,basedname))
 
@@ -115,7 +124,7 @@ misbehavior at all unless one watches very carefully""")
 # client to reply twice to the same request which resulted in a libfuse SEGV.
 drh.stat('0003')
 os.unlink(wfname3)
-time.sleep(7) # assume max-age-short=3, s-w-r-short=3 on server side
+time.sleep(7) # assume max-age-short=4, s-w-r-short=4 on server side
 rfd3 = drh.open('0003', 0) # should fail ENOENT
 
 exit(0)

@@ -139,9 +139,12 @@ clientopts+=" -oFs123FallbackUrls=http://127.0.0.1:\$(cat ${RCroot}/portfile)/02
 clientopts+=" -oFs123RetryTimeout=10"
 clientopts+=" -oFs123BuggyAutomountWorkaround=1"
 clientopts+=" -oFs123EnhancedConsistency=1"
-clientopts+=" -oFs123CacheDir=$MTroot/cachedir,Fs123CacheMaxMBytes=1,Fs123CacheMaxFiles=10,Fs123CacheFancySharing=false,Fs123EvictPeriodMinutes=1"
+clientopts+=" -oFs123CacheDir=$MTroot/cachedir,Fs123CacheMaxMBytes=16,Fs123CacheMaxFiles=32,Fs123CacheFancySharing=false,Fs123EvictPeriodMinutes=1"
 clientopts+=" -oFs123SupportXattr=true"
 clientopts+=" -oFs123ProtoMinor=$ProtoMinor"
+# It's important to test with encryption turned on, but it's much harder
+# to make sense of the logs when debugging.  To turn off encryption, comment
+# out these three lines (and see below for lines to comment out in the server config)
 clientopts+=" -oFs123Sharedkeydir=$RCroot/secrets.d"
 clientopts+=" -oFs123SharedkeydirRefresh=1"
 clientopts+=" -oFs123EncryptRequests=true"
@@ -180,6 +183,7 @@ cat > $etc/fs123p7exportd.gflags <<- EOF
 --diag_names=fs123server:http:bufev:proc:fs123req:secretbox:cc_rules:err:complaints:exportd_handler
 #--libevent_debug=true
 --diag_destination=$diag_file
+# To turn off encryption, comment out the next two lines:
 --sharedkeydir=$RCroot/secrets.d
 --sharedkeydir_refresh=1
 --allow_unencrypted_requests=true

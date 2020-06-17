@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+
+# Test that we can read correctly in the window between max-age and
+# max-age+stale-while-revalidate (which were both set to 4 above)
+
+import os, sys
+import tempfile
+import errno
+import time
+import subprocess
+import glob
+opj = os.path.join
+
+EXPORT_ROOT = os.getenv('EXPORT_ROOT')
+MTPT = os.getenv('MTPT')
+MTroot = os.getenv('MTroot')
+
+# clear the cache,  so that no evictions happen
+# while we're waiting for a cached file to expire
+# This shouldn't be so hard ...
+cachedir = subprocess.check_output(['awk', '/^Fs123CacheDir/{print $2}', opj(MTPT, '.fs123_config')]).decode('utf-8').strip()
+assert cachedir, "cachedir had better not be empty"
+assert os.path.isdir(cachedir), "cachedir must be a directory"
+for f in glob.glob("%s/?/*"%(cachedir)):
+    os.unlink(f)
+
+wdname = tempfile.mkdtemp(prefix='t-19inm304', dir=EXPORT_ROOT)
+basedname = os.path.basename(wdname)
+os.chmod(wdname, 0O755)
+with open(opj(wdname, '.fs123_cc_rules'), 'w') as f:
+    f.write("""
+ {
+ "rulesfile-maxage": 5,
+ "cc": "max-age=4,stale-while-revalidate=4"
+}
+""")
+    
+print("Testing 304 replies:")
+wfname4 = opj(wdname, 'some.txt')
+wfd4 = os.open(wfname4, os.O_RDWR|os.O_CREAT, 0O644)
+os.system("fs123p7 setxattr %s"%(wfname4))
+some_text = b'some text'
+os.write(wfd4, some_text)
+os.close(wfd4)
+rfname4 = opj(MTPT, basedname, 'some.txt')
+rfd4 = os.open(rfname4, os.O_RDONLY|os.O_DIRECT)
+txt4 = os.read(rfd4, 128)
+assert txt4 == some_text
+os.close(rfd4)
+before = subprocess.check_output(['awk', '/dc_rf_304/{print $2}', opj(MTPT, '.fs123_statistics')]).decode('utf-8').strip()
+print("Waiting for max-age but within swr-window")
+time.sleep(5) # between max-age and max-age + swr
+rfd4 = os.open(rfname4, 0)
+txt4 = os.read(rfd4, 128) # the first one should accept the stale
+assert txt4 == some_text
+os.close(rfd4)
+time.sleep(1) 
+after = subprocess.check_output(['awk', '/dc_rf_304/{print $2}', opj(MTPT, '.fs123_statistics')]).decode('utf-8').strip()
+print("before: ", before, "after: ", after)
+assert int(before)+1 == int(after), "expected dc_rf_304 statistic to increase by 1"
+exit(0)
+

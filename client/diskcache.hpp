@@ -101,7 +101,7 @@ protected:
     // even if they have the same relative paths.
     const std::pair<uint64_t,uint64_t> hashseed_;
     // machinery for backgrounding refresh and serialization:
-    void maybe_bg_upstream_refresh(const req123& req, const std::string& path);
+    void maybe_bg_upstream_refresh(const req123& req, const std::string& path, reply123* r);
     void upstream_refresh(const req123& url, const std::string& path, reply123* r, bool already_detached, bool usable_if_error);
     // The detached methods are intended to be called in a lambda submit-ed to
     // the threadpool, e.g.,
@@ -110,7 +110,7 @@ protected:
     // nobody waiting for any exceptions thrown by detached_whatever.
     // To emphasize this, we declare them noexcept, even though a
     // thrown exception wouldn't actually do any harm.
-    void detached_upstream_refresh(req123& req, const std::string& path) noexcept ;
+    void detached_upstream_refresh(req123& req, const std::string& path, reply123* r) noexcept ;
     void detached_serialize(const reply123&, const std::string&, const std::string&) noexcept;
     void detached_update_expiration(const reply123& r, const std::string& path) noexcept;
     std::unique_ptr<core123::threadpool<void>> tp;
@@ -119,3 +119,39 @@ protected:
     bool foreground_serialize;
 };
 
+#define DISKCACHE_STATISTICS \
+STATISTIC(dc_hits)\
+STATISTIC(dc_stale_while_revalidate)\
+STATISTIC(dc_maybe_rf_too_soon)\
+STATISTIC(dc_maybe_rf_started)\
+STATISTIC(dc_maybe_rf_retired)\
+STATISTIC(dc_must_refresh)\
+STATISTIC(dc_detached_refresh_failures)\
+STATISTIC(dc_rf_304)\
+STATISTIC(dc_rf_200)\
+STATISTIC(dc_rf_stale_if_error)\
+STATISTIC(dc_rf_disconnected_skipped)\
+STATISTIC(dc_wasted_copy_reply_bytes)\
+STATISTIC(diskcache_serialize_bytes)\
+STATISTIC_NANOTIMER(diskcache_serialize_sec)\
+STATISTIC_NANOTIMER(diskcache_serialize_inuse_sec)\
+STATISTIC(diskcache_deserialize_bytes)\
+STATISTIC_NANOTIMER(diskcache_deserialize_sec)\
+STATISTIC_NANOTIMER(diskcache_deserialize_inuse_sec)\
+STATISTIC(diskcache_updates)\
+STATISTIC(diskcache_update_bytes)\
+STATISTIC_NANOTIMER(diskcache_update_sec)\
+STATISTIC_NANOTIMER(diskcache_update_inuse_sec)\
+STATISTIC_NANOTIMER(diskcache_serdes_inuse_sec)\
+STATISTIC(diskcache_failed_updates)\
+STATISTIC(serialize_eexist)\
+STATISTIC(serialize_erofs)\
+STATISTIC(serialize_deferred_rofs)\
+STATISTIC(serialize_eexist_wasted_bytes)\
+STATISTIC(serialize_other_failures)\
+STATISTIC(serialize_stale)\
+STATISTIC(dc_eviction_dirscans)\
+STATISTIC(dc_eviction_evicted)\
+STATISTIC(recently_refreshed_appended)\
+STATISTIC(recently_refreshed_matched)\
+STATISTIC(recently_refreshed_erased)

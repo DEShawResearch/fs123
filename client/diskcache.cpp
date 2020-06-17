@@ -29,7 +29,7 @@ static auto _diskcache = diag_name("diskcache");
 static auto _evict = diag_name("evict");
 
 namespace{
-#define STATS_INCLUDE_FILENAME "diskcache_statistic_names"
+#define STATS_MACRO_NAME DISKCACHE_STATISTICS
 #define STATS_STRUCT_TYPENAME diskcache_stats_t
 #include <core123/stats_struct_builder>
 diskcache_stats_t stats;
@@ -113,14 +113,14 @@ diskcache::check_root(){
 }
 
 std::string 
-diskcache::reldirname(unsigned i) const{
+diskcache::reldirname(unsigned i) const /*protected*/{
     char s[32];
     sprintf(s, "%0*x", int(hexdigits_), i);
     return s;
 }
 
 scan_result
-diskcache::do_scan(unsigned dirnum) const{
+diskcache::do_scan(unsigned dirnum) const /*protected*/{
     scan_result ret;
     acDIR dp = sew::opendirat(rootfd_, reldirname(dirnum).c_str());
     struct dirent* entryp;
@@ -163,7 +163,7 @@ diskcache::do_scan(unsigned dirnum) const{
 }
 
 void
-diskcache::evict(size_t Nevict, size_t dir_to_evict, scan_result& sr){
+diskcache::evict(size_t Nevict, size_t dir_to_evict, scan_result& sr) /*protected*/ {
     // try to evict Nevict files from the current dir_to_evict_.
     // The names (and perhaps other metadata) are in sr.
     std::string pfx = reldirname(dir_to_evict) + "/";
@@ -209,7 +209,7 @@ diskcache::evict(size_t Nevict, size_t dir_to_evict, scan_result& sr){
 //  3 - Multiple machines sharing a single diskcache over NFS is
 //      crazy-talk.  Don't even think about it.
 bool
-diskcache::custodian_check(){
+diskcache::custodian_check() /*protected*/{
     // Once the custodian - always the custodian...
     if(custodian_)
         return true;
@@ -229,7 +229,7 @@ diskcache::custodian_check(){
 
 static constexpr int BUFSZ = 32;  // more than enough for a %.9g
 void
-diskcache::write_status(float prob) const {
+diskcache::write_status(float prob) const /*protected*/{
     // N.B.  This is only called in one thread in the process that's
     // the 'custodian' of the statusfd, i.e., when it has an exclusive
     // flock on the statusfd_.  We must defend against torn reads and
@@ -255,7 +255,7 @@ diskcache::write_status(float prob) const {
 }
 
 float
-diskcache::read_status() {
+diskcache::read_status() /*protected*/{
     char buf[BUFSZ];
     auto nread = sew::pread(statusfd_, &buf[0], BUFSZ, 0);
     if(nread == 0){
@@ -288,7 +288,7 @@ diskcache::read_status() {
 // cache will be scanned in evict_period_minutes, and more frequently
 // when the cache is under pressure.
 std::chrono::system_clock::duration
-diskcache::evict_once() try {
+diskcache::evict_once() /*protected*/ try {
     // It's easier to work with sleepfor in a floating point
     // representation.  We'll duration_cast it before returning.  And
     // in an abundance of caution, we'll use duration<double> instead
@@ -520,7 +520,7 @@ bool recently_refreshed(const std::string& url){
 //  number of retired or failed background refreshes:
 //         maybe_rf_started = maybe_rf_retired + detached_refresh_failures
 
-void diskcache::maybe_bg_upstream_refresh(const req123& req, const std::string& path){
+void diskcache::maybe_bg_upstream_refresh(const req123& req, const std::string& path, reply123* replyp) /*protected*/ {
     if(recently_refreshed(req.urlstem)){
         stats.dc_maybe_rf_too_soon++;
         return;
@@ -531,24 +531,31 @@ void diskcache::maybe_bg_upstream_refresh(const req123& req, const std::string& 
     }
     stats.dc_maybe_rf_started++;
     DIAGkey(_diskcache, "tp->submit(detached_upstream_refresh) submitted by thread id: " << std::this_thread::get_id() << "\n");
-    // The const_cast is safe.  We're not going to scribble on ncreq
-    // itself.  We're going to let it be captured by the lambda, which
-    // will make a copy, and we want the copy to be implicitly declared
-    // non-const in the lambda so that we can scribble on the copy
-    // in the lambda.
-    req123& ncreq = const_cast<req123&>(req);
-    // we need mutable, so that the captured ncreq is not implicitly declared const.
-    tp->submit([=]() mutable { detached_upstream_refresh(ncreq, path); });
+    // We have to copy the reply because the refresh happens on
+    // another thread and "this" copy might be gone before that thread
+    // executes.  But nobody will ever need the copy of
+    // reply->contents: either it will be replaced by the
+    // upstream_refresh, or the upstream will tell us 304 Not
+    // Modified, and we'll replace just the on-disk metadata, ignoring
+    // copy_of_replyp.content.  It shouldn't be too hard to save
+    // ourselves the cost of copying reply->content (which might be
+    // non-negligible).  But this code is way too fragile already, so
+    // before we do that, let's gather some statistics to assess how
+    // much we might save.
+    stats.dc_wasted_copy_reply_bytes += replyp->content.size();
+    // The const_cast-ing and mutable modifier here is safe because
+    // the lambda is working with a copy of req and replyp.  But it's
+    // yet another indicator that the API is mis-designed.
+    tp->submit([=, req=const_cast<req123&>(req), reply=replyp->copy()]() mutable { detached_upstream_refresh(req, path, &reply); });
 }
 
-void diskcache::detached_upstream_refresh(req123& req, const std::string& path) noexcept try {
+void diskcache::detached_upstream_refresh(req123& req, const std::string& path, reply123* replyp) noexcept /*protected*/ try {
     DIAGkey(_diskcache, "detached_upstream_refresh in tid " << std::this_thread::get_id() << "(" << req.urlstem << ", " << path << " stale_if_error: " <<  req.stale_if_error << ")\n");
     // It's a background request, so it's not latency sensitive.  If we're
     // going to wait for a network round-trip, we might as well insist
     // on something that's actually fresh.  So set max_stale to 0.
-    reply123 r;
     req.max_stale = 0;
-    upstream_refresh(req, path, &r, true, false);
+    upstream_refresh(req, path, replyp, true/*already_detached*/, false/*usable_if_error*/);
     stats.dc_maybe_rf_retired++;
 }catch(std::exception& e){
     // upstream_refresh can throw in ways that are highly problematic, e.g.,
@@ -563,7 +570,7 @@ void diskcache::detached_upstream_refresh(req123& req, const std::string& path) 
     // no point in rethrowing.  See comment in diskcache.hpp
 }
 
-void diskcache::detached_serialize(const reply123& r, const std::string& path, const std::string& url) noexcept try {
+void diskcache::detached_serialize(const reply123& r, const std::string& path, const std::string& url) noexcept /*protected*/ try {
     DIAGkey(_diskcache,  "detached_serialize(r.content.data(): " << (const void*)r.content.data() << ", path=" << path << ")\n");
     serialize(r, path, url);
 }catch(std::exception& e){
@@ -573,7 +580,7 @@ void diskcache::detached_serialize(const reply123& r, const std::string& path, c
     // no point in rethrowing.  See comment in diskcache.hpp
 }
 
-void diskcache::upstream_refresh(const req123& req, const std::string& path, reply123* r, bool already_detached, bool usable_if_error){
+void diskcache::upstream_refresh(const req123& req, const std::string& path, reply123* r, bool already_detached, bool usable_if_error)/*protected*/{
     if( vols_.disconnected && usable_if_error){
         // If we're disconnected and r is within the stale-if-error window,
         // return immediately.  Don't complain. Don't ask upstream.
@@ -626,7 +633,10 @@ void diskcache::upstream_refresh(const req123& req, const std::string& path, rep
             // ASAP.
             throw se(EINVAL, "diskcache:: upstream_->refresh returned false, interpreted as 304 Not Modified, but the request is no-cache.  That shouldn't happen.  Find this error message in the code and FIX THE UNDERLYING PROBLEM!");
         }
-        tp->submit([rv = r->copy(), path, this](){ detached_update_expiration(rv, path); });
+        if(already_detached)
+            detached_update_expiration(*r, path);
+        else
+            tp->submit([rv = r->copy(), path, this](){ detached_update_expiration(rv, path); });
     }
 }
     
@@ -678,7 +688,7 @@ diskcache::refresh(const req123& req, reply123* r) /*override*/ try {
     }else if( !req.no_cache && ttl > -swr ){
         DIAGfkey(_diskcache, "diskcache::refresh swr\n");
         stats.dc_stale_while_revalidate++;
-        maybe_bg_upstream_refresh(req, path);
+        maybe_bg_upstream_refresh(req, path, r);
     }else{
         DIAGkey(_diskcache, "diskcache::refresh miss!\n");
         stats.dc_must_refresh++;
@@ -700,7 +710,7 @@ diskcache::refresh(const req123& req, reply123* r) /*override*/ try {
             }
             if( !usable_if_error )
                 std::throw_with_nested(std::runtime_error(fmt("diskcache::refresh: upstream threw and cached result is %s.  staleness=%s, stale_if_error: %d\n",
-                                                                       r->valid()?"valid":"invalid",
+                                                                       r->valid()?"valid":"invalid or non-existant",
                                                                        str(-ttl).c_str(), req.stale_if_error)));
             complain(LOG_WARNING, e,
                      "diskcache::refresh:  returning stale data:  staleness: " + str(-ttl) + " stale_if_error: " + std::to_string(req.stale_if_error) + ". Upstream error: ");
@@ -732,7 +742,7 @@ diskcache::hash(const std::string& s){
     return hd.substr(0, hexdigits_) + "/" + hd.substr(hexdigits_);
 }
 
-void
+void /*static*/
 diskcache::deserialize_no_unlink(int rootfd, const std::string& path,
                                  reply123 *ret,
                                  std::string *returlp) {
@@ -996,12 +1006,13 @@ diskcache::serialize(const reply123& r, const std::string& path, const std::stri
 }
 
 void
-diskcache::detached_update_expiration(const reply123& r, const std::string& path) noexcept try {
+diskcache::detached_update_expiration(const reply123& r, const std::string& path) noexcept /*protected*/ try {
     atomic_scoped_nanotimer _t(&stats.diskcache_update_sec);
     refcounted_scoped_nanotimer _rt(update_nanotimer_ctrl);
     refcounted_scoped_nanotimer _rtx(serdes_nanotimer_ctrl);
 
     stats.diskcache_updates++;
+    DIAG(_diskcache, "detached_update_expiration(" + path + ")");
     // I think that this:
     //    http://pubs.opengroup.org/onlinepubs/9699919799/functions/V2_chap02.html#tag_15_09_07
     // promises that write and writev are atomic.  I.e., that we can write over

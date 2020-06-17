@@ -986,9 +986,12 @@ backend123_http::refresh(const req123& req, reply123* replyp) try{
     wrap_curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&ch);
     DIAGfkey(_http, "backend123_http::refresh: GET %s\n", req.urlstem.c_str());
     if(replyp->valid() && !req.no_cache && replyp->etag64){
+        DIAG(_http, "If-None-Match: " << replyp->etag64);
         ch.headers.push_back("If-None-Match: \"" + std::to_string(replyp->etag64) + "\"");
         stats.backend_INM++;
         _t.set_accumulator(&stats.backend_INM_sec);
+    }else{
+        DIAG(_http, "no If-None-Match: valid=" << replyp->valid() << " req.no_cache=" << req.no_cache << " replyp->etag64 " << replyp->etag64);
     }
     
     if(!accept_encoding.empty())
