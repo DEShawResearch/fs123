@@ -241,6 +241,7 @@
 #include <list>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <dirent.h>
@@ -316,8 +317,9 @@ struct req{
 #else
     bool add_dirent(const ::dirent& de, uint64_t esc, long d_off);
 #endif
-    // Method that may only be called from within a p() handler:
+    // Methods that may only be called from within a p() handler:
     void add_header(const std::string& name, const std::string& value);
+    std::optional<std::string> get_header(const std::string& name);
 
     ~req();
     friend server; // so it can access http_cb

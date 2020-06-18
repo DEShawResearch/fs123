@@ -1025,6 +1025,19 @@ void req::add_header(const std::string& name, const std::string& value){
     add_hdr(evhttp_request_get_output_headers(evhr), name, value);
 }
 
+std::optional<std::string> req::get_header(const std::string& name){
+    if(function != "p")
+        httpthrow(500, "handler called get_header while handling " + std::string(function) + " request");
+    auto inheaders = evhttp_request_get_input_headers(evhr);
+    if(!inheaders)
+        httpthrow(500, "evhttp_request_get_input_headers returned NULL");
+    const char *value = evhttp_find_header(inheaders, name.c_str());
+    if(value)
+        return std::make_optional(std::string(value));
+    else
+        return std::nullopt;
+}
+
 void req::d_reply(bool at_eof, uint64_t etag64, uint64_t esc, const std::string& cc) try {
         if(function != "d")
             httpthrow(500, "handler replied to " + std::string(function) + " with d_reply");
