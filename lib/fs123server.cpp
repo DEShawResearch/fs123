@@ -459,13 +459,6 @@ req::parse_and_handle(req::up req) try {
     // N.B.  Use req->member to emphasize/remind ourselves what named
     // members are recorded in *this, for future use by _reply()
     // functions.
-    switch (req->method) {
-    case fs123p7::GET:
-    case fs123p7::HEAD:
-        break;
-    default:
-        httpthrow(403, std::string("Unsupported request method ") + std::to_string(evhttp_request_get_command(req->evhr))); break;
-    }
 
     const evhttp_uri* uri = evhttp_request_get_evhttp_uri(req->evhr);
     auto inheaders = evhttp_request_get_input_headers(req->evhr);
@@ -571,6 +564,19 @@ req::parse_and_handle(req::up req) try {
         const char *q = evhttp_uri_get_query(uri);
         req->query = q ? q : str_view{nullptr, 0};
     }
+
+    // The passthru function can use any HTTP method.
+    // All other functions are restricted to GET or HEAD.
+    if(req->function != "p"){
+        switch (req->method) {
+        case fs123p7::GET:
+        case fs123p7::HEAD:
+            break;
+        default:
+            httpthrow(403, std::string("Unsupported request method ") + std::to_string(evhttp_request_get_command(req->evhr))); break;
+        }
+    }
+
     // We've finally got path_info full decoded and decrypted.  Does it look ok?
     validate_path(req->path_info);  // throws if it's not ok.
 
@@ -856,7 +862,6 @@ server::setup_evhttp(struct evhttp *eh, async_reply_mechanism* arm) {
     evhttp_set_max_headers_size(eh, gopts->max_http_headers_size);
     evhttp_set_max_body_size(eh, gopts->max_http_body_size);
     evhttp_set_timeout(eh, gopts->max_http_timeout);
-    evhttp_set_allowed_methods(eh, EVHTTP_REQ_GET|EVHTTP_REQ_HEAD);
 }
 
 server::server(const server_options& opts, handler_base& h) :
