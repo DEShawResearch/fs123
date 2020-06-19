@@ -718,7 +718,7 @@ req::common_reply200(const std::string& cc, uint64_t etag64/*=0*/, const char* f
 
     auto ob = evhttp_request_get_output_buffer(evreq);
     core123::threeroe tr;
-    if(method == fs123p7::GET){
+    if(method != fs123p7::HEAD){
         unsigned char* blobptr = blob.release();
         DIAG(_fs123server, "evbuffer_add_reference(buf.size()=" << buf.size() << ")");
         if(0 > evbuffer_add_reference(ob,
