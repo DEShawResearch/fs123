@@ -2143,8 +2143,25 @@ std::ostream& vm_report(std::ostream& os){
     std::ifstream ifs(procpidstatus.str().c_str());
     std::string line;
     while( getline(ifs, line) ){
-        if( core123::startswith(line, "Vm") )
-            os << line << "\n";
+        if( core123::startswith(line, "Vm") || core123::startswith(line, "Rss") )
+            try {
+                // N.B.  Linux has been formatting /proc/pid/status with:
+                // "VmXXX:\t%8lu kB\n" since at least 2005.  Check that
+                // this line still looks like that, and if it does,
+                // multiply the second field by 1024 to be consistent with
+                // all the other byte-counts in the statistics file.  If it
+                // looks different (unlikely!), complain once and print
+                // the line as-is.
+                auto words = svsplit_any(line, ": \t");
+                if(words.size() != 3 || words[2] != "kB")
+                    throw std::runtime_error("third word (of three) is not 'kB' on VmXxx line in /proc/pid/status");
+                auto nkb = svto<size_t>(words[1]);
+                os << words[0] << ": " <<  nkb*1024 << "\n";
+            }catch(std::exception& e){
+                static std::once_flag of;
+                std::call_once(of, [&](){complain(LOG_ERR, e, "/proc/pid/status doesn't look like we expect");});;
+                os << line << "\n";
+            }
     }
     return os;
 }

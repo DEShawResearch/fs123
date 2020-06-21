@@ -38,10 +38,10 @@ inline double log_16(double x){
     return ::log2(x)/4.;
 }
 
- refcounted_scoped_nanotimer_ctrl serialize_nanotimer_ctrl(stats.diskcache_serialize_inuse_sec);
- refcounted_scoped_nanotimer_ctrl deserialize_nanotimer_ctrl(stats.diskcache_deserialize_inuse_sec);
- refcounted_scoped_nanotimer_ctrl update_nanotimer_ctrl(stats.diskcache_update_inuse_sec);
- refcounted_scoped_nanotimer_ctrl serdes_nanotimer_ctrl(stats.diskcache_serdes_inuse_sec);
+ refcounted_scoped_nanotimer_ctrl serialize_nanotimer_ctrl(stats.dc_serialize_inuse_sec);
+ refcounted_scoped_nanotimer_ctrl deserialize_nanotimer_ctrl(stats.dc_deserialize_inuse_sec);
+ refcounted_scoped_nanotimer_ctrl update_nanotimer_ctrl(stats.dc_update_inuse_sec);
+ refcounted_scoped_nanotimer_ctrl serdes_nanotimer_ctrl(stats.dc_serdes_inuse_sec);
 
 bool should_serialize(const reply123& r){
     switch(r.eno){
@@ -476,7 +476,7 @@ bool recently_refreshed(const std::string& url){
                               [&](const recently_p& a, const std::chrono::system_clock::time_point& then){
                                   return a.second < then;
                               });
-    stats.recently_refreshed_erased += std::distance(recently.begin(), e);
+    stats.dc_recently_refreshed_erased += std::distance(recently.begin(), e);
     recently.erase(recently.begin(), e);
     // find an entry with a matching url
     e = std::find_if(recently.begin(), recently.end(), 
@@ -484,13 +484,13 @@ bool recently_refreshed(const std::string& url){
                       return a.first == url;
                   });
     if(e != recently.end()){
-        stats.recently_refreshed_matched++;
+        stats.dc_recently_refreshed_matched++;
         DIAGfkey(_diskcache, "recently_refreshed(%s) -> true\n", url.c_str());
         return true;
     }
     recently.emplace_back(url, now);
     DIAGfkey(_diskcache, "recently_refreshed(%s) -> false (emplaced)\n", url.c_str());
-    stats.recently_refreshed_appended++;
+    stats.dc_recently_refreshed_appended++;
     return false;
 }
 
@@ -746,7 +746,7 @@ void /*static*/
 diskcache::deserialize_no_unlink(int rootfd, const std::string& path,
                                  reply123 *ret,
                                  std::string *returlp) {
-    atomic_scoped_nanotimer _t(&stats.diskcache_deserialize_sec);
+    atomic_scoped_nanotimer _t(&stats.dc_deserialize_sec);
     refcounted_scoped_nanotimer _rt(deserialize_nanotimer_ctrl);
     refcounted_scoped_nanotimer _rtx(serdes_nanotimer_ctrl);
     acfd fd = rootfd == -1 ? ::open(path.c_str(), O_RDONLY) :
@@ -790,7 +790,7 @@ diskcache::deserialize_no_unlink(int rootfd, const std::string& path,
     iov[1].iov_base = &content_len;
     iov[1].iov_len = sizeof(content_len);
     size_t nread = sew::readv(fd, iov, 2);
-    stats.diskcache_deserialize_bytes += nread;
+    stats.dc_deserialize_bytes += nread;
     if(nread != (iov[0].iov_len + iov[1].iov_len))
         throw se(EINVAL, fmt("diskcache::deserialize: expected to read %zd+%zd bytes.  Only got %zd\n",
                                      iov[0].iov_len, iov[1].iov_len, nread));
@@ -815,7 +815,7 @@ diskcache::deserialize_no_unlink(int rootfd, const std::string& path,
 			     (intmax_t)sb.st_size, bytes_not_counting_url));
     ret->content.resize(content_len);
     nread = sew::read(fd, &ret->content[0], content_len);
-    stats.diskcache_deserialize_bytes += nread;
+    stats.dc_deserialize_bytes += nread;
     if(nread != content_len){
         // Sep 2017 - we're seeing these, and I don't know why... Try
         // to report more in the throw:
@@ -883,14 +883,14 @@ diskcache::deserialize(const std::string& path) try {
 
 void 
 diskcache::serialize(const reply123& r, const std::string& path, const std::string& url){
-    atomic_scoped_nanotimer _t(&stats.diskcache_serialize_sec);
+    atomic_scoped_nanotimer _t(&stats.dc_serialize_sec);
     refcounted_scoped_nanotimer _rt(serialize_nanotimer_ctrl);
     refcounted_scoped_nanotimer _rtx(serdes_nanotimer_ctrl);
     static std::atomic<long long> rofs_defer_till{0};
     if(!should_serialize(r))
        return;
     if( rofs_defer_till > _t.started_at() ){
-        stats.serialize_deferred_rofs++;
+        stats.dc_serialize_deferred_rofs++;
         return;
     }
     DIAGkey(_diskcache, "diskcache::serialize(" << path << " now=" << ins(std::chrono::system_clock::now()) << " eno=" << r.eno << " fresh=" << r.fresh() << " expires=" << ins(r.expires) << " etag64=" << r.etag64 << ")\n");
@@ -904,7 +904,7 @@ diskcache::serialize(const reply123& r, const std::string& path, const std::stri
         return;
     }
     if(!r.fresh())
-        stats.serialize_stale++;  // used to return, but that denies a lot of swr and sie opportunities.
+        stats.dc_serialize_stale++;  // used to return, but that denies a lot of swr and sie opportunities.
 
     std::string pathnew = path + ".new";
     acfd fd = ::openat(rootfd_, pathnew.c_str(), O_WRONLY|O_CREAT|O_EXCL, 0600);
@@ -921,26 +921,26 @@ diskcache::serialize(const reply123& r, const std::string& path, const std::stri
             // These aren't as rare as we might hope.  It's not uncommon to
             // get back-to-back reads for the same chunk, and the second one
             // will often run into the in-progress serialization of the first.
-            stats.serialize_eexist++;
+            stats.dc_serialize_eexist++;
             // Not only that - the bandwidth was wasted!  It would take
             // some work to "fix" it though.  We'd need a whole new control
             // flow to "attach" one request to another already-in-progress
             // one. Let's count before we start writing new code...
-            stats.serialize_eexist_wasted_bytes += r.content.size();
+            stats.dc_serialize_eexist_wasted_bytes += r.content.size();
             break;
         case EROFS:
             // ext family filesystems will remount themselves read-only after a certain
             // number of write errors.  Trying to write to them can only make things worse.
             // This is a condition that requires administrative intervention.  Complain
             // loudly (LOG_ERR) every 5 minutes.
-            stats.serialize_erofs++;
+            stats.dc_serialize_erofs++;
             rofs_defer_till = _t.started_at() + 300ull * 1000 * 1000 * 1000; // 5 minutes, in scoped_nanotimer's units
             complain(LOG_ERR, "diskcache::serialize EROFS.  Administrative intervention required!  Serialization will be deferred for 5 minutes");
             break;
         default:
             complain(LOG_WARNING, "diskcache::serialize failed to create %s.  errno=%m",
                    pathnew.c_str());
-            stats.serialize_other_failures++;
+            stats.dc_serialize_other_failures++;
             break;
         }
         return;
@@ -979,7 +979,8 @@ diskcache::serialize(const reply123& r, const std::string& path, const std::stri
         }
 #endif
         size_t wrote = sew::writev(fd, iov, 6);
-        stats.diskcache_serialize_bytes += wrote;
+        stats.dc_serializes++;
+        stats.dc_serialize_bytes += wrote;
         // see comments above about O_EXCL|O_CREAT.  We have exclusive
         // access to the file known as pathnew until it has been
         // rename-ed even if we close the file descriptor associated
@@ -1007,11 +1008,11 @@ diskcache::serialize(const reply123& r, const std::string& path, const std::stri
 
 void
 diskcache::detached_update_expiration(const reply123& r, const std::string& path) noexcept /*protected*/ try {
-    atomic_scoped_nanotimer _t(&stats.diskcache_update_sec);
+    atomic_scoped_nanotimer _t(&stats.dc_update_sec);
     refcounted_scoped_nanotimer _rt(update_nanotimer_ctrl);
     refcounted_scoped_nanotimer _rtx(serdes_nanotimer_ctrl);
 
-    stats.diskcache_updates++;
+    stats.dc_updates++;
     DIAG(_diskcache, "detached_update_expiration(" + path + ")");
     // I think that this:
     //    http://pubs.opengroup.org/onlinepubs/9699919799/functions/V2_chap02.html#tag_15_09_07
@@ -1025,9 +1026,9 @@ diskcache::detached_update_expiration(const reply123& r, const std::string& path
     auto nread = sew::pread(fd, &ondisketag64, sizeof(uint64_t), offsetof(reply123, etag64) - reply123_pod_begin);
     if(nread == sizeof(uint64_t) && ondisketag64 == r.etag64){
         auto nwrote = sew::write(fd, (char*)&r + reply123_pod_begin, reply123_pod_length);
-        stats.diskcache_update_bytes += nwrote;
+        stats.dc_update_bytes += nwrote;
     }else{
-        stats.diskcache_failed_updates++;
+        stats.dc_failed_updates++;
         complain(LOG_WARNING, "on-disk etag64 does not match reply that got 304 for " + path + " .  This can happen when a 200 and a 304 'overlap', but it shouldn't happen often");
     }
     fd.close();
