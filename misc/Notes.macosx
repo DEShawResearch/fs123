@@ -5,19 +5,23 @@ These are the prerequisites in MacPorts:
 
 port install curl
 port install libevent
-port install osxfuse
 port install libsodium
 port install coreutils
 
+In 2020, OSXFuse changed its licensing terms, making it impossible
+for MacPorts to maintain its own copy of libfuse.
+
+However, it is still possible to get OSXfuse from osxfuse.github.io.
+The default installation puts headers in /usr/local/include/osxfuse
+and librares in /usr/local/lib.
+
 With the prereqs in place, something like this works:
 
-PATH=/opt/local/libexec/gnubin:/opt/local/bin:/usr/bin; FUSELIB=osxfuse CPPFLAGS="-I/opt/local/include -I/opt/local/include/osxfuse -W
-no-attributes" LDFLAGS=-L/opt/local/lib make -f <path-to-fs123-toplevel>/GNUmakefile -j
+(PATH=/opt/local/libexec/gnubin:/opt/local/bin:/usr/bin:/usr/sbin:/sbin; FUSELIB=osxfuse CPPFLAGS="-I/opt/local/include -I/usr/local/include/osxfuse -Wno-attributes" LDFLAGS="-L/opt/local/lib -L/usr/local/lib" make -f @@@path-to-fs123-toplevel@@@/GNUmakefile -j )
 
 The binary can be installed into /usr/local/bin with a plain-old cp.  Or:
 
-PATH=/opt/local/libexec/gnubin:/opt/local/bin:/usr/bin:/bin:/usr/sbin:/sbin; FUSELIB=osxfuse CPPFLAGS="-I/opt/local/include -I/opt/local/include/osxfuse -W
-no-attributes" LDFLAGS=-L/opt/local/lib sudo make -f <path-to-fs123-toplevel>/GNUmakefile -j install
+( PATH=/opt/local/libexec/gnubin:/opt/local/bin:/usr/bin:/bin:/usr/sbin:/sbin; FUSELIB=osxfuse CPPFLAGS="-I/opt/local/include -I/usr/local/include/osxfuse -Wno-attributes" LDFLAGS="-L/opt/local/lib -L/usr/local/lib" sudo make -f @@@path-to-fs123-toplevel@@@/GNUmakefile -j install )
 
 which will install binaries, the libfs123.a static library and header
 files in /usr/local.
@@ -33,7 +37,7 @@ But make check fails a few of the regression tests:
 - t-09w2r and t-07modified fails because fs123 is apparently *not*
 satisfying its consistency guarantees.  The kernel-side caching with
 OSXfuse might be *very* different from Linux, which could easily break
-things.  This may be difficult to fix.
+things.  This is difficult to fix.
 
 Also note that the 'special' files:.fs123_{config,statistics,server_statistics} 
 always appear empty because osxfuse treats st_size=0 differently from
@@ -70,6 +74,7 @@ with contents like:
       <string>/usr/local/bin/fs123p7</string>
       <string>exportd</string>
       <string>--port=8800</string>
+      <string>--chroot=</string>
       <string>--bindaddr=0.0.0.0</string>
       <string>--export-root=/Volumes/alfaPhotos</string>
       <string>--estale-cookie-src=st_ino</string>
@@ -81,6 +86,13 @@ with contents like:
     <true/>
   </dict>
 </plist>
+
+In Catalina (10.15), Apple added some new privacy and security features.
+See:  https://discussions.apple.com/thread/250719819
+It may be necessary to open System Preferences -> Security and Privacy ->
+Privacy, and add fs123p7 to the "Allow the apps below to access data like
+Mail, Message ... and certain administrative settings for all users on this
+Mac.
 
 TODO - OSX docs say that daemons shouldn't chdir or chroot themselves.  There
 are keys in the plist that tell launchd to do that for them.  We *could* use
@@ -95,8 +107,11 @@ plist (with a new label!!) for every exported directory.
 
 Then tell launchd about it:
 
-$ sudo launchctl -w /Library/LaunchDaemons/org.thesalmons.fs123alfaPhotos.plist
+$ sudo launchctl bootstrap /Library/LaunchDaemons/org.thesalmons.fs123alfaPhotos.plist
 
+or, using the legacy API:
+
+$ sudo launchctl -w /Library/LaunchDaemons/org.thesalmons.fs123alfaPhotos.plist
 N.B.  I think the -w is only  necessary the very first time it's loaded.
 
 -------
@@ -120,6 +135,16 @@ http://sockeye:8800 /fs123/alfaPhotos fs123p7 allow_other 0 0
 
 Note that this automatically creates /fs123.  We don't have to
 create it ourselves.
+
+It's not clear where the "right place" to put a diskcache is
+on OSX.  Since /fs123 is automounted, it seems best to avoid
+there.  /var/fs123/cache seems to work.
+
+Also, the default log destination doesn't seem to show up anywhere.
+
+This line *seems* to work in fstab:
+
+http://chum:8801 /fs123/cannon fs123p7 ro,allow_other,Fs123CacheDir=/var/fs123/cache,Fs123CacheMaxMBytes=8000,Fs123LogDestination=/tmp/fs123-cannon.log 0 0
 
 The 'filesytem type' (fs123p7) maps to this executable on MacOS
 
