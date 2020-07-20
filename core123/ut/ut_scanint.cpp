@@ -14,6 +14,7 @@ using core123::str_view;
 // The compiler sees overflows in this code, but they're not
 // really there because scanint (should) throw before we try
 // to do comparisons with overflowing constant expresions.
+#pragma GCC diagnostic ignored "-Wunknown-warning-option"
 #pragma GCC diagnostic ignored "-Woverflow"
 #pragma GCC diagnostic ignored "-Wtype-limits"
 #pragma GCC diagnostic ignored "-Wbool-compare"

@@ -5,6 +5,7 @@ int main(int, char **){
     return 0;
 }
 #else
+#pragma GCC diagnostic ignored "-Wunknown-warning-option"
 #pragma GCC diagnostic ignored "-Wpsabi" // see comments in simd_threefry.hpp
 #include <core123/simd_threefry.hpp>
 #include <core123/streamutils.hpp>

@@ -21,6 +21,8 @@ env:
     - DOCKER_IMAGE=fedora:32
     - DOCKER_IMAGE=ubuntu:bionic
     - DOCKER_IMAGE=ubuntu:xenial
+    - DOCKER_IMAGE=debian:stretch
+    - DOCKER_IMAGE=debian:buster
 
 # add fuse to the build host VM
 # https://github.com/travis-ci/travis-ci/issues/1100

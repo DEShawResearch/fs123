@@ -1,0 +1,13 @@
+#!/bin/bash
+set -x
+apt-get -y update
+apt-get -y upgrade
+apt-get -y install build-essential fuse libfuse-dev libsodium-dev libcurl4-openssl-dev libevent-dev libssl-dev libdw-dev
+apt-get -y install git valgrind time attr curl python3
+apt-get -y install strace
+apt-get -y install software-properties-common
+apt-get -y install clang-7 libc++-7-dev libc++abi-7-dev zlib1g-dev
+export CXX=clang++-7
+export CC=clang++
+export CXXFLAGS=-stdlib=libc++
+export LDFLAGS=-stdlib=libc++
