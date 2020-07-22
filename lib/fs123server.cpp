@@ -618,10 +618,12 @@ req::parse_and_handle(req::up req) try {
         uint64_t lenkib, offsetkib;
         svscan(req->query, std::tie(lenkib, offsetkib)); // N.B.  permissive about separator.  Does not insist on semi-colon
         static size_t validator_space = 32; // room for a netstring(to_string(uint64_t));y
-        req->requested_len = lenkib*1024;
+        auto requested_len = lenkib*1024;
+        req->requested_len = requested_len;
         req->allocate_pbuf(req->requested_len + validator_space);
         req->buf = req->buf.subspan(validator_space, 0); // buf points to beginning of requested_len
-        handler.f(std::move(req), inm64, req->requested_len, offsetkib*1024, req->buf.data());
+        auto reqbufdata = req->buf.data();
+        handler.f(std::move(req), inm64, requested_len, offsetkib*1024, reqbufdata);
     }else if(req->function == "l"){
         server_stats.l_requests++;
         handler.l(std::move(req));
