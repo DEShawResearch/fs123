@@ -6,4 +6,4 @@ apt-get -y install build-essential fuse libfuse-dev libsodium-dev libcurl4-opens
 apt-get -y install git valgrind time attr curl python3
 apt-get -y install strace
 apt-get -y install software-properties-common
-apt-get -y zlib1g-dev
+apt-get -y install zlib1g-dev

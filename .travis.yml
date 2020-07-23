@@ -35,6 +35,9 @@ before_install:
 install:
     - docker pull $DOCKER_IMAGE
 
+# if script is changed, note that it may break the hackery in
+# desres/dockertest, which runs script[0], assuming it is a docker
+# command
 script:
     - > 
         docker run 
