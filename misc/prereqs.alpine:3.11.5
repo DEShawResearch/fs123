@@ -7,7 +7,7 @@ cd `mktemp -d`
 # echo http://dl-cdn.alpinelinux.org/alpine/edge/testing >> /etc/apk/repositories
 # echo http://dl-cdn.alpinelinux.org/alpine/edge/community >> /etc/apk/repositories
 apk update
-apk add --no-cache binutils make libgcc musl-dev gcc g++
+apk add --no-cache git binutils make libgcc musl-dev gcc g++
 apk add --no-cache bash
 apk add --no-cache fuse-dev
 apk add --no-cache libsodium-dev libsodium-static
@@ -28,15 +28,4 @@ export CPPFLAGS="-DBACKWARD_HAS_DWARF=1 -I/usr/include/libdwarf"
 # This is sufficient to run make -f .../GNUmakefile check
 # valgrind will report a couple of false positives.
 #
-# To build staticly, we need to compile a static versions of libfuse.
-wget https://github.com/libfuse/libfuse/releases/download/fuse-2.9.9/fuse-2.9.9.tar.gz -O- | tar xfz -
-cd fuse-2.9.9
-./configure --enable-shared=no
-make -j install
-cd ..
-
-cd $OPWD
-# It's now possible to do:
-# LDFLAGS=-static make -f .../GNUmakefile
-
 set +eux

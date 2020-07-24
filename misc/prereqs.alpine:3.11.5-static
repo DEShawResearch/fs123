@@ -1,0 +1,21 @@
+#!/bin/sh
+# assumes this was sourced from top-level of gardenfs (e.g. from .travis.yml
+# or desres/dockertest, which would need to ensure there is a docker image
+# called alpine:3.11.5-static, which I build by hand, by
+# desres/dockertest alpine:3.11.5
+# and committing that image as alpine:3.11.5-static
+# 
+. misc/prereqs.alpine:3.11.5 || exit 1
+
+# To build staticly, we need to compile a static versions of libfuse.
+if test ! -e /usr/local/lib/libfuse.a; then
+	wget https://github.com/libfuse/libfuse/releases/download/fuse-2.9.9/fuse-2.9.9.tar.gz -O- | tar xfz -
+	cd fuse-2.9.9
+	./configure --enable-shared=no
+	make -j install
+	cd ..
+fi
+
+cd $OPWD
+export LDFLAGS="-static $LDFLAGS"
+
