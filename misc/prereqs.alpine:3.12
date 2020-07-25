@@ -22,7 +22,7 @@ apk add python3
 # Alpine's libc is libmusl, not glibc.  It doesn't have backtrace, so
 # we have to jump through a few extra hoops to get stacktrace.hpp and
 # backward.hpp to work.
-apk add libdwarf libdwarf-dev libdwarf-static elfutils-dev
+apk add libdwarf libdwarf-dev libdwarf-static libelf-static elfutils-dev
 export LDLIBS="-ldwarf -lelf"
 export CPPFLAGS="-DBACKWARD_HAS_DWARF=1 -I/usr/include/libdwarf"
 # This is sufficient to run make -f .../GNUmakefile check

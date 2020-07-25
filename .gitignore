@@ -1,3 +1,8 @@
+*.o
+ex1server
+fs123p7
+ut_*
+libfs123.a
 obj/
 obj-*/
 dist/

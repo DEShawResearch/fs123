@@ -1,0 +1,13 @@
+#!/bin/sh
+# assumes this was sourced from top-level of gardenfs (e.g. from .travis.yml
+# or desres/dockertest, which would need to ensure there is a docker image
+# called alpine:VER-static, which I build by hand, by first using
+# misc/dockrun alpine:VER
+# and committing that container as alpine:VER-static
+# 
+. misc/prereqs.alpine:3.12 || exit 1
+
+apk add fuse-static
+cd $OPWD
+export LDFLAGS="-static $LDFLAGS"
+
