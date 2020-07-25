@@ -1,30 +1,28 @@
 #!/bin/sh
 set -eux
-OPWD=`pwd -P`
-cd `mktemp -d`
 
-# Are these necessary?
-# echo http://dl-cdn.alpinelinux.org/alpine/edge/testing >> /etc/apk/repositories
-# echo http://dl-cdn.alpinelinux.org/alpine/edge/community >> /etc/apk/repositories
 apk update
 apk add git binutils make libgcc musl-dev gcc g++
 apk add bash
 apk add fuse-dev
-apk add libsodium-dev libsodium-static
-apk add curl curl-dev curl-static
+apk add libsodium-dev
+apk add curl curl-dev
 apk add util-linux
-apk add libevent-dev libevent-static
-apk add nghttp2-static openssl-libs-static zlib-static
+apk add libevent-dev
+apk add nghttp2-static 
 apk add attr
 apk add e2fsprogs
 apk add valgrind
 apk add python3
+
 # Alpine's libc is libmusl, not glibc.  It doesn't have backtrace, so
 # we have to jump through a few extra hoops to get stacktrace.hpp and
 # backward.hpp to work.
-apk add libdwarf libdwarf-dev libdwarf-static elfutils-dev
+apk add libdwarf libdwarf-dev elfutils-dev
+
 export LDLIBS="-ldwarf -lelf"
 export CPPFLAGS="-DBACKWARD_HAS_DWARF=1 -I/usr/include/libdwarf"
+
 # This is sufficient to run make -f .../GNUmakefile check
 # valgrind will report a couple of false positives.
 #
