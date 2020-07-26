@@ -1,8 +1,10 @@
-*.o
-ex1server
-fs123p7
 ut_*
 !ut_*.*
+*.out
+*.o
+*.d
+ex1server
+fs123p7
 libfs123.a
 obj/
 obj-*/
