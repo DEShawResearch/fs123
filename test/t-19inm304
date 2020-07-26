@@ -15,14 +15,28 @@ EXPORT_ROOT = os.getenv('EXPORT_ROOT')
 MTPT = os.getenv('MTPT')
 MTroot = os.getenv('MTroot')
 
-# clear the cache,  so that no evictions happen
-# while we're waiting for a cached file to expire
-# This shouldn't be so hard ...
-cachedir = subprocess.check_output(['awk', '/^Fs123CacheDir/{print $2}', opj(MTPT, '.fs123_config')]).decode('utf-8').strip()
-assert cachedir, "cachedir had better not be empty"
-assert os.path.isdir(cachedir), "cachedir must be a directory"
-for f in glob.glob("%s/?/*"%(cachedir)):
-    os.unlink(f)
+# Fiddle with EvictPeriodMinutes so that no evictions happen while
+# we're waiting for a cached file to expire.
+def set_evict_period(minutes):
+    subprocess.check_output(['fs123p7', 'ctl', MTPT, 'EvictPeriodMinutes', minutes])
+    
+def get_evict_period():
+    return subprocess.check_output(['awk', '/^Fs123EvictPeriodMinutes/{print $2}', opj(MTPT, '.fs123_config')]).decode('utf-8').strip()
+
+orig_evict_period=get_evict_period()
+print('original EvictPeriodMinutes:', orig_evict_period)
+# FIXME - we restore the evict_period at the end, but *not if we exit
+# early*.
+set_evict_period('10000')
+print('new EvictPeriodMinutes: ', get_evict_period())
+# The client doesn't recognize the new 'EvictPeriod' until
+# the eviction thread fires again on its own.  So we have to
+# wait for that to happen:
+ncachedirs=16
+waitfor = min(int(orig_evict_period)*60/ncachedirs, 30.) # Not more than 30 sec!
+time.sleep( waitfor )
+# This would be simpler if there were another ioctl that causes the
+# eviction thread to fire.
 
 wdname = tempfile.mkdtemp(prefix='t-19inm304', dir=EXPORT_ROOT)
 basedname = os.path.basename(wdname)
@@ -58,5 +72,9 @@ time.sleep(1)
 after = subprocess.check_output(['awk', '/dc_rf_304/{print $2}', opj(MTPT, '.fs123_statistics')]).decode('utf-8').strip()
 print("before: ", before, "after: ", after)
 assert int(before)+1 == int(after), "expected dc_rf_304 statistic to increase by 1"
+
+set_evict_period(orig_evict_period)
+print('restored EvictPeriodMinutes:', get_evict_period())
+
 exit(0)
 
