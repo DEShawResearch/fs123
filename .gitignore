@@ -2,6 +2,7 @@
 ex1server
 fs123p7
 ut_*
+!ut_*.*
 libfs123.a
 obj/
 obj-*/
