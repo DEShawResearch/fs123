@@ -40,7 +40,7 @@ install:
 script:
     - > 
         ./misc/dockrun ${DOCKER_IMAGE} 
-	/bin/sh -e -c "cd /fs123 && . ./misc/prereqs.${DOCKER_IMAGE} && make -j4 check && make -j4 core123-check && make install"
+        /bin/sh -e -c "cd /fs123 && . ./misc/prereqs.${DOCKER_IMAGE} && make -j4 check && make -j4 core123-check && make install"
 
 # There must be a better way ...
 after_failure:
