@@ -22,7 +22,7 @@ apk add python3
 # we have to jump through a few extra hoops to get stacktrace.hpp and
 # backward.hpp to work.
 apk add libdwarf libdwarf-dev libdwarf-static libelf-static elfutils-dev
-export LDLIBS="-ldwarf -lelf"
+export LDLIBS="-ldwarf -lelf -lz"
 export CPPFLAGS="-DBACKWARD_HAS_DWARF=1 -I/usr/include/libdwarf"
 export LDFLAGS="-static"
 

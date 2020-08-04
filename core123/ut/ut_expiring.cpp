@@ -26,7 +26,7 @@ int main(int argc, char **argv){
     // reliably get valgrind to complain.  So we run the
     // unit test under valgrind
 #ifndef __APPLE__
-    if( argc <= 1 ){
+    if( argc <= 1 && !getenv("NO_VALGRIND") ){
         std::cout << argv[0] << " called with no arguments reinvokes itself under valgrind" << std::endl;
         // Using valgrind with tcmalloc is terribly finnicky.  We
         // assume that the build system placed things like
