@@ -100,12 +100,12 @@ struct chacha : public detail::prf_common<12, 16, 0, uint32_t>{
     chacha() : common_type(){}
     chacha(key_type _k) : common_type(_k){ }
 
-    CORE123_DETAIL_OSTREAM_OPERATOR(os, chacha, f){
+    CORE123_DETAIL_OSTREAM_OPERATOR(os, chacha, /*f*/){
         return os; // there's no internal state!
         //return os << static_cast<const common_type&>(f);
     }
 
-    CORE123_DETAIL_ISTREAM_OPERATOR(is, chacha, f){
+    CORE123_DETAIL_ISTREAM_OPERATOR(is, chacha, /*f*/){
         return is; // there's no internal state!
         //return is >> static_cast<common_type&>(f);
     }
