@@ -364,7 +364,7 @@ BOOST_AUTO_TEST_CASE(test_runtest)
 
 // If we really used Boost.Test, this would be automatic!
 
-int main(int argc, char **argv){
+int main(int, char **){
     test_default_seed();
     test_seed_seq_seed();
     test_streaming();

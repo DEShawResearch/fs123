@@ -91,7 +91,7 @@ void deleters_and_error_handlers(){
     auto q= autocloser_t<int, cranky_deleter, cranky_err_handler>(new int(51));
 }
 
-int main(int argc, char** argv){
+int main(int, char**){
     dosomething();
     
     {

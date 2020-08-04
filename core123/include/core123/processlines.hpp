@@ -56,7 +56,7 @@ inline void processlines(std::function<size_t(char *,size_t)>fillbuf,
                 throw std::runtime_error("out of buffer space, line too long?! buflen="+std::to_string(buflen)+" bufsize="+std::to_string(bufsize));
             auto nb = fillbuf(bufstart+buflen, bufsize-buflen);
             DIAG(_processlines, "filled " << nb << " bytes, eofshortread=" << eofshortread);
-            if (nb < 0 || (nb == 0 && eofshortread)) {
+            if (nb == 0 && eofshortread) {
                 DIAG(_processlines, "EOF buflen=" << buflen);
                 got_eof = true;
                 if (buflen == 0)

@@ -1,7 +1,7 @@
 #include <core123/envto.hpp>
 #include <core123/ut.hpp>
 
-int main(int argc, char **argv) {
+int main(int, char **) {
     auto x = core123::envto<long>("WINDOWID", -1);
     if (x == -1) {
         std::cout << "no WINDOWID" << std::endl;

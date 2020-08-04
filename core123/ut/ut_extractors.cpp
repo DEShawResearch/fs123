@@ -6,7 +6,7 @@
 
 using namespace std;
 
-int main(int argc, char **argv){
+int main(int, char **){
     double x;
     int y;
     string s1, s2;

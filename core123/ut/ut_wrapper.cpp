@@ -109,7 +109,7 @@ void dosomething(){
     sew::fclose(fp);
 }
 
-int main(int argc, char** argv){
+int main(int, char**){
     dosomething();
     
     printf("OK\n");

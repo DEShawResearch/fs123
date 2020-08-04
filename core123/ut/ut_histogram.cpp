@@ -67,7 +67,7 @@ void print_hist(histogram& h){
     }
 }
 
-int main(int argc, char **argv){
+int main(int, char **){
     uniform_histogram h(-5., 5., 10);
 
     std::cout.precision(17);

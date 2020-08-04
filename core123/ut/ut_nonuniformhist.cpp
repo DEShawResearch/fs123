@@ -52,7 +52,7 @@ void print_hist(histogram& h){
     }
 }
 
-int main(int argc, char **argv){
+int main(int, char **){
 
     double cuts[] = {-11., -4., -2., 0., 1.5, 2.6, 3.14};
     std::cout.precision(18);

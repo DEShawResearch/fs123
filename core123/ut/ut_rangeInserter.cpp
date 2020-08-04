@@ -7,7 +7,7 @@
 using namespace std;
 using core123::insbe;
 
-int main(int argc, char **argv){
+int main(int, char **){
     int numbers[] = {11, 37, 19};
 
     ostringstream oss;

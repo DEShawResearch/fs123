@@ -66,7 +66,7 @@ void ichk(){
 }
 
 
-int main(int argc, char **argv){
+int main(int, char **){
     std::cerr.precision(21); // So that any errors get printed with 21 digits!
     chk<float>();
     chk<double>();

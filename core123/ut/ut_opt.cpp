@@ -41,7 +41,7 @@ void printopts() {
 #define TEST_PREFIX "TESTOPT_"
 } // namespace <anon>
 
-int main(int argc, char *argv[]) try
+int main(int, char **) try
 {
     bool help = false;
     option_parser op;

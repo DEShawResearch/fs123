@@ -21,7 +21,7 @@ unsigned testfalse(const core123::bloomfilter& bf, unsigned nf,
 
 }
 
-int main(int argc, char **argv) {
+int main(int, char **) {
     // Does adding to a default-construct bloom segfault?
     core123::bloomfilter bfdefault;
     bfdefault.add("hello world");

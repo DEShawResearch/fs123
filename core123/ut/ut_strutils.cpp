@@ -49,7 +49,7 @@ std::ostream& operator<<(std::ostream& os, const CIMap::iterator &p){
 #define EQUALV(a, b) eqv(a, b, #a, #b) ? (utpass++) : (utfail++)
 #define COMMA ,
 
-int main(int argc, char **argv) {
+int main(int, char **) {
     EQUALV(svsplit_exact("x", "x"), {"" COMMA ""});
     EQUALV(svsplit_exact("", "x"), {""});
     EQUALV(svsplit_exact("", "xyzzy"), {""});

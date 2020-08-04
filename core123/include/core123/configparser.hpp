@@ -35,7 +35,7 @@ static const auto _configparser = diag_name("configparser");
 
 template <typename MapType>
 struct NoInterpolation {
-    std::string operator()(str_view sv, const MapType& vars, const int max_recursion = 10) {
+    std::string operator()(str_view sv, const MapType& /*vars*/, const int /*max_recursion*/ = 10) {
         return std::string{sv};
     }
 };

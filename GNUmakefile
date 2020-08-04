@@ -54,7 +54,8 @@ OPT?=-O3 # if not explicitly set
 CPPFLAGS += -iquote $(top/)include
 CPPFLAGS += -I $(top/)core123/include
 CXXFLAGS += -DFUSE_USE_VERSION=26
-CXXFLAGS += -std=c++17 -ggdb -Wall -Wshadow
+CXXFLAGS += -std=c++17 -ggdb -Wall
+CXXFLAGS += -Wshadow
 CXXFLAGS += -Werror
 CXXFLAGS += -Wextra
 CXXFLAGS += $(OPT)

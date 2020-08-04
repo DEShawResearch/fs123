@@ -2,7 +2,7 @@
 #include <core123/ut.hpp>
 #include <core123/scanint.hpp>
 
-int main(int argc, char **argv){
+int main(int, char **){
     auto u = core123::gen_random_uuid();
     std::cout << u << "\n";
     CHECK(u[14] == '4'); // Version 4

@@ -95,6 +95,7 @@ public:
     philox(_key_type _k) : common_type(_k){}
 
     philox(const philox& v) : common_type(v){}
+    philox& operator=(const philox&) = default;
 
     _ctr_type operator()(_ctr_type c) const {
         _key_type kcopy = this->k;
@@ -126,6 +127,7 @@ public:
     philox(_key_type _k) : common_type(_k){}
 
     philox(const philox& v) : common_type(v){}
+    philox& operator=(const philox&) = default;
 
     _ctr_type operator()(_ctr_type c) const {
         _key_type kcopy = this->k;

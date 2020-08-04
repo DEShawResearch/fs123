@@ -26,7 +26,7 @@ void check(core123::bits& b, unordered_set<size_t>& testidx) {
 }
 } // namespace <anon>
 
-int main(int argc, char **argv) {
+int main(int, char **) {
     core123::bits b(300);
     auto bstr = str(b);
     DIAG(_main, "initial bits " << core123::cstr_encode(bstr));

@@ -10,7 +10,7 @@ using core123::timet_to_httpdate;
 namespace sew = core123::sew;
 
 int
-main(int argc, char **argv)
+main(int, char **)
 {
     struct timespec now1, now2, now3;
     sew::clock_gettime(CLOCK_REALTIME, &now1);

@@ -28,7 +28,7 @@ inline void end_timer(int N, const char *msg){
            msg, duration*1.e9/N);
 }
 
-int main(int argc, char **argv){
+int main(int, char **){
     const int N=10000000;
     int i;
     std::ostringstream oss;

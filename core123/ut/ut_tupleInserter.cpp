@@ -22,7 +22,7 @@ void h(std::ostream& os, Args&& ... args){
 struct noncopyable{
     noncopyable(const noncopyable&) = delete;
     noncopyable() = default;
-    friend std::ostream& operator<<(std::ostream& os, const noncopyable& nc){
+    friend std::ostream& operator<<(std::ostream& os, const noncopyable&){
         return os << "<noncopyable>";
     }
 };
@@ -39,7 +39,7 @@ void reset(std::ostringstream& oss){
     oss.str(std::string()); oss.clear();
 }
 
-int main(int argc, char **argv){
+int main(int, char **){
     int x;
     std::ostringstream oss;
     oss << &x;

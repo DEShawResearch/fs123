@@ -24,7 +24,7 @@ using namespace std::chrono;
 
 static constexpr unsigned ROUNDS = 12;
 
-int main(int argc, char **argv){
+int main(int, char **){
     using vcbrng = threefry<4, uint64_tx8, ROUNDS>;
     vcbrng::domain_type ctr;
     using eltype = vcbrng::domain_type::value_type;

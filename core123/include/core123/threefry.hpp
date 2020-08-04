@@ -185,6 +185,7 @@ public:
 
     threefry(const threefry& v) : common_type(v){
     }
+    threefry& operator=(const threefry&) = default;
 
     _ctr_type operator()(_ctr_type c) const { 
         Uint ks[3];
@@ -281,6 +282,7 @@ public:
 
     threefry(const threefry& v) : common_type(v){
     }
+    threefry& operator=(const threefry&) = default;
 
     CORE123_DETAIL_OSTREAM_OPERATOR(os, threefry, f){
         return os << static_cast<const common_type&>(f);

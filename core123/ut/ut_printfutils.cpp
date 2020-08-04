@@ -21,7 +21,7 @@ using core123::nanos;
 // FIXME - test more, e.g., especially things going out of scope.
 // A wider variety of printf formats would be nice, but do we
 // really think that the underlying vsnprintf is broken?
-int MAIN(int argc, char **argv){
+int MAIN(int, char **){
 
     string s;
     char buf[8192];

@@ -46,7 +46,7 @@ void deep(int n){
         deep(n-1);
 }
 
-int main(int argc, char **argv){
+int main(int, char **){
     deep(10);
     set_complaint_destination("%stdout", 0666);
     complain("This is a complaint at the default level (no newline)");

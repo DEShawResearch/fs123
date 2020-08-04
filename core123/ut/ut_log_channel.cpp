@@ -12,7 +12,7 @@ using core123::log_channel;
 using core123::fmt;
 namespace sew = core123::sew;
 
-int main(int argc, char **argv){
+int main(int, char **){
     log_channel lc("%syslog%LOG_INFO%LOG_USER", 0666);
     lc.send("This should go to syslog LOG_USER with level LOG_INFO");
 
