@@ -139,8 +139,6 @@ install:
 
 ut_expiring.o : CPPFLAGS += $(VALGRIND_CPPFLAGS)
 
-ut_scanint.o: CXXFLAGS+=-Wno-int-in-bool-context  # Why?  There's a pragma in the code.
-
 ut_diagtime_flood: ut_diagtime_flood.o
 ut_diagtime_flood.o: ut_diagtime.cpp
 	$(CXX) -c $(CPPFLAGS) -DCORE123_DIAG_FLOOD_ENABLE $(CXXFLAGS) $(TARGET_ARCH) -MD -MP -MF $*.d -MT "$@" $< -o "$@" || (rm -f $*.d $*.o  && false)
