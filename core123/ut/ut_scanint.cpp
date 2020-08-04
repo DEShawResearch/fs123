@@ -57,10 +57,10 @@ void test_real(T N){
     char *p = (char *)::malloc(sz);     
     ::memcpy(p, oss.str().c_str(), sz); 
     core123::str_view s(p, sz); 
-    T x;
-    scanint(s, &x);
-    cout << " str \"" << s << "\" scanint " << x << std::endl;
-    Assert(x==static_cast<T>(N));                                   
+    T xx;
+    scanint(s, &xx);
+    cout << " str \"" << s << "\" scanint " << xx << std::endl;
+    Assert(xx==static_cast<T>(N));                                   
     char& c = const_cast<char&>(s.back());                          
     char oc = c;
     T sgn = ( s[0] == '-' ) ? -1 : 1; 
@@ -100,9 +100,9 @@ void test_real(T N){
     }
     char &nc = const_cast<char&>(s.back());     
     nc = '-'; 
-    size_t q = scanint(s, &x);
-    cout << " str \"" << s << "\" scanint " << x << std::endl;
-    Assert(x == static_cast<T>(N));              
+    size_t q = scanint(s, &xx);
+    cout << " str \"" << s << "\" scanint " << xx << std::endl;
+    Assert(xx == static_cast<T>(N));              
     Assert(q == s.size()-1);                 
     ::free(p);                                      
     cout << std::endl;

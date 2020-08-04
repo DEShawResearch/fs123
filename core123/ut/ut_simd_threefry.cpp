@@ -34,6 +34,7 @@ int main(int argc, char **argv){
         ctr[2] = eltype{20,21,22,23,24,25,26,27};
         ctr[3] = eltype{30,31,32,33,34,35,36,37};
     }
+    {
     vcbrng tf;
     auto r = tf(ctr);
     std::cout << "Vector threefry: sizeof(range_type): " << sizeof(vcbrng::range_type) << "\n";
@@ -63,8 +64,8 @@ int main(int argc, char **argv){
                eltype incr = {1, 1, 1, 1, 1, 1, 1, 1};
                for(int i=0; i<LOOP; ++i){
                    ctr[0] += incr;
-                   auto r = tf(ctr);
-                   sum = std::accumulate(r.begin(), r.end(), sum); // i.e., sum += r[0] + r[1] + .. + r[N-1];
+                   auto rv = tf(ctr);
+                   sum = std::accumulate(rv.begin(), rv.end(), sum); // i.e., sum += r[0] + r[1] + .. + r[N-1];
                }
            });
     // Print the sum, so the optimizer can't elide the whole thing!
@@ -75,7 +76,7 @@ int main(int argc, char **argv){
            1.e9*result.sec_per_iter()/LOOP, ns_per_byte);
     static const float GHz = 3.7;
     printf("at %.1fGHz that's %.2f cpb or %.1f bytes per cycle\n", GHz, ns_per_byte * GHz, 1./(ns_per_byte * GHz));
-           
+    }      
 
     std::cout << "Scalar threefry:\n";
     {

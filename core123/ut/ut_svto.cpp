@@ -28,10 +28,10 @@ int FAIL = 0;
 #define TEST_REAL(T, N) {\
     cout << #T << " " << N << " :" << std::endl;\
     auto s = std::to_string(N);\
-    T x; \
-    svscan(s.c_str(), &x);                                        \
-    cout << " str \"" << s << "\" svscan " << x << std::endl;         \
-    Assert(x==static_cast<T>(N));                                   \
+    T xx; \
+    svscan(s.c_str(), &xx);                                        \
+    cout << " str \"" << s << "\" svscan " << xx << std::endl;         \
+    Assert(xx==static_cast<T>(N));                                   \
     char& c = s.back();\
     char oc = c;\
     T sgn = ( s[0] == '-' ) ? -1 : 1; \
@@ -69,9 +69,9 @@ int FAIL = 0;
     }\
     char &nc = s.back(); \
     nc = '-'; \
-    size_t off = svscan(s.c_str(), &x);              \
-    cout << " str \"" << s << "\" svscan " << x << std::endl;\
-    Assert(x == static_cast<T>(N));              \
+    size_t off = svscan(s.c_str(), &xx);              \
+    cout << " str \"" << s << "\" svscan " << xx << std::endl;\
+    Assert(xx == static_cast<T>(N));              \
     Assert(off == s.size()-1);                 \
     cout << std::endl;\
 }

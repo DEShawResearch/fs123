@@ -14,7 +14,7 @@ using core123::threadpool;
 namespace sew = core123::sew;
 using core123::str;
 
-std::atomic<int> i;
+std::atomic<int> ai;
 class Foo {
 private:
     int divisor_;
@@ -22,10 +22,10 @@ public:
     Foo(int divisor) : divisor_{divisor} {}
     int operator()() {
 	std::this_thread::sleep_for( std::chrono::milliseconds(10) );
-	auto k = i++;
+	auto k = ai++;
 	if(k%divisor_==0)
 	    throw std::runtime_error("Sorry.  I don't like "+std::to_string(k) +" because it is divisible by "+std::to_string(divisor_));
-	return i;
+	return ai;
     }
 };
 

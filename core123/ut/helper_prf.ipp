@@ -288,10 +288,10 @@ BOOST_AUTO_TEST_CASE(test_no_repeats)
     // keyctr (might be slow, so fewer iters)
     for(int i = 0; i < 100000; ++i){
         k0[0]++;
-        BOOST_RANDOM_URNG urng(BOOST_PSEUDO_RANDOM_FUNCTION(k0), c0);
-        bool did_insertion;
-        std::tie(std::ignore, did_insertion) = norepeats.insert(urng());
-        BOOST_CHECK(did_insertion);
+        BOOST_RANDOM_URNG urng1(BOOST_PSEUDO_RANDOM_FUNCTION(k0), c0);
+        bool did_insertion1;
+        std::tie(std::ignore, did_insertion1) = norepeats.insert(urng1());
+        BOOST_CHECK(did_insertion1);
     }
 
     // seed(prf, iv)

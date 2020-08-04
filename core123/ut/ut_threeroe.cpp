@@ -82,12 +82,12 @@ uint32_t verifier ( )
     if(!memcmp(bd.data(), pi->data(), 16))
         throw std::runtime_error("mismatch between bytedigest and digest");
 #endif
-    for(int j=0; j<16; ++j){
-        // convert the j'th pair of hex digits in hexdigest into uc:
+    for(int k=0; k<16; ++k){
+        // convert the k'th pair of hex digits in hexdigest into uc:
         unsigned char uc;
-        core123::scanint<unsigned char, 16, false>(hexdigest.substr(2*j, 2), &uc);
-        // compare uc with the j'th byte in hashes
-        if(uc != hashes[16*i + j])
+        core123::scanint<unsigned char, 16, false>(hexdigest.substr(2*k, 2), &uc);
+        // compare uc with the k'th byte in hashes
+        if(uc != hashes[16*i + k])
             throw std::runtime_error("mismatch testing update/hexdigest functionality!");
     }
   }

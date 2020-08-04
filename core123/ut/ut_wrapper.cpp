@@ -63,9 +63,9 @@ void dosomething(){
 
     // check that getcwd doesn't print uninitialized data:
     try{
-        char buf[1];
+        char shortbuf[1];
         errno = 0;
-        sew::getcwd(buf, sizeof(buf));
+        sew::getcwd(shortbuf, sizeof(shortbuf));
     }catch(system_error& xe){
         if(xe.code().value() != (int)std::errc::result_out_of_range)
             throw;

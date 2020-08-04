@@ -237,15 +237,15 @@ public:
         // only hurt (by producing the same key from two different
         // initializations).  Nevertheless, it's required by the standard...
         q.generate(a.begin(), a.end());
-        typename PRF::key_type k;
-        typename PRF::domain_type c;
+        typename PRF::key_type kk;
+        typename PRF::domain_type cc;
         auto b = std::begin(a);
         auto e = std::end(a);
-        b = detail::stdarray_from_u32(k, b, e);
-        f = PRF{k};
-        detail::stdarray_from_u32(c, b, e);
-        c.back() &= ~ctr_mask;
-        reinit(c);
+        b = detail::stdarray_from_u32(kk, b, e);
+        f = PRF{kk};
+        detail::stdarray_from_u32(cc, b, e);
+        cc.back() &= ~ctr_mask;
+        reinit(cc);
     }
         
     // A non-required seed function corresponding to our non-required constructor:

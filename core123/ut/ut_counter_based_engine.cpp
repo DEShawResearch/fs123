@@ -39,9 +39,9 @@ int main(int, char **) try {
     try{
         prf_t::domain_type d0 = {};
         d0.back() = 1ull<<60;
-        auto g = make_counter_based_engine<4>(prf_t(k), d0);
+        auto g2 = make_counter_based_engine<4>(prf_t(k), d0);
         CHECK(false); // can't get here!
-        g();
+        g2();
     }catch(std::invalid_argument& e){
         threw = true;
     }

@@ -25,7 +25,7 @@ CXXFLAGS+=$(OPT)
 # off a few warnings.  One of them is -Wint-in-bool-context, which is
 # so new that that older compilers complain when we try to ignore it.
 # So we addd -Wno-pragmas to keep the older compiler from complaining.
-CXXFLAGS+=-Wall -Werror -Wno-pragmas
+CXXFLAGS+=-Wall -Werror -Wno-pragmas -Wshadow
 CXXFLAGS+=-std=c++17
 CXXFLAGS+=-ggdb
 LDFLAGS+=-L.

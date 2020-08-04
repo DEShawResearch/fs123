@@ -66,7 +66,7 @@ int main(int argc, char **argv){
     end_timer(N, "DIAGkey (attached, but no keys): ");
 
     // What happens if there are other keys "on"
-    for(int i=0; i<100; ++i){
+    for(i=0; i<100; ++i){
         set_diag_names(core123::fmt("KEY%d", i));
     }
     i=N;
@@ -76,11 +76,11 @@ int main(int argc, char **argv){
     }
     end_timer(N, "DIAG (attached, with 100 keys): ");
 
-    for(int i=0; i<100; ++i){
+    for(i=0; i<100; ++i){
         set_diag_names(core123::fmt("KEY%d", i));
     }
     // Even more keys?
-    for(int i=0; i<10000; ++i){
+    for(i=0; i<10000; ++i){
         set_diag_names(core123::fmt("KEY%d", i));
     }
     i=N;

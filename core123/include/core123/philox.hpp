@@ -92,7 +92,7 @@ private:
     }
 public:
     philox() : common_type(){}
-    philox(_key_type k) : common_type(k){}
+    philox(_key_type _k) : common_type(_k){}
 
     philox(const philox& v) : common_type(v){}
 
@@ -123,7 +123,7 @@ private:
     }
 public:
     philox() : common_type(){}
-    philox(_key_type k) : common_type(k){}
+    philox(_key_type _k) : common_type(_k){}
 
     philox(const philox& v) : common_type(v){}
 
