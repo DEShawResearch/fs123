@@ -16,7 +16,7 @@ deploy:
     draft: true
     on:
         tags: true
-    edge: trie
+    edge: true
 
 # alpine 3.12 (or later) is built static, while 3.11 is dynamic
 env:
