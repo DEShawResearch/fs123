@@ -15,10 +15,10 @@ using core123::str_view;
 // really there because scanint (should) throw before we try
 // to do comparisons with overflowing constant expresions.
 #pragma GCC diagnostic ignored "-Wunknown-warning-option"
+#pragma GCC diagnostic ignored "-Wint-in-bool-context"
 #pragma GCC diagnostic ignored "-Woverflow"
 #pragma GCC diagnostic ignored "-Wtype-limits"
 #pragma GCC diagnostic ignored "-Wbool-compare"
-#pragma GCC diagnostic ignored "-Wint-in-bool-context"
 
 int FAIL = 0;
 #define Assert(P) do{ if(!(P)){ std::cerr << "Assertion failed: "  #P << std::endl; FAIL++; } } while(0)
@@ -63,7 +63,11 @@ void test_real(T N){
     Assert(xx==static_cast<T>(N));                                   
     char& c = const_cast<char&>(s.back());                          
     char oc = c;
-    T sgn = ( s[0] == '-' ) ? -1 : 1; 
+    T sgn = 1;
+    // N.B.  gcc7 warns about int-in-bool-context, even with
+    // the pragma that says not to.  This is a workaround
+    if constexpr (!std::is_same_v<T, bool>)
+        sgn = ( s[0] == '-' ) ? -1 : 1;
     if (oc != '0') {
 	c = oc-1; 
 	try { 
