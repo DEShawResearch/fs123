@@ -1,3 +1,5 @@
+#pragma once
+
 #ifndef FUSE_USE_VERSION
 #error FUSE_USE_VERSION should have been -Defined in the command line
 #endif
