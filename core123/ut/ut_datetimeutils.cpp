@@ -7,6 +7,7 @@
 
 using core123::str;
 using core123::timet_to_httpdate;
+using core123::httpdate_to_timet;
 namespace sew = core123::sew;
 
 int
@@ -54,11 +55,29 @@ main(int, char **)
     for (const auto &t : tests) {
         auto s = timet_to_httpdate(t.first);
         if (s != t.second) {
-            std::cerr << "ERROR: mismatch, got " << s << " for " << t.first << '\n';
+            std::cerr << "ERROR: timet_to_httpdate mismatch, got " << s << " for " << t.first << '\n';
+            std::cerr << "            expected " << t.second << std::endl;
+            return 1;
+        }
+        auto tt = httpdate_to_timet(t.second.c_str());
+        if(tt != t.first) {
+            std::cerr << "ERROR: httpdate_to_timet mismatch, got " << s << " for " << t.first << '\n';
             std::cerr << "            expected " << t.second << std::endl;
             return 1;
         }
     }
+    bool caught = false;
+    try{
+        httpdate_to_timet("19 Jan 2038 03:14:07");
+    }catch(std::system_error& se){
+        caught = true;
+        std::cout << "OK, intentionally bad call to httpdate_timet threw: what:" << se.what() << "\n";
+    }
+    if(!caught){
+        std::cerr << "ERROR:  expected httpdate_to_timet to throw";
+        return 1;
+    }
+    
     std::cout << "OK, " << tests.size() << " tests passed" << std::endl;
     return 0;
 }

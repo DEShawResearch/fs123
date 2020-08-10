@@ -5,6 +5,7 @@
 #include <string>
 #include <core123/strutils.hpp>
 #include <core123/throwutils.hpp>
+#include <core123/sew.hpp>
 
 namespace core123 {
 
@@ -54,28 +55,18 @@ Duration until(const std::chrono::time_point<Clock, Duration>& tp){
 
 inline std::string timet_to_httpdate(time_t epoch){
     char buf[128]; // more than enough
+    struct tm epoch_tm;
+    sew::gmtime_r(&epoch, &epoch_tm);
     // N.B.  %a and %b are locale-dependent.  We should be ok as long
     // as we never call setlocale().
-    strftime(buf, sizeof(buf), "%a, %d %b %Y %T GMT", gmtime(&epoch));
-    struct tm epoch_tm;
-    if(gmtime_r(&epoch, &epoch_tm) == nullptr)
-        throw se(EINVAL, "gmtime_r(" + str(epoch) + ")");
-    if(0 == strftime(buf, sizeof(buf), "%a, %d %b %Y %T GMT", &epoch_tm))
-        throw se(EINVAL, "strftime(buf, \"%a, %d %b %Y %T GMT\", &epoch_tm)");
+    sew::strftime(buf, sizeof(buf), "%a, %d %b %Y %T GMT", &epoch_tm);
     return buf;
 }
 
 inline time_t httpdate_to_timet(const char *http_date){
     struct tm ttm;
     ttm.tm_isdst = 0;
-    // Despite its flaws, I have to wonder whether chrono would be better here...
-    auto p = strptime(http_date, "%a, %d %b %Y %T GMT ", &ttm);
-    if(*p!='\0') {
-        throw std::system_error(EINVAL, std::system_category(),
-                                fmt("date_to_timet(%s) failed at character #%zd",
-                                    http_date, p - http_date));
-    }
-    //
+    sew::strptime(http_date, "%a, %d %b %Y %T GMT ", &ttm);
 #ifndef NO_TIMEGM
     // Linux (and BSD) timegm does the right thing and fast
     return timegm(&ttm);

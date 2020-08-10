@@ -554,7 +554,7 @@ _wrap(tcgetpgrp);
 _wrap_void(tcsetpgrp);
 _NEEDS_GLIBC( _wrap(vhangup); )
 
-// time
+// time.h
 _wrap(time);
 _wrap_void(gettimeofday);
 _wrap_void(settimeofday);
@@ -565,6 +565,28 @@ _wrap_void(nanosleep);
 _wrap(clock_getres);
 _wrap(clock_gettime);
 _wrap(clock_settime);
+// only {gm,c,asc,local}time_r, the non-_r versions aren't thread-safe.
+_wrapev(asctime_r, (char*)0);
+_wrapev(ctime_r, (char*)0);
+_wrapev(gmtime_r, (struct tm*)0);
+_wrapev(localtime_r, (struct tm*)0);
+_wrapev(getdate, (struct tm*)0); // not thread-safe!
+_wrap(mktime);
+// N.B.  strftime and strptime don't set errno, so when there's an error
+// they throw a system_error with a reasonable-looking what() string, but
+// a zero-valued code().
+_wrapev(strftime, (size_t)0);
+_wrapev(strptime, (char*)0);
+#if 0 && !defined(__APPLE__)
+// these are POSIX, but a) on Linux they require -lrt, and b) they're
+// not available in OSX through 10.15.  I don't want to require -lrt,
+// so I'm leaving them out for now.
+_wrap(timer_create);
+_wrap(timer_delete);
+_wrap(timer_getoverrun);
+_wrap(timer_gettime);
+_wrap(timer_settime);
+#endif
 
 // directory utilities
 // we ignore getdents and readdir(2).  Who knew there was readdir(2) and readdir(3)...
