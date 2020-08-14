@@ -130,12 +130,10 @@ exportd_handler::f(fs123p7::req::up req, uint64_t inm64, size_t len, uint64_t of
     auto fname = opts.export_root + std::string(req->path_info);
     acfd fd = ::open(fname.c_str(), O_RDONLY | O_NOFOLLOW);
     if( !fd ){
-	// we were presumably able to lstat it, but couldn't open it.
-	// This happens "normally" when an unreadable file
-	// is in a readable directory.
+	// Possibly a bogus request, but this also happens "normally"
+	// when an unreadable file is in a readable directory.
 	return (void)err_reply(std::move(req), errno);
     }
-    // call fstat again, just to be sure...
     struct stat sb;
     sew::fstat(fd, &sb);
     if(!S_ISREG(sb.st_mode))
@@ -147,10 +145,7 @@ exportd_handler::f(fs123p7::req::up req, uint64_t inm64, size_t len, uint64_t of
         return not_modified_reply(std::move(req), cc);
 
     auto validator = monotonic_validator(sb);
-    // read directly into a string.  Can't avoid filling with NULs.
-    std::string in(len, '\0');
-    // we always do the read exactly as requested, then
-    // decide if we hit the eof after the read
+    // we always do the read exactly as requested, directly into buf
     auto nread = sew::pread(fd, buf, len, offset);
     f_reply(std::move(req), nread, validator, etag64, esc, cc);
  }catch(std::system_error& se){
