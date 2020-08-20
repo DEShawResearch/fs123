@@ -29,7 +29,7 @@ struct bench_handler: public fs123p7::handler_base{
             sb.st_mode = S_IFREG | 0444;
             try{
                 sb.st_size = svto<size_t>(reqp->path_info, 1);
-            }catch(std::runtime_error&){
+            }catch(std::exception&){
                 return errno_reply(std::move(reqp), ENOENT, cc);
             }
         }
@@ -48,7 +48,7 @@ struct bench_handler: public fs123p7::handler_base{
         // <filename> times.
         try{
             sz = svto<size_t>(reqp->path_info, 1);
-        }catch(std::runtime_error&){
+        }catch(std::exception&){
             return errno_reply(std::move(reqp), ENOENT, cc);
         }
         size_t n;

@@ -1009,7 +1009,7 @@ bool req::add_dirent(core123::str_view name, long offset, int type, uint64_t est
     std::ostringstream oss;
     oss << core123::netstring(name) << " " << type << " " << estale_cookie << "\n";
     size_t osslen = core123::ostream_size(oss);
-    if(osslen >= buf.avail_back())  // >=, not > so there's room for the final newline
+    if(osslen > buf.avail_back())
         return false;
     buf = buf.append(oss.str());
     dir_lastoff = offset;
@@ -1060,7 +1060,6 @@ void req::d_reply(bool at_eof, uint64_t etag64, uint64_t esc, const std::string&
         }else{
             final_telldir = dir_lastoff;
         }
-        buf = buf.append("\n");            // N.B.  we left room for this in dirbuf.add()
         add_hdr(ohdrs, HHNO, std::to_string(final_telldir) + (at_eof?" EOF":""));
         common_reply200(cc, etag64);
  }catch(std::exception& e) { exception_reply(e); }

@@ -315,13 +315,14 @@ st_mode st_nlink st_uid st_gid st_size st_mtime st_ctime st_atime st_ino st_mtim
    and the server should continue from that Offset, e.g., by
    calling seekdir.
 
-   The reply's content is a sequence of records,  one-per-line, listing
-   the directory's contents, in the following form:
+   The reply's content is a sequence of records, each ending with a
+   newline, listing the directory's contents, in the following form:
 
       d_name d_type estale_cookie
 
-   The last record must be followed by a blank line, i.e., a single
-   additional newline character.
+   Extra witespace between records and following the last record is
+   discouraged.  A reply with zero records, may not contain extra
+   whitespace.
 
    d_name is a netstring (see https://cr.yp.to/proto/netstrings.txt)
    containing the name of the directory entry.
