@@ -93,9 +93,10 @@
 //
 // To facilitate end-of-string detection, there is an overload
 // for:
-//     svscan<nullptr_t>(string_view sv, size_t start)
-// which skips whitespace.  I.e., it returns a pair:
-//    {nullptr, offset-of-next-non-whitespace}
+//     svscan<nullptr_t>(string_view sv, std::nullptr_t, size_t start)
+// which skips whitespace.  I.e., it ignores its second argument
+// and returns the offset of the first non-whitespace character from
+// sv[start].
 //
 // Unlike stringTo, svscan<std::string> follows conventional istream
 // extraction rules.  I.e., it scans for a whitespace-delimited

@@ -1323,6 +1323,8 @@ void fs123_readdir(fuse_req_t req, fuse_ino_t ino,
         throw se(EINVAL, fmt("readdir offset invalid.  It points past end of directory.  contents.size()=%zu, ino=%ju, max_special_ino=%zu, off=%zu",
                                      fhstate->contents.size(), (uintmax_t)ino, max_special_ino, nextoff));
     str_view svin(fhstate->contents);
+    if(nextoff < svin.size())
+        nextoff = svscan(svin, nullptr, nextoff); // skip whitespace.  A reply that contains only whitespace implies EOF.
     while(nextoff < svin.size()){
         str_view name;
         uint64_t estale_cookie;
@@ -1379,7 +1381,10 @@ void fs123_readdir(fuse_req_t req, fuse_ino_t ino,
             nextoff = svscan(svin, &d_type, nextoff);
             stbuf.st_mode = dtype_to_mode(d_type);
             nextoff = svscan(svin, &estale_cookie, nextoff);
-            nextoff = svscan(svin, nullptr, nextoff); // skip whitespace
+            auto lastoff = nextoff;
+            nextoff = svscan(svin, nullptr, lastoff); // skip whitespace
+            if(lastoff == nextoff)
+                throw std::invalid_argument("no whitespace at end of dirent record");
         }catch(std::exception&){
             // the caller sees EINVAL, regardless of exactly what was
             // thrown by svscan et al.
