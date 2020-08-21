@@ -41,6 +41,7 @@ int complain(){
         " CacheMaxFiles\n"
         " AddPeer\n"
         " RemovePeer\n"
+        " InvalidateInode\n"
         ;
     return 1;
 }
@@ -133,6 +134,8 @@ int app_ctl(int argc, char **argv) try {
         ioc = ADD_PEER_IOC;
     }else if(cmd == "RemovePeer"){
         ioc = REMOVE_PEER_IOC;
+    }else if(cmd == "InvalidateInode"){
+        ioc = INVALIDATE_INODE_IOC;
     }else{
         fprintf(stderr, "Unrecognized command: %s\n", cmd.c_str());
         return complain();

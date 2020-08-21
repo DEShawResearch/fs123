@@ -1800,7 +1800,7 @@ void do_forget(fuse_ino_t ino, uint64_t nlookup){
 }     
 
 #if !HAS_FORGET_MULTI
-// it wasn't defined in fuse_lowelevel.h.  Define it now.
+// it wasn't defined in fuse_lowlevel.h.  Define it now.
 struct fuse_forget_data{
     uint64_t ino;
     uint64_t nlookup;
@@ -2056,6 +2056,22 @@ void fs123_ioctl(fuse_req_t req, fuse_ino_t ino, int cmd, void *arg, struct fuse
         rdo = (fs123_ioctl_data*)in_buf;
         rdo->buf[ sizeof(rdo->buf)-1 ] = '\0';
         distrib_cache_be->discourage_peer(rdo->buf);
+        fuse_reply_ioctl(req, 0, nullptr, 0);
+        }
+        return;
+    case INVALIDATE_INODE_IOC:
+        {
+        if( in_bufsz != sizeof(fs123_ioctl_data) )
+            throw se(EINVAL, "Wrong size for ioctl");
+        rdo = (fs123_ioctl_data*)in_buf;
+        rdo->buf[ sizeof(rdo->buf)-1 ] = '\0';
+        // we don't require that the file be "open" to invalidate it.
+        // So we specify the ino we want to invalidate as a decimal
+        // integer argument.  This also "works" better with app_ctl,
+        // which always opens .fs123_ioctl and is quite happy to take
+        // string arguments.
+        auto ino_to_inval = svto<ino_t>(rdo->buf);
+        lowlevel_notify_inval_inode_detached(ino_to_inval, 0, 0);
         fuse_reply_ioctl(req, 0, nullptr, 0);
         }
         return;
