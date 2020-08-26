@@ -203,6 +203,16 @@ std::string cache_dir;
 std::string diag_destination;
 std::string log_destination;
 
+// A little utility to threeroe an iovec.  Is this useful enough to be
+// in core123?
+std::string
+trsum_iov(struct iovec* iov, size_t n){
+    threeroe tr;
+    for(size_t i=0; i<n; ++i)
+        tr.update(iov[i].iov_base, iov[i].iov_len);
+    return tr.hexdigest();
+}
+
 unsigned idle_timeout = 0;
 atomic_timer<std::chrono::system_clock> idle_timer;
 void update_idle_timer(){
@@ -1726,12 +1736,12 @@ void fs123_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct f
     }
     iovecs[0].iov_base = const_cast<char *>(content.data()) + off0;
     iovecs[0].iov_len = std::min(len0, content.size()-off0);
-    DIAGfkey(_read, "iov[0]: %lu@%p\n", iovecs[0].iov_len,  iovecs[0].iov_base);
+    DIAGfkey(_read, "iov[0]: %lu@%p trsum=%s\n", iovecs[0].iov_len,  iovecs[0].iov_base, trsum_iov(&iovecs[0], 1).c_str());
     if( shortread || iovecs[0].iov_len == size ){
         // We're done.  Either we got a short read, indicating EOF,
         // or we've satisfied the request for 'size' bytes.
         stats.bytes_read += iovecs[0].iov_len;
-        DIAGfkey(_read, "read(%p, %ju) -> iovecs[1]{len=%zd}\n", req, (uintmax_t)ino, iovecs[0].iov_len);
+        DIAGfkey(_read, "read(%p, %ju, %zu, %jd) -> iovecs[1]{len=%zd, trsum=%s}\n", req, (uintmax_t)ino, size, (intmax_t)off, iovecs[0].iov_len, trsum_iov(iovecs, 1).c_str());
         return reply_iov(req, iovecs, 1);
     }
     auto nleft = size - len0;
@@ -1747,12 +1757,14 @@ void fs123_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct f
     if(proto_minor >= 2){
         uint64_t rvalidator;
         std::tie(rvalidator, content) = content_parse_7_2(reply1.content);
+        DIAGf(_read, "first-try begetchunk_file1: trsum(content)=%s", threeroe(content).hexdigest().c_str());
         if(rvalidator < ino_validator){
             stats.reread_no_cache++;
-            reply1 = begetchunk_file(ino, start0kib, true/*no_cache*/);
+            reply1 = begetchunk_file(ino, start1kib, true/*no_cache*/);
             if(reply1.eno)
                 return reply_err(req, reply1.eno);
             std::tie(rvalidator, content) = content_parse_7_2(reply1.content);
+            DIAGf(_read, "re-try begetchunk_file1: trsum(content)=%s", threeroe(content).hexdigest().c_str());
             if(rvalidator < ino_validator){
                 stats.non_monotonic_validators++;
                 throw se(ESTALE, "fs123_read:  monotonic_validator in the past even after no_cache retrieval fullname: " + name + " r_validator: " + std::to_string(rvalidator) + " ino_validator: " + std::to_string(ino_validator));
@@ -1767,9 +1779,9 @@ void fs123_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct f
     auto len1 = std::min(nleft, content.size());
     iovecs[1].iov_base = const_cast<char*>(content.data());
     iovecs[1].iov_len = len1;
-    DIAGfkey(_read, "iov[1]: %lu@%p\n", iovecs[1].iov_len,  iovecs[1].iov_base);
+    DIAGfkey(_read, "iov[1]: %lu@%p trsum=%s\n", iovecs[1].iov_len,  iovecs[1].iov_base, trsum_iov(&iovecs[1], 1).c_str());
     stats.bytes_read += len0+len1;
-    DIAGfkey(_read, "read(%p, %ju) -> iovecs[2]{len0=%zd, len1=%zd} \n", req, (uintmax_t)ino, len0, len1);
+    DIAGfkey(_read, "read(%p, %ju, %zu, %jd) -> iovecs[2]{len0=%zd, len1=%zd, trsum=%s} \n", req, (uintmax_t)ino, size, (intmax_t)off, len0, len1, trsum_iov(iovecs, 2).c_str());
     return reply_iov(req, iovecs, 2);
  } CATCH_ERRS
 
