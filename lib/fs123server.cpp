@@ -514,6 +514,10 @@ req::parse_and_handle(req::up req) try {
     size_t nextoff = start_of_sigil + sizeof(SIGIL)-1;
     // PROTOminor/
     nextoff = svscan(upath_sv, &req->proto_minor, nextoff) + 1;
+    if(req->proto_minor < fs123_protocol_minor_min)
+        httpthrow(400, fmt("protocol %s%d is no longer supported.  Minimum is %s%d", SIGIL, req->proto_minor,  SIGIL, fs123_protocol_minor_min));
+    if(req->proto_minor > fs123_protocol_minor_max)
+        httpthrow(400, fmt("protocol %s%d is not supported.  Maximum is %s%d", SIGIL, req->proto_minor,  SIGIL, fs123_protocol_minor_max));
     // nextoff is one past the slash that follows PROTOmajor/PROTOminor
     if(upath_sv.size() <= nextoff || upath_sv[nextoff-1] != '/')
         httpthrow(400, "expected /FUNCTION after PROTOmajor/PROTOminor");
@@ -1075,8 +1079,7 @@ void req::f_reply(size_t nread, uint64_t content_validator, uint64_t etag64, uin
         buf = buf.grow_back(nread);
         DIAGf(_fs123server, "prepend content validator (%llu) to buf.  buf.avail_front() = %zd, buf.avail_back()=%zd",
               (unsigned long long)content_validator, buf.avail_front(), buf.avail_back());
-        if(proto_minor >= 2) // always?
-            buf = buf.prepend(core123::netstring(std::to_string(content_validator)));
+        buf = buf.prepend(core123::netstring(std::to_string(content_validator)));
 
         add_hdr(ohdrs, HHCOOKIE, std::to_string(esc));
         common_reply200(cc, etag64);

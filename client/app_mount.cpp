@@ -573,14 +573,8 @@ pair_from_a_reply(const std::string& sv) try {
     std::pair<struct stat, uint64_t> ret;
     stats.stat_scans++;
     auto off = svscan(sv, &ret.first, 0);
-    if(proto_minor >= 1){
-        stats.validator_scans++;
-        svscan(sv, &ret.second, off);
-    }else{
-        // The 7.0 client effectively used st_mtim as the validator,
-        // so we use that here.
-        ret.second = ret.first.st_mtim.tv_sec * 1000000000  + ret.first.st_mtim.tv_nsec;
-    }
+    stats.validator_scans++;
+    svscan(sv, &ret.second, off);
     return ret;
 }catch(std::exception&){
     std::throw_with_nested(std::runtime_error("pair_from_a_reply(" + std::string(sv) + "\n"));
@@ -977,7 +971,9 @@ void fs123_init(void *, struct fuse_conn_info *conn_info) try {
     }
 
     proto_minor = envto<int>("Fs123ProtoMinor", fs123_protocol_minor_default);
-    if(proto_minor < fs123_protocol_minor_max)
+    if(proto_minor < fs123_protocol_minor_min)
+        throw se(EINVAL, fmt("Fs123ProtoMinor is too small.  It must be at least %d", fs123_protocol_minor_min));
+    else if(proto_minor < fs123_protocol_minor_max)
         complain(LOG_NOTICE, "Using backward-compatible protocol_minor=%d", proto_minor);
     else if(proto_minor > fs123_protocol_minor_max)
         throw se(EINVAL, fmt("Fs123ProtoMinor too large.  Maximum value: %d", fs123_protocol_minor_max));
@@ -1636,8 +1632,6 @@ void fs123_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) try {
 std::pair<uint64_t, str_view>
 content_parse_7_2(str_view whole){
      str_view monotonic_validator;
-     if(proto_minor < 2)
-         throw std::logic_error("You shouldn't call content_parse_7_2 with proto_minor<2");
      auto next = svscan_netstring(whole, &monotonic_validator, 0);
      return {svto<uint64_t>(monotonic_validator), whole.substr(next)};
 }
@@ -1681,46 +1675,42 @@ void fs123_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct f
     if(reply0.eno)
         return reply_err(req, reply0.eno);
     str_view content;
-    if(proto_minor >= 2){
-        uint64_t rvalidator;
+    uint64_t rvalidator;
+    std::tie(rvalidator, content) = content_parse_7_2(reply0.content);
+    if(rvalidator < ino_validator){
+        stats.reread_no_cache++;
+        // More decisions...
+        //
+        // If r is not in the swr-window, then there's no choice
+        // but to retry with no-cache.
+        //
+        // If r is in the swr-window (which can only happen if
+        // max-stale was unspecified in the original begetchunk),
+        // then there's probably already a background refresh
+        // "in-flight".  It's probably new enough (but not
+        // guaranteed), so if we could wait for that, we'd
+        // probably be good.  But unfortunately our diskcache
+        // doesn't attach new requests to in-flight refreshes, so
+        // we'd have to pause for an indeterminate length of time
+        // and hope that the background refresh completes.  It
+        // gets very complicated, for a fairly modest bandwidth
+        // reduction.
+        //
+        // The simplest thing to do is to go straight to no-cache.
+        // That might waste a little bandwidth, but it's simple
+        // and correct.
+        reply0 = begetchunk_file(ino, start0kib, true/*no_cache*/);
+        if(reply0.eno)
+            return reply_err(req, reply0.eno);
         std::tie(rvalidator, content) = content_parse_7_2(reply0.content);
         if(rvalidator < ino_validator){
-            stats.reread_no_cache++;
-            // More decisions...
-            //
-            // If r is not in the swr-window, then there's no choice
-            // but to retry with no-cache.
-            //
-            // If r is in the swr-window (which can only happen if
-            // max-stale was unspecified in the original begetchunk),
-            // then there's probably already a background refresh
-            // "in-flight".  It's probably new enough (but not
-            // guaranteed), so if we could wait for that, we'd
-            // probably be good.  But unfortunately our diskcache
-            // doesn't attach new requests to in-flight refreshes, so
-            // we'd have to pause for an indeterminate length of time
-            // and hope that the background refresh completes.  It
-            // gets very complicated, for a fairly modest bandwidth
-            // reduction.
-            //
-            // The simplest thing to do is to go straight to no-cache.
-            // That might waste a little bandwidth, but it's simple
-            // and correct.
-            reply0 = begetchunk_file(ino, start0kib, true/*no_cache*/);
-            if(reply0.eno)
-                return reply_err(req, reply0.eno);
-            std::tie(rvalidator, content) = content_parse_7_2(reply0.content);
-            if(rvalidator < ino_validator){
-                stats.non_monotonic_validators++;
-                throw se(ESTALE, "fs123_read:  monotonic_validator in the past even after no_cache retrieval fullname: " + name + " r_validator: " + std::to_string(rvalidator) + " ino_validator: " + std::to_string(ino_validator));
-            }
+            stats.non_monotonic_validators++;
+            throw se(ESTALE, "fs123_read:  monotonic_validator in the past even after no_cache retrieval fullname: " + name + " r_validator: " + std::to_string(rvalidator) + " ino_validator: " + std::to_string(ino_validator));
         }
-        // Wake up the openfile machinery if rvalidator implies that kernel caches are stale.
-        if(rvalidator > ino_validator && fi->fh && enhanced_consistency)
-            openfile_expire_now(ino, fi->fh);
-    }else{
-        content = reply0.content;
     }
+    // Wake up the openfile machinery if rvalidator implies that kernel caches are stale.
+    if(rvalidator > ino_validator && fi->fh && enhanced_consistency)
+        openfile_expire_now(ino, fi->fh);
     
     DIAGfkey(_read, "reply0: size=%zu\n", content.size());
     struct iovec iovecs[2];
@@ -1754,28 +1744,23 @@ void fs123_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct f
     auto reply1 = begetchunk_file(ino, start1kib);
     if(reply1.eno)
         return  reply_err(req, reply1.eno);
-    if(proto_minor >= 2){
-        uint64_t rvalidator;
+    std::tie(rvalidator, content) = content_parse_7_2(reply1.content);
+    DIAGf(_read, "first-try begetchunk_file1: trsum(content)=%s", threeroe(content).hexdigest().c_str());
+    if(rvalidator < ino_validator){
+        stats.reread_no_cache++;
+        reply1 = begetchunk_file(ino, start1kib, true/*no_cache*/);
+        if(reply1.eno)
+            return reply_err(req, reply1.eno);
         std::tie(rvalidator, content) = content_parse_7_2(reply1.content);
-        DIAGf(_read, "first-try begetchunk_file1: trsum(content)=%s", threeroe(content).hexdigest().c_str());
+        DIAGf(_read, "re-try begetchunk_file1: trsum(content)=%s", threeroe(content).hexdigest().c_str());
         if(rvalidator < ino_validator){
-            stats.reread_no_cache++;
-            reply1 = begetchunk_file(ino, start1kib, true/*no_cache*/);
-            if(reply1.eno)
-                return reply_err(req, reply1.eno);
-            std::tie(rvalidator, content) = content_parse_7_2(reply1.content);
-            DIAGf(_read, "re-try begetchunk_file1: trsum(content)=%s", threeroe(content).hexdigest().c_str());
-            if(rvalidator < ino_validator){
-                stats.non_monotonic_validators++;
-                throw se(ESTALE, "fs123_read:  monotonic_validator in the past even after no_cache retrieval fullname: " + name + " r_validator: " + std::to_string(rvalidator) + " ino_validator: " + std::to_string(ino_validator));
-            }
+            stats.non_monotonic_validators++;
+            throw se(ESTALE, "fs123_read:  monotonic_validator in the past even after no_cache retrieval fullname: " + name + " r_validator: " + std::to_string(rvalidator) + " ino_validator: " + std::to_string(ino_validator));
         }
-        // Wake up the openfile machinery if rvalidator implies that kernel caches are stale.
-        if(rvalidator > ino_validator && fi->fh && enhanced_consistency)
-            openfile_expire_now(ino, fi->fh);
-    }else{
-        content = reply1.content;
     }
+    // Wake up the openfile machinery if rvalidator implies that kernel caches are stale.
+    if(rvalidator > ino_validator && fi->fh && enhanced_consistency)
+        openfile_expire_now(ino, fi->fh);
     auto len1 = std::min(nleft, content.size());
     iovecs[1].iov_base = const_cast<char*>(content.data());
     iovecs[1].iov_len = len1;
@@ -2147,16 +2132,11 @@ validator_from_a_reply(const reply123& r) try {
         return 0;
     if(r.content_encoding != content_codec::CE_IDENT)
         throw se(EINVAL, "reply should have been decoded before calling validator_from_a_reply");
-    if(proto_minor >= 1){
-        // Use the fact that there's a newline between the sb and the
-        // validator to avoid fully parsing the sb.
-        auto newlineidx = r.content.find('\n');
-        stats.validator_scans++;
-        return svto<uint64_t>(r.content, newlineidx);
-    }else{
-        // with 7.0, parse the whole thing and return the .second
-        return pair_from_a_reply(r.content).second;
-    }
+    // Use the fact that there's a newline between the sb and the
+    // validator to avoid fully parsing the sb.
+    auto newlineidx = r.content.find('\n');
+    stats.validator_scans++;
+    return svto<uint64_t>(r.content, newlineidx);
  }catch(std::exception&){
     std::throw_with_nested(std::runtime_error("validator_from_a_reply"));
  }

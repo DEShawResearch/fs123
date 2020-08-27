@@ -135,9 +135,9 @@ uint64_t ino_update_validator(fuse_ino_t ino, uint64_t validator) try {
     inomap_lock_t lk(inomap_mtx);
     auto& ir = inomap.at(ino);
     uint64_t ret = ir.validator;
-    if( proto_minor <= 1 || validator > ir.validator)
+    if(validator > ir.validator)
         ir.validator = validator;
-    if( proto_minor > 1 && validator < ir.validator )
+    if(validator < ir.validator )
         throw se(EIO, fmt("ino_update_validator:  new validator (%lu) is less than cached validator (%lu).  Server is confused.", (unsigned long)validator, (unsigned long)ir.validator));
     DIAGfkey(_inomap, "update validator(ino=%lu): old: %lu, new: %lu\n", (unsigned long)ino, (unsigned long)ret, (unsigned long)validator);
     return ret;

@@ -10,7 +10,7 @@
 #define HHTRSUM	    "fs123-trsum"
 
 static const int fs123_protocol_major = 7;
-static const int fs123_protocol_minor_min = 0;
+static const int fs123_protocol_minor_min = 2;
 static const int fs123_protocol_minor_max = 2;
 static const int fs123_protocol_minor_default = 2;
 
