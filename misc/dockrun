@@ -6,7 +6,8 @@ if test $# = 0 -o x"$1" = x"-h" -o x"$1" = x"--help"; then
   exit 1
 fi
 set -eux
+TOP=$(cd $(dirname $0)/..; pwd -P)
 docker run  \
-  --mount=type=bind,src=$(pwd -P),destination=/fs123 --device /dev/fuse \
+  --mount=type=bind,src=${TOP},destination=/fs123 --device /dev/fuse \
   --cap-add SYS_PTRACE --cap-add SYS_ADMIN --security-opt apparmor:unconfined \
   "$@"
