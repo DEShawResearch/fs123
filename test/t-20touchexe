@@ -1,0 +1,60 @@
+#!/bin/bash
+
+# Check that it's ok to repeatedly run a binary from a mounted
+# directory while somebody else is touch-ing it (and therefore
+# changing its 'monotonic validator').
+#
+# N.B.  This is basically a regression for the bug that was
+# fixed in the previous commit.
+
+me=$(basename $0)
+dir=$(cd $EXPORT_ROOT && mktemp -d -p. $me.XXXXXX)
+exportdir=$EXPORT_ROOT/$dir
+mtdir=$MTPT/$dir
+
+# populate the exportdir.  We know there's a /bin/bash because
+# the #! at the top of the file invokes it.  So let's use that.
+cp /bin/bash $exportdir/bash
+cat > $exportdir/.fs123_cc_rules <<EOF
+{
+  "cc" : "max-age=1,stale-while-revalidate=1",
+  "rulesfile-maxage": 30
+}
+EOF
+
+# In a subshell, touch $exportdir/bash 20 times, with a
+# random sleep between them.  When we're done, touch
+# the file called 'done', which tells the other loop
+# it's time to stop.
+(
+set -x
+for i in $(seq 20); do
+    # Sleep for [0,3) seconds:
+    if [ -e $exportdir/failed ]; then
+        break
+    fi
+    # Can we count on usleep?
+    usleep $(( ($RANDOM*32768 +  $RANDOM)%3000000 )) # sleep for 0-3 seconds
+    touch $exportdir/bash
+done
+touch $exportdir/done
+)&
+
+# Now loop until the other loop tells us we're not done (or until bash
+# segfaults, which would mean we've regressed on the bugfix in
+# be0d13).
+nexe=0
+while [ ! -e  $mtdir/done ]  ; do
+    : $((nexe++)) ; 
+    if ! $mtdir/bash -c '' ; then
+        echo FAILED on try $nexe of $mtdir/bash 1>&2
+        # the sleep/touch loop is still running.  Tell it to stop.
+        touch $exportdir/failed
+        exit 1
+    fi
+done
+wait
+echo OK.  Executed $mtdir/bash $nexe times
+
+
+

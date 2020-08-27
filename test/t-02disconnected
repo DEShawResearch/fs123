@@ -58,7 +58,7 @@ fs123p7 flushfile $MTPT/$f
 [ "$(cat $MTPT/$f)" = "$newvalue" ] || die "mismatch in $me after reconnect for $MTPT/$f vs $EXPORT_ROOT/$f"
 
 # Restore cache size to absurdly small values as in ./runtests
-fs123p7 ctl $MTPT CacheMaxFiles 10
-fs123p7 ctl $MTPT CacheMaxMBytes 1
+fs123p7 ctl $MTPT CacheMaxFiles 32
+fs123p7 ctl $MTPT CacheMaxMBytes 16
 
 exit 0
