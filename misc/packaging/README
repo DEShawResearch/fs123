@@ -1,0 +1,12 @@
+This directory contains specifications, control-files, scripts, etc.,
+related to packaging fs123 for different distros and build systems.
+It may turn out that having these files in same repo (or the same
+branch) as the "upstream" source files is misguided.  Time will tell.
+We can always (re)move them.
+
+We'll get started (Sep 2020) with a rudimentary (but working) debian/
+directory.  Hopefully, since it's not at top-level, it won't interfere
+with any attempts to actually port fs123 to debian.
+
+An rpm/ directory and possibly a macports/ directory are planned.
+

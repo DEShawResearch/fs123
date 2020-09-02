@@ -1,0 +1,40 @@
+Source: fs123
+Section: utils
+Priority: optional
+Maintainer: John Salmon <john@thesalmons.org>
+Build-Depends: debhelper (>= 11)
+               ,libfuse-dev
+               ,libsodium-dev
+               ,libcurl4-openssl-dev
+               ,libevent-dev
+               ,libssl-dev
+               ,libdw-dev
+               ,zlib1g-dev
+               ,valgrind, time, attr, curl, python3
+Standards-Version: 4.1.4
+Homepage: https://github.com/DEShawResearch/fs123.git
+#Vcs-Git: https://anonscm.debian.org/git/collab-maint/fs123.git
+#Vcs-Browser: https://anonscm.debian.org/cgit/collab-maint/fs123.git
+
+Package: fs123
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description:  scalable, high-performance, network filesystem.
+ A simple web protocol with just 6 request types
+ leverages the entire HTTP ecosystem (load balancers,
+ proxies, redirects, etc.) and makes it easy to implement and
+ debug custom file servers.
+ .
+ fs123 provides consistency guarantees
+ with path-specific, configurable timeouts, which enables
+ aggressive in-kernel, local-disk, and shared http-proxy
+ caching of positive and negative accesses. It accelerates PATH
+ or PYTHONPATH searches, and is WAN/cloud-friendly.
+ .
+ The client and server are written in C++. Each is a single
+ user-space binary that does not require root privileges.
+ The client uses the FUSE low-level API, and can work through
+ network outages (or even offline) once the on-disk cache is
+ primed.  The libevent-based server easily delivers data
+ at 40Gbps.
+
