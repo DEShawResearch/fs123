@@ -13,12 +13,10 @@ aggressive in-kernel, local-disk, and shared http-proxy
 caching of positive and negative accesses. It accelerates PATH
 or PYTHONPATH searches, and is WAN/cloud-friendly.
 
-The client and server are written in C++. Each is a single
-user-space binary that does not require root privileges.
-The client uses the FUSE low-level API, and can work through
-network outages (or even offline) once the on-disk cache is
-primed.  The libevent-based server easily delivers data
-at 40Gbps.
+A single binary, which does not require root privileges, acts as both
+client and server.  The client uses the FUSE low-level API, and can
+work through network outages (or even offline) once the on-disk cache
+is primed.  The libevent-based server easily delivers data at 40Gbps.
 
 # Build and installation
 
