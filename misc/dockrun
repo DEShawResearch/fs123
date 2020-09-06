@@ -1,6 +1,13 @@
 #!/bin/sh
 # run command line in the specified docker image, using options
 # that are needed by fuse and therefore, fs123
+#
+# For an interactive session, try something like:
+#  sudo ./dockrun -it --rm debian:buster
+#
+# To build a .deb, try something like:
+#  sudo ./dockrun debian:buster /fs123/misc/packaging/build-deb
+#
 if test $# = 0 -o x"$1" = x"-h" -o x"$1" = x"--help"; then
   echo "Usage: $0 [DOCKER_ARGS] DOCKER_IMAGE" >&2
   exit 1
@@ -8,6 +15,8 @@ fi
 set -eux
 TOP=$(cd $(dirname $0)/..; pwd -P)
 docker run  \
-  --mount=type=bind,src=${TOP},destination=/fs123 --device /dev/fuse \
+  --device /dev/fuse \
+  --mount=type=bind,src=${TOP},destination=/fs123 \
+  --mount=type=bind,src=/tmp,destination=/tmp \
   --cap-add SYS_PTRACE --cap-add SYS_ADMIN --security-opt apparmor:unconfined \
   "$@"

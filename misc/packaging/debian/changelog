@@ -1,4 +1,4 @@
-fs123 (7.31.0-1) UNRELEASED; urgency=low
+fs123 (@version@-1) UNRELEASED; urgency=low
 
   * Initial release
 

@@ -19,6 +19,9 @@
 # - the upstream GNUmakefile supports/encourages "out-of-tree" builds.
 #   Should we make use of that?
 
+# N.B. @version@ will be replaced by ../build-deb
+export GIT_DESCRIPTION=@version@-deb
+
 %:
 	dh $@
 

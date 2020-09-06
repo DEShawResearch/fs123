@@ -1,0 +1,85 @@
+#!/bin/sh
+# N.B.  This might be dash, so avoid bash-isms like trap ERR
+
+# Usage:
+#
+#  sudo ../dockrun debian:buster /fs123/misc/packaging/build-deb
+#
+# or, if you're already on a debian machine with prereqs installed:
+#
+#  install_prereqs=no ./build-deb
+#
+# Both will leave a collection of debian build artifacts in:
+#
+#   /tmp/build-deb.fs123.XXXX
+# 
+# Note that DEB_BUILD_OPTIONS=nocheck will skip the self-test,
+# saving a few minutes per cycle in an edit-test loop.
+
+set -xe
+trap "echo FAIL on set -e" EXIT
+
+# FIXME - make this an option!
+# It is generally "yes" in a docker, empty or "no" if called interactively
+: ${install_prereqs:=yes}
+
+if [ $install_prereqs = yes ]; then
+    # FIXME - this is >300 packages on a bare debian:buster.  We
+    # should cache an image that has these pre-installed and
+    # ready-to-go.
+    apt-get -y update
+    apt-get -y install build-essential devscripts lintian
+else
+    echo Nothing new will be installed.  Will try to build with what is already installed.
+fi
+
+# Figure out a few things: where we're going to do the build, where
+# this script is relative to the top of the git repo, what version
+# we're going to call it, etc.
+builddir=$(mktemp -d -p "${TMPDIR:-/tmp}" build-deb.fs123.XXXX) # e.g., /tmp/build-deb.fs123.gDvw
+cd "$(dirname $0)"
+#### CWD is <git repo>/misc/packaging
+relscriptdir=$(git rev-parse --show-prefix)
+cd "$(git rev-parse --show-toplevel)"
+#### CWD is top of git repo
+# This little nugget looks for a tag that matches 7.N*N which should
+# be narrow enough to only match our version tags.  Then it converts
+# underscore and hyphen (which git describe uses to delimit how many
+# commits follow the most recent matching tag) to tilde (which is
+# acceptable in a debian version).  The result is a ver that might
+# look like:
+#    7.31.1 or 7.31.0~5~gd3ab2c2.
+# In any case, ver had better not contain anything other than
+# alphanumeric and .
+ver=$(git describe --match '7.[0-9]*[0-9]' | tr '_-' '~~')
+
+# create an orig.tar.gz in the build-directory
+git archive --format tar.gz -o "$builddir/fs123_$ver.orig.tar.gz" --prefix fs123/ HEAD
+cd "$builddir"
+#### CWD is $builddir
+
+# extract the sources
+tar xf fs123_$ver.orig.tar.gz
+cd fs123
+#### CWD is $builddir/fs123, i.e., top of copied source-tree
+
+# copy misc/packaging/debian from the extracted sources to ./debian
+# and fix the versioning with an in-place sed:
+cp -a "$relscriptdir/debian" debian
+sed -i s/@version@/$ver/ debian/changelog debian/rules
+
+# make sure we've got all the build-dependencies
+if [ $install_prereqs = yes ]; then
+    install_cmd="apt-get -o Debug::pkgProblemResolver=yes --no-install-recommends -y"
+    mk-build-deps -t "${install_cmd}" --install --remove debian/control
+fi
+# run debuild
+debuild -ui -uc # -ui -uc aren't needed for UNRELEASED
+
+# tell the caller what we've left behind
+cd ..
+#### CWD is $builddir
+echo Build artifacts in $PWD
+ls
+# exit cleanly
+trap - EXIT

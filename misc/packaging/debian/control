@@ -8,9 +8,8 @@ Build-Depends: debhelper (>= 11)
                ,libcurl4-openssl-dev
                ,libevent-dev
                ,libssl-dev
-               ,libdw-dev
                ,zlib1g-dev
-               ,valgrind, time, attr, curl, python3
+               ,fuse, bash, valgrind, time, attr, curl, python3
 Standards-Version: 4.1.4
 Homepage: https://github.com/DEShawResearch/fs123.git
 #Vcs-Git: https://anonscm.debian.org/git/collab-maint/fs123.git
