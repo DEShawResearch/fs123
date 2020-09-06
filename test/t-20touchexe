@@ -1,5 +1,7 @@
 #!/bin/bash
 
+trap 'echo 1>&2 $0: Exiting on ERR trap, line: $LINENO; exit 1' ERR
+
 # Check that it's ok to repeatedly run a binary from a mounted
 # directory while somebody else is touch-ing it (and therefore
 # changing its 'monotonic validator').
@@ -33,8 +35,11 @@ for i in $(seq 20); do
     if [ -e $exportdir/failed ]; then
         break
     fi
-    # Can we count on usleep?
-    usleep $(( ($RANDOM*32768 +  $RANDOM)%3000000 )) # sleep for 0-3 seconds
+    # naptime a fractional decimal in [0.000, 2.999]
+    naptime=$(<<< "r=$RANDOM%3000; scale=3; r/1000" bc)
+    # It's not guaranteed by POSIX, but sleep on Debian, CentOS and
+    # alpine accepts fractional values.
+    sleep $naptime
     touch $exportdir/bash
 done
 touch $exportdir/done
