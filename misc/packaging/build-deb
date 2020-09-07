@@ -28,7 +28,7 @@ if [ $install_prereqs = yes ]; then
     # should cache an image that has these pre-installed and
     # ready-to-go.
     apt-get -y update
-    apt-get -y install build-essential devscripts lintian
+    apt-get -y install build-essential devscripts equivs lintian
 else
     echo Nothing new will be installed.  Will try to build with what is already installed.
 fi
