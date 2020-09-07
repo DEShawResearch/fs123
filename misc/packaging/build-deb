@@ -3,9 +3,9 @@
 
 # Usage:
 #
-#  sudo ../dockrun debian:buster /fs123/misc/packaging/build-deb
+#  sudo ../dockrun ubuntu:bionic /fs123/misc/packaging/build-deb
 #
-# or, if you're already on a debian machine with prereqs installed:
+# or, if you're already on a debian-derived machine with prereqs installed:
 #
 #  install_prereqs=no ./build-deb
 #
@@ -13,8 +13,21 @@
 #
 #   /tmp/build-deb.fs123.XXXX
 # 
-# Note that DEB_BUILD_OPTIONS=nocheck will skip the self-test,
-# saving a few minutes per cycle in an edit-test loop.
+# NOTES:
+#
+#  - DEB_BUILD_OPTIONS=nocheck will skip the self-test, saving a few
+#    minutes per cycle in an edit-test loop.
+#
+#  - Binary .deb files built in a clean debian:buster docker image
+#    will *not* work in ubuntu:bionic because of incompatible glibc
+#    versions.  On the other hand, binary .deb files built in a clean
+#    ubuntu:bionic docker image appear to work in debian:buster.
+#
+#  - A binary .deb built on a machine with prereqs already installed
+#    may make use of libraries on that machine that that aren't
+#    automatically findable, e.g., libraries from bleeding-edge
+#    compiler ppas.
+
 
 set -xe
 trap "echo FAIL on set -e" EXIT

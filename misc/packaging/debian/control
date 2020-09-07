@@ -18,6 +18,7 @@ Homepage: https://github.com/DEShawResearch/fs123.git
 Package: fs123
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
+         ,fuse
 Description:  scalable, high-performance, network filesystem.
  A simple web protocol with just 6 request types
  leverages the entire HTTP ecosystem (load balancers,
@@ -42,7 +43,6 @@ Architecture: any
 Depends: ${misc:Depends}
          ,libcore123-dev
          ,libsodium-dev
-         ,libcurl4-openssl-dev
          ,libevent-dev
 Description:  fs123 protocol library
  C++ library that encapsulates many of the details
