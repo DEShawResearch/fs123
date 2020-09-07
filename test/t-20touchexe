@@ -35,11 +35,11 @@ for i in $(seq 20); do
     if [ -e $exportdir/failed ]; then
         break
     fi
-    # naptime a fractional decimal in [0.000, 2.999]
-    naptime=$(<<< "r=$RANDOM%3000; scale=3; r/1000" bc)
-    # It's not guaranteed by POSIX, but sleep on Debian, CentOS and
-    # alpine accepts fractional values.
-    sleep $naptime
+    # sleep for [0, 3.0) seconds.  python seems like
+    # overkill, but posix doesn't guarantee that
+    # sleep works with fractional seconds.
+    # sleep $(printf %d.%03d $(($RANDOM%3)) $(($RANDOM%1000)))
+    python3 -c 'import time,random; time.sleep(3.*random.random())'
     touch $exportdir/bash
 done
 touch $exportdir/done
