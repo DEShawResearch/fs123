@@ -9,7 +9,7 @@ Build-Depends: debhelper (>= 11)
                ,libevent-dev
                ,libssl-dev
                ,zlib1g-dev
-               ,fuse, bash, valgrind, time, attr, curl, python3
+               ,fuse, valgrind, time, attr, curl, python3
 Standards-Version: 4.1.4
 Homepage: https://github.com/DEShawResearch/fs123.git
 #Vcs-Git: https://anonscm.debian.org/git/collab-maint/fs123.git
@@ -36,4 +36,36 @@ Description:  scalable, high-performance, network filesystem.
  network outages (or even offline) once the on-disk cache is
  primed.  The libevent-based server easily delivers data
  at 40Gbps.
+
+Package: libfs123-dev
+Architecture: any
+Depends: ${misc:Depends}
+         ,libcore123-dev
+         ,libsodium-dev
+         ,libcurl4-openssl-dev
+         ,libevent-dev
+Description:  fs123 protocol library
+ C++ library that encapsulates many of the details
+ of the fs123 protocol.  It is especially useful for
+ creating new fs123 servers.
+ 
+
+Package: libcore123-dev
+Architecture: any
+Depends: ${misc:Depends}
+Description:  a header-only library of C++ utilities
+ Core123 is a motley collection useful of C++ libraries and utilities.
+ It is completely header-only.  To use it, just tell your compiler
+ where to find it (-I...), #include the relevant header(s) and go.
+ .
+ Each header file contains a more-or-less standalone collection of
+ related classes and functions.  Documentation is in comments at
+ the top of the file.
+ .
+ They make extensive, unconditional use of C++14.  There is limited
+ use of C++17.
+ .
+ Most of the code is original, but a few libraries are available
+ elsewhere and are included here under the original authors' terms
+ (e.g., an MIT license).
 

@@ -132,8 +132,8 @@ check: $(unit_tests.out)
 .PHONY: install
 install:
 	[ -n "$(PREFIX)" ] || ( echo PREFIX must be set to install; false )
-	mkdir -p $(PREFIX)/include/core123 $(PREFIX)/lib
-	cp -a $(top/)include/core123/* $(PREFIX)/include/core123
+	mkdir -p $(DESTDIR)$(PREFIX)/include/core123
+	cp -a $(top/)include/core123/* $(DESTDIR)$(PREFIX)/include/core123
 
 # Special cases for specific unit tests:
 

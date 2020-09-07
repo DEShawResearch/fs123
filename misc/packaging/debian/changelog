@@ -1,5 +1,6 @@
-fs123 (@version@-1) UNRELEASED; urgency=low
+fs123 (@version@-2) UNRELEASED; urgency=low
 
+  * libcore123 and libfs123 binary debs
   * Initial release
 
  -- John Salmon <john@thesalmons.org>  Tue, 01 Sep 2020 21:01:29 -0400

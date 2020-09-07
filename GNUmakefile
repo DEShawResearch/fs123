@@ -134,6 +134,7 @@ install : $(binaries) $(libs)
 	cp -a $(binaries) $(DESTDIR)$(PREFIX)/bin
 	cp -a $(libs) $(DESTDIR)$(PREFIX)/lib
 	cp -a $(top/)include/fs123 $(DESTDIR)$(PREFIX)/include
+	$(MAKE) -f $(top/)/core123/GNUmakefile install
 
 # <autodepends from http://make.mad-scientist.net/papers/advanced-auto-dependency-generation>
 # Modified to work with CSRCS and CPPSRCS instead of just SRCS...

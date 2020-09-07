@@ -1,0 +1,3 @@
+include/fs123/ usr/include
+libfs123.a usr/lib
+
