@@ -41,31 +41,23 @@ Description:  scalable, high-performance, network filesystem.
 Package: libfs123-dev
 Architecture: any
 Depends: ${misc:Depends}
-         ,libcore123-dev
          ,libsodium-dev
          ,libevent-dev
 Description:  fs123 protocol library
  C++ library that encapsulates many of the details
  of the fs123 protocol.  It is especially useful for
  creating new fs123 servers.
- 
-
-Package: libcore123-dev
-Architecture: any
-Depends: ${misc:Depends}
-Description:  a header-only library of C++ utilities
- Core123 is a motley collection useful of C++ libraries and utilities.
- It is completely header-only.  To use it, just tell your compiler
- where to find it (-I...), #include the relevant header(s) and go.
  .
- Each header file contains a more-or-less standalone collection of
- related classes and functions.  Documentation is in comments at
- the top of the file.
+ Also includes the core123 collection of header-only C++ libraries.
+ .
+ Each header file in /usr/include/core123 contains a more-or-less
+ standalone collection of related classes and functions.
+ Documentation is in comments at the top of the file.
  .
  They make extensive, unconditional use of C++14.  There is limited
  use of C++17.
  .
- Most of the code is original, but a few libraries are available
- elsewhere and are included here under the original authors' terms
- (e.g., an MIT license).
+ Most of the core123 code is original, but a few libraries are
+ available elsewhere and are included here under the original authors'
+ terms (e.g., an MIT license).
 

@@ -14,22 +14,12 @@
 #export DEB_LDFLAGS_MAINT_APPEND = -Wl,--as-needed
 
 # TODO:
-# - upstream should/must supply man pages!
-#
 # - the upstream GNUmakefile supports/encourages "out-of-tree" builds.
 #   Should we make use of that?
 
 # N.B. @version@ will be replaced by ../build-deb
 export GIT_DESCRIPTION=@version@-deb
+export PREFIX=/usr
 
 %:
 	dh $@
-
-# - the upstream GNUmakefile's 'install' rule installs
-#   $PREFIX/lib/libfs123.a and corresponding headers in
-#   $PREFIX/include/fs123.  They're potentially useful,
-#   but they need include/core123 to be useful, and they
-#   belong in an fs123-dev package.  It also installs
-#   /usr/bin/ex1server which seems wrong.  So we forego
-#   the upstream's 'install' rule and rely on ./fs123.install.
-override_dh_auto_install:

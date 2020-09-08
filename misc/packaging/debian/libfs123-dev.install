@@ -1,3 +1,4 @@
-include/fs123/ usr/include
-libfs123.a usr/lib
+usr/include/fs123/
+usr/include/core123/
+usr/lib/libfs123.a
 
