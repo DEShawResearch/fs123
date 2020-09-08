@@ -1,0 +1,96 @@
+#!/bin/sh
+# N.B.  This might be dash, so avoid bash-isms like trap ERR
+
+# Usage:
+#
+#  sudo ../dockrun centos:7 /fs123/misc/packaging/build-rpm
+#
+# or, if you're already on a centos-derived machine with prereqs installed:
+#
+#  install_prereqs=no ./build-rpm
+#
+# Both will leave a collection of debian build artifacts in:
+#
+#   /tmp/build-rpm.fs123p7.XXXX
+# 
+# NOTES:
+#
+# - This script "works" on CentOS7 and uses CentOS-isms including
+#   epel-release, centos-release-scl and devtoolset-8-toolchain (in
+#   the spec file.  It may require modification to work in other
+#   systems.
+
+
+set -xe
+trap "echo FAIL on set -e" EXIT
+
+# FIXME - make this an option!
+# It is generally "yes" in a docker, empty or "no" if called interactively
+: ${install_prereqs:=yes}
+
+if [ $install_prereqs = yes ]; then
+    yum -y install epel-release
+    yum -y install centos-release-scl
+    yum -y install yum-utils
+    yum -y install rpm-build
+    yum -y install git
+else
+    echo Nothing new will be installed.  Will try to build with what is already installed.
+fi
+
+name=fs123p7
+
+# Figure out a few things: where we're going to do the build, where
+# this script is relative to the top of the git repo, what version
+# we're going to call it, etc.
+#### CWD is inherited from caller (could be anywhere)
+tmproot=$(mktemp -d -p "${TMPDIR:-/tmp}" build-rpm.$name.XXXX) # e.g., /tmp/build-rpm.fs123.gDvw
+# make the rpm root
+for i in BUILD BUILDROOT RPMS/noarch RPMS/`uname -m` SOURCES SPECS SRPMS; do
+   mkdir -p $tmproot/$i
+done
+
+cd "$(dirname $0)"
+#### CWD is <git repo>/misc/packaging
+relscriptdir=$(git rev-parse --show-prefix)
+# copy the .specs file
+cp $name.spec $tmproot/SPECS
+
+cd "$(git rev-parse --show-toplevel)"
+#### CWD is top of git repo
+# This little nugget looks for a tag that matches 7.N*N which should
+# be narrow enough to only match our version tags.  Then it converts
+# underscore and hyphen (which git describe uses to delimit how many
+# commits follow the most recent matching tag) to tilde (which is
+# acceptable in a debian version).  The result is a ver that might
+# look like:
+#    7.31.1 or 7.31.0~5~gd3ab2c2.
+# In any case, ver had better not contain anything other than
+# alphanumeric and .
+ver=$(git describe --match '7.[0-9]*[0-9]' | tr '_-' '~~')
+
+# create a .tar.gz in SOURCES
+git archive --format tar.gz -o "$tmproot/SOURCES/$name-$ver.tar.gz" --prefix $name-$ver/ HEAD
+cd "$tmproot"/SPECS
+#### CWD is tmproot/SPECS
+
+# make sure we've got all the build-dependencies
+if [ $install_prereqs = yes ]; then
+    echo install_prereqs TBD
+fi
+# Fix the version in the specs file
+sed -i s/@@VERSION@@/$ver/ $name.spec
+# run debuild
+if [ $install_prereqs = yes ]; then
+    yum-builddep -y $name.spec
+fi
+rpmbuild --define="%_topdir $tmproot" -ba $name.spec
+
+# tell the caller what we've left behind
+cd ..
+#### CWD is $tmproot
+echo Build artifacts in $PWD/BUILD and $PWD/SOURCES
+ls -R $PWD/RPMS $PWD/SRPMS
+
+# exit cleanly
+trap - EXIT

@@ -1,12 +1,12 @@
 This directory contains specifications, control-files, scripts, etc.,
 related to packaging fs123 for different distros and build systems.
-It may turn out that having these files in same repo (or the same
-branch) as the "upstream" source files is misguided.  Time will tell.
-We can always (re)move them.
+In the long run, files like these are best maintained in separate
+repos specific to the individual distros.  We're collecting them here
+to make it a little easier for us to build binaries that we can
+release ourselves.
 
-We'll get started (Sep 2020) with a rudimentary (but working) debian/
-directory.  Hopefully, since it's not at top-level, it won't interfere
-with any attempts to actually port fs123 to debian.
+What's here:
 
-An rpm/ directory and possibly a macports/ directory are planned.
+build-deb, debian/ - work together to build .deb and .dsc packages
+build-rpm, fs123p7.spec - work together to build CentOS7 [s]rpms.
 
