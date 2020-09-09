@@ -22,10 +22,9 @@ A GNUmakefile is provided to build the library.  E.g.,
 ```bash
 make
 make check
-make PREFIX=/path/to/prefix install
+make prefix=/path/to/prefix install
 ```
-The install rule requires that PREFIX be set, and creates and
-populates include/ and lib/ sub-directories under PREFIX.
+The install rule populates $prefix/include.
 
 The GNUmakefile leaves targets and intermediate files in the
 directory from which it is run, but it also supports out-of-tree

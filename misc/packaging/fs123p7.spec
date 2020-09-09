@@ -59,17 +59,17 @@ GIT_DESCRIPTION=%{version}-rpm LDFLAGS=-Wl,--build-id make %{?_smp_mflags}
 %install
 . /opt/rh/devtoolset-8/enable
 rm -rf $RPM_BUILD_ROOT
-GIT_DESCRIPTION=%{version}-rpm PREFIX=%{_prefix}  %make_install
-# FIXME - the makefile should undertand prefix, bindir, libdir, etc.
-# On 64-bit RH systems _libdir is /usr/lib64, *not* /usr/lib, but since
-# the makefile doesn't grok _libdir, we have to fix it here.
-%{__mkdir_p} $RPM_BUILD_ROOT%{_libdir} $RPM_BUILD_ROOT%{_sbindir}
-mv $RPM_BUILD_ROOT%{_prefix}/lib/libfs123.a $RPM_BUILD_ROOT%{_libdir}/libfs123.a
-# FIXME - the makefile should deal with %{_sbindir}/mount.fs123p7
-%{__mkdir_p} $RPM_BUILD_ROOT%{_sbindir}
-%{__ln_s} %{_bindir}/fs123p7 $RPM_BUILD_ROOT%{_sbindir}/mount.fs123p7
-# FIXME - the makefile shouldn't install ex1server
-%{__rm} $RPM_BUILD_ROOT%{_bindir}/ex1server
+# There's no configure, so the GNUmakefile hasn't had libdir, sbindir,
+# etc., substituted into it.  OTOH, the GNUmakefile does support DESTDIR.
+# so we don't want to 
+%{__make} install \
+ DESTDIR=%{?buildroot} \
+ GIT_DESCRIPTION=%{version}-rpm \
+ prefix=%{_prefix} \
+ bindir=%{_bindir} \
+ sbindir=%{_sbindir} \
+ libdir=%{_libdir} \
+ includedir=%{_includedir}
 
 # when we finally get man pages:
 #for chap in 1 5; do

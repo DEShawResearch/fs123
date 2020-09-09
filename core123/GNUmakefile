@@ -17,7 +17,6 @@ top/ := $(dir $(mkfile_path))
 VPATH=$(top/)lib:$(top/)ut
 
 OPT?=-O3 # if not explicitly set
-PREFIX?=/usr/local
 
 CPPFLAGS+=-I$(top/)include
 CXXFLAGS+=$(OPT)
@@ -129,11 +128,12 @@ ut_configparser.out: ut_configparser testconfigparser
 .PHONY: check
 check: $(unit_tests.out)
 
+export prefix?=/usr
+export includedir?=$(prefix)/include
 .PHONY: install
 install:
-	[ -n "$(PREFIX)" ] || ( echo PREFIX must be set to install; false )
-	mkdir -p $(DESTDIR)$(PREFIX)/include/core123
-	cp -a $(top/)include/core123/* $(DESTDIR)$(PREFIX)/include/core123
+	mkdir -p $(DESTDIR)/$(includedir)/core123
+	cp -a $(top/)include/core123/* $(DESTDIR)$(includedir)/core123
 
 # Special cases for specific unit tests:
 

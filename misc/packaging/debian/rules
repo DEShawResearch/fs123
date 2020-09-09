@@ -19,7 +19,6 @@
 
 # N.B. @version@ will be replaced by ../build-deb
 export GIT_DESCRIPTION=@version@-deb
-export PREFIX=/usr
 
 %:
 	dh $@

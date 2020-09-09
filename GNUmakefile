@@ -19,24 +19,24 @@ mkfile_path := $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST))
 top/ := $(dir $(mkfile_path))
 abstop/ := $(realpath $(top/))/
 VPATH=$(top/)lib:$(top/)client:$(top/)exportd:$(top/)examples
-# default PREFIX if none specified
-PREFIX?=/usr/local
 # Link with $(CXX), not $(CC)!
 LINK.o = $(CXX) $(LDFLAGS) $(TARGET_ARCH)
 
 # First, let's define the 'all' target so a build with no arguements
 # does something sensible:
 binaries=fs123p7
-binaries+=ex1server
 
 unit_tests=ut_diskcache
 unit_tests += ut_seektelldir
 unit_tests += ut_content_codec
 unit_tests += utx_cc_rules
 
+# other_exe
+other_exe = ex1server
+
 libs=libfs123.a
 
-EXE = $(binaries) $(unit_tests)
+EXE = $(binaries) $(unit_tests) $(other_exe)
 
 .PHONY: all
 all: $(EXE)
@@ -128,12 +128,19 @@ clean:
 	[ ! -d core123-build ] || rm -rf core123-build
 	[ ! -d "$(DEPDIR)" ] || rm -rf $(DEPDIR)
 
+export prefix?=/usr
+export bindir?=$(prefix)/bin
+export sbindir?=$(prefix)/sbin
+export libdir?=$(prefix)/lib
+export includedir?=$(prefix)/include
+
 .PHONY: install
 install : $(binaries) $(libs)
-	mkdir -p $(DESTDIR)$(PREFIX)/include $(DESTDIR)$(PREFIX)/lib $(DESTDIR)$(PREFIX)/bin
-	cp -a $(binaries) $(DESTDIR)$(PREFIX)/bin
-	cp -a $(libs) $(DESTDIR)$(PREFIX)/lib
-	cp -a $(top/)include/fs123 $(DESTDIR)$(PREFIX)/include
+	mkdir -p $(DESTDIR)$(includedir) $(DESTDIR)$(libdir) $(DESTDIR)$(bindir) $(DESTDIR)$(sbindir)
+	cp -a $(binaries) $(DESTDIR)$(bindir)
+	ln -s $(bindir)/fs123p7 $(DESTDIR)$(sbindir)/mount.fs123p7
+	cp -a $(libs) $(DESTDIR)$(libdir)
+	cp -a $(top/)include/fs123 $(DESTDIR)$(includedir)
 	$(MAKE) -f $(top/)/core123/GNUmakefile install
 
 # <autodepends from http://make.mad-scientist.net/papers/advanced-auto-dependency-generation>

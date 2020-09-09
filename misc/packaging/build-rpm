@@ -89,7 +89,7 @@ rpmbuild --define="%_topdir $tmproot" -ba $name.spec
 # tell the caller what we've left behind
 cd ..
 #### CWD is $tmproot
-echo Build artifacts in $PWD/BUILD and $PWD/SOURCES
+echo Build artifacts in $PWD/RPMS and $PWD/SRPMS
 ls -R $PWD/RPMS $PWD/SRPMS
 
 # exit cleanly
