@@ -96,20 +96,20 @@
 // placed in the reply's Location: header.  A handler that calls
 // redirect_reply will probably look at the req::uri field.
 
-// The 'f', 'd' and 'p' functions take an inm64 argument, taken
-// from the request's If-None-Match header.  Their corresponding
-// _reply functions take an etag64 argument.  The inm64 argument
-// to the handler should be the same as the etag64 value sent in
-// a previous reply.  If the current contents "matches" the
-// inm64 value provided to the handler, then the handler *may*
-// choose to respond with not_modified_reply rather than {f,d,p}_reply.
+// The 'f', 'd' and 'p' functions take an inm64 argument, copied from
+// the incoming request's If-None-Match header.  Their corresponding
+// _reply functions take an etag64 argument.  The handler should
+// expect that the incoming inm64 will be the same as the value of an
+// etag64 sent with a previous reply.  If the current contents
+// "matches" the incoming inm64 value, then the handler *may* choose
+// to respond with not_modified_reply rather than {f,d,p}_reply.
 
-// fs123's etags are a bit idiosyncratic:  they are 64-bit unsigned
+// fs123's etags are a bit idiosyncratic: they are 64-bit unsigned
 // integers, not (as in HTTP) quoted strings.  The 0 value has special
-// meaning: handlers should interpret inm64=0 to mean "there was
-// no If-None-Match header in the request" and they may set etag64=0
-// in {f,d,p}_reply to mean "no Etag should header should be sent in
-// the reply".
+// meaning: handlers should interpret inm64=0 to mean "there was no
+// If-None-Match header in the request" and they may set etag64=0 in
+// {f,d,p}_reply to mean "do not include an Etag header with the
+// reply".
 
 // Http status values, e.g., 200, 400, 502, etc.
 //   - if a handler returns a reply the caller will assemble it
