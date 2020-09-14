@@ -41,7 +41,7 @@
 //    about it using <core123/complain.hpp>, e.g.,
 //
 //    catch(std::exception& e){
-//       complain(e);
+//       complain(e, "Uh oh");
 //    }
 //
 //    For more control, iterate through the entire stack of nested
