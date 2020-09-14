@@ -77,28 +77,49 @@ expect(str_view in, char c, size_t where){
     // N.B.  may throw out_of_range or runtime_error
     if(in.at(where) != c)
         throw std::runtime_error(std::string("crf.hpp: detail::expect(str_view, c='") + c + "') got '" + in.at(where) + "'");
+    // if at() doesn't throw, where must be less than in.size().  Therefore where+1 <= in.size()
     return where+1;
+}
+
+inline size_t
+paranoid_decimal_scanuint(str_view in, size_t* vptr, size_t offset){
+    auto ret = scanint<size_t, 10, false>(in, vptr, offset);
+    if(ret > in.size() || ret <= offset)
+        throw std::logic_error("scanint returned an offset outside in.range().  THERE'S A BUG IN scanint.  FIX IT!!");
+    return ret;
 }
 
 inline size_t
 svscan_crf_onerecord(str_view in, std::function<void(str_view, str_view)> f, size_t start=0){
     auto next = start;
+    // Don't trust the caller: start *might* be greater than in.size().
     next = expect(in, '+', next);
+    // Nevertheless, from here on, we maintain the invariant that:
+    //
+    //    next <= in.size().
+    //
+    // Consequently, it's not possible for any of our unsigned
+    // arithmetic to overflow, neither k nor d reference memory
+    // outside in's bounds, and the value returned is a legal offset
+    // into in.
+    //
+    // For in.at() and in.substr(), trust that the standard library
+    // does behaves as spec'ed.  But for scanint, we check.
     size_t klen, dlen;
-    next = scanint<size_t, 10, false>(in, &klen, next);
+    next = paranoid_decimal_scanuint(in, &klen, next);
     next = expect(in, ',', next);
-    next = scanint<size_t, 10, false>(in, &dlen, next);
+    next = paranoid_decimal_scanuint(in, &dlen, next);
     next = expect(in, ':', next);
     auto k = in.substr(next, klen);
     if( k.size() != klen )
         throw std::out_of_range("klen too large");
-    next += klen;
+    next += k.size();
     next = expect(in, '-', next);
     next = expect(in, '>', next);
     auto d = in.substr(next, dlen);
     if( d.size() != dlen )
         throw std::out_of_range("dlen too large");
-    next += dlen;
+    next += d.size();
     next = expect(in, '\n', next);
     f(k, d);
     return next;
