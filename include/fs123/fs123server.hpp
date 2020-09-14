@@ -194,13 +194,11 @@
 //
 // ISSUES
 //
-// - Move fs123server.[ch]pp to include/ and lib/.
-//
-// - Should req::exception_reply, req::send_and_log, and/or
-//   req::maybe_call_logger be declared noexcept?  Should they have
-//   try{}catch(){complain} wrappers?  What happens if they throw?
-//   Catching and calling exception_reply is an "option" right up to the
-//   point where we call evhttp_send_reply.
+// - Should req::exception_reply and req::maybe_call_logger be
+//   declared noexcept?  If a try{}catch(){complain} wrapper is
+//   hopeless then maybe it's better to crash-and-burn on a noexcept
+//   violation than to carry on only to crash-and-burn more
+//   obscurely later.
 //
 // - option parsing is still pretty baroque.  Can we do better?
 //
