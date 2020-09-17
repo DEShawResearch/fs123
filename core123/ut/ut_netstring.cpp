@@ -97,7 +97,9 @@ void expect_error(str_view nsin) try {
     CHECK(caught);
 
     core123::isvstream svs(nsin);
-    std::string payloadstr(512, 'x'); // big enough to not fit in SSO
+    std::string payloadstr(512, random()); // big enough to not fit in SSO
+    auto payloadstrdata0 = payloadstr.data();
+    std::string payload0(payloadstr);
     try{
         sget_netstring(svs, &payloadstr);
     }catch(std::exception&){
@@ -107,8 +109,8 @@ void expect_error(str_view nsin) try {
     // and left the payload with the capacity of a default string.
     CHECK(caught);
     CHECK(!svs);
-    CHECK(payloadstr.empty());
-    EQUAL(payloadstr.capacity(), std::string().capacity());
+    EQUAL(payloadstr.data(), payloadstrdata0); // payloadstr is unchanged
+    EQUAL(payloadstr, payload0); // payloadstr is unchanged
  }catch(std::exception& e){
     core123::complain(e, "expect_error(\"" + std::string(nsin) + "\") threw an *unexpected* exception:");
     CHECK(false);

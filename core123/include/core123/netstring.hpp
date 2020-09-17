@@ -78,26 +78,25 @@ inline std::ostream& sput_netstring(std::ostream& out, core123::str_view sv) {
     return out;
 }
 
-// sget_netstring(istream& inp, string* sp, size_t max_size=999999999u)
+// sget_netstring(istream& inp, string* sp, bool skip_white=true, size_t max_size=999999999u)
 //
-// Skip leading whitespace in the istream, inp.  If inp is at EOF,
-// return false.  Otherwise, try to parse a netstring from inp.  If
-// the inp contains a netstring with length no more than max_size,
-// read the netstring's payload in *sp.  Upon success, return true,
-// leaving inp's read pointer immediately following the netstring.
+// If skip_white, then skip leading whitespace with inp>>std::ws.  If
+// inp is at EOF, return false.  Otherwise, try to parse a netstring
+// from inp.  If successful, return true.  The input netstring's
+// payload is copied into *sp, and the next character to be read from
+// inp will be the one immediately following the netstring.
 //
 // If any errors are detected (i/o errors, premature eof, input that
 // doesn't strictly conform to the netstring spec, or a netstring
 // longer than max_size), an exception is thrown.  If an exception is
-// thrown, inp's failbit is set, its read pointer is undefined and a
-// default-constructed empty string is swapped into *sp, discarding
-// *sp's previous contents as well as any memory that may have been
-// reserved in *sp for the netstring payload.
+// thrown, inp's failbit is set, its read pointer is undefined and
+// *sp is unchanged.
 //
 // N.B. the default value of max_size comes from the example code
 // in the specs, which uses scanf("%9u") to read the length.
-inline bool sget_netstring(std::istream& inp, std::string* sp, size_t max_size = 999999999u) try {
-    inp >> std::ws;
+inline bool sget_netstring(std::istream& inp, std::string* sp, bool skip_white=true, size_t max_size = 999999999u) try {
+    if(skip_white)
+        inp >> std::ws;
     if(inp.eof())
         return false;
     int c;
@@ -127,21 +126,19 @@ inline bool sget_netstring(std::istream& inp, std::string* sp, size_t max_size =
     }
     if(sz > max_size)
         throw std::runtime_error("sget_netstring: length exceeds max_size argument");
-    // N.B. sz might be *very* large.  resize might throw bad_alloc, or, worse,
-    // it might succeed, and then inp.read might fail, leaving us with a huge
-    // string containing garbage.  We therefore clear *sp in the catch block.
-    sp->resize(sz);
-    inp.read(&(*sp)[0], sz);
+    std::string s(sz, '\0');
+    inp.read(&s[0], sz);
     if(!inp.good())  // i.e., any of fail, bad or eof
         throw std::runtime_error("sget_netstring: failed to read " + std::to_string(sz) + " bytes");
     c = inp.get();
     if (c != ',')
         throw std::runtime_error("sget_netstring: did not get terminal comma");
+    // We're committed now.  Swap s with *sp.
+    sp->swap(s);
     return true;
  }catch(std::exception&){
     // If there's trouble, set inp's failbit and clear *svp.
     inp.setstate(std::ios::failbit);
-    std::string().swap(*sp);
     throw;
  }
 
