@@ -135,32 +135,53 @@ void complain_and_abort(){
     abort();
 }
 
-void do_fuse_unmount(){
+// safe_complain - if logfd is the special value safe_complain_fd,
+// then call complain(LOG_NOTICE, ...).  Otherwise, if logfd>=0, call
+// write(logfd, ...).  Otherwise, do nothing.
+static const int safe_complain_fd = -9999; // not -1, which is the failed-to-open value in fuseful_handler.
+void safe_complain(int logfd, str_view msg){
+    if(logfd == safe_complain_fd)
+        complain(LOG_NOTICE, msg.data());
+    else if(logfd >= 0)
+        unused(::write(logfd, msg.data(), msg.size()));
+    // else nothing.  Sometimes there's just nothing to do.
+}
+
+// do_fuse_unmount is usually called with no arguments in the normal
+// shutdown path from fuse_teardown.  But it's also called (with a
+// logfd) from our signal handler for non-recoverable signals (SEGV,
+// BUS, etc.) even though fuse_unmount is not async-signal-safe.  (See
+// the comment in fuseful_handler for justification.)  Since it might
+// be called in a signal-handler, use safe_complain and avoid
+// formatting.
+void do_fuse_unmount(int logfd = safe_complain_fd){
     static std::atomic_flag entered = ATOMIC_FLAG_INIT;
     if(entered.test_and_set()){
-        complain(LOG_NOTICE, "do_fuse_unmount:  Return immediately from re-invocation");
+        safe_complain(logfd, "do_fuse_unmount:  Return immediately from re-invocation\n");
         return;
     }
     if(!g_channel){
-        complain(LOG_NOTICE,  "do_fuse_unmount:  g_channel==nullptr.  Was it never mounted?  Return immediately");
+        safe_complain(logfd, "do_fuse_unmount:  g_channel==nullptr.  Was it never mounted?  Return immediately\n");
         return;
     }
     // <diagnostic only>
     // follow/report the logic that fuse_unmount will use internally in libfuse-2.9.2.
     int fd = fuse_chan_fd(g_channel);
-    const char *what_to_call = geteuid()? "fuse_mnt_umount" : "umount2 or exec(fusermount)";
     if(fd != -1){
         struct pollfd pfd = {};
         pfd.fd = fd;
         int ret = poll(&pfd, 1, 0);
         /* If file poll returns POLLERR on the device file descriptor,
            then the filesystem is already unmounted */
-        if (1 == ret && (pfd.revents & POLLERR))
-            complain(LOG_NOTICE, "do_fuse_unmount:  Not connected: This is often the result of an external fusermount -u. fuse_unmount will close fuse_chan_fd=%d but will not call %s.", fd, what_to_call);
-        else
-            complain(LOG_NOTICE, "do_fuse_unmount:  Still connected:  This often follows a call to fuse_session_exit, possibly via a signal handler. fuse_unmount will close fuse_chan_fd=%d (twice!) and call %s", fd, what_to_call);
+        if (1 == ret && (pfd.revents & POLLERR)){
+            safe_complain(logfd, "do_fuse_unmount:  Not connected: This is often the result of an external fusermount -u. fuse_unmount will close fuse_chan_fd but will not call fuse_mnt_unmount, umount2 or exec(fusermount).\n");
+            if(logfd>=0)
+                safe_complain(logfd, "If this is a SEGV handler, it's probably the result of the bug reported at:  https://sourceforge.net/p/fuse/mailman/message/30505666/ and fixed in fuse-2.9.3\n");
+        }else{
+            safe_complain(logfd, "do_fuse_unmount:  Still connected:  This often follows a call to fuse_session_exit, possibly via a signal handler. fuse_unmount will close fuse_chan_fd twice! and call fuse_mnt_umount, umount2 or exec(fusermount)\n");
+        }
     }else{
-        complain(LOG_NOTICE, "do_fuse_unmount:  fuse_chan_fd == -1: This is rare, and not the typical result of either a signal or a fusermount -u.  It's not clear what will happen now");
+        safe_complain(logfd, "do_fuse_unmount:  fuse_chan_fd == -1: This is rare, and not the typical result of either a signal or a fusermount -u.  It's not clear what will happen now\n");
     }
     // </diagnostic only>
     // N.B.  fuse_unmount will free(g_channel), so we null it out
@@ -210,10 +231,12 @@ void fuseful_handler(int signum){
     // guaranteed to leave the mount point in a "Transport endpoint
     // not connected" state.  So when handling a "Program Error
     // Signal", we *try* to leave the mount-point not borked by
-    // calling fuse_unmount before re-raising the signal with the
-    // SIG_DFL handler.  fuse_unmount isn't async-safe either, so
-    // this could hang (or worse), but it's still probably better
-    // than leaving the endpoint disconnected.
+    // calling fuse_unmount (via do_fuse_unmount) before re-raising
+    // the signal with the SIG_DFL handler.  fuse_unmount isn't
+    // async-safe either, so this could hang (or worse), but it's
+    // still probably better than leaving the endpoint disconnected.
+    // N.B.  When called with an fd argument, do_fuse_unmount writes to
+    // the fd rather than the normal complaint channel.
     switch(signum){
     // These are the "Program Error Signals" according to:
     // https://www.gnu.org/software/libc/manual/html_node/Program-Error-Signals.html#Program-Error-Signals
@@ -230,21 +253,21 @@ void fuseful_handler(int signum){
     case SIGEMT:
 #endif
     case SIGSYS:
-        do_fuse_unmount();
+        do_fuse_unmount(fd);
 #ifdef __GLIBC__
         // backtrace() is async-signal *un*safe.  But it's worth the
         // risk when we're handling a "Program Error Signal".
         if(fd >= 0){
             void* bt[50];
             int n = backtrace(&bt[0], 50);
-#define MSG "Backtrace from backtrace_symbols_fd\n"
-            unused(::write(fd, MSG, sizeof(MSG)-1));
+            safe_complain(fd, "Backtrace from backtrace_symbols_fd\n");
             backtrace_symbols_fd(bt, n, fd);
-#undef MSG
+        }
+#endif // __GLIBC__
+        if(fd >= 0){
             ::close(fd);
             fd = -1;
         }
-#endif // __GLIBC__
         if(crash_handler){
             auto tmp_hndlr = crash_handler;
             crash_handler = nullptr;
