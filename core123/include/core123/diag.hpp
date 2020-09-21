@@ -515,7 +515,7 @@ struct diag_t{
         if(opt_srcfile || opt_srcdir){
             std::string filepart;
             std::string dirpart;
-            std::tie(filepart, dirpart) = core123::pathsplit(file);
+            std::tie(dirpart, filepart) = core123::pathsplit(file);
             if(opt_srcdir)
                 os << dirpart << '/';
             if(opt_srcfile)
