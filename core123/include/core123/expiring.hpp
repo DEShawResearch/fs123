@@ -12,9 +12,9 @@
 // done it all with time_t and gettimeofday.
 
 // ISSUES:
-//   T must be a class (something we can derive from).  We can't
-//   have an expiring<int>.  This should be fixable with some
-//   magic involving std::enable_if<std::is_class<T>::value>>.
+
+//   T must be a default-constructible class.  We can't have an
+//   expiring<int> nor an expiring<not_default_constructible>.
 
 namespace core123{
 template<typename T, typename Clk = std::chrono::system_clock>
@@ -22,8 +22,18 @@ struct expiring : public T{
     using clk_t = Clk;
     typename Clk::time_point good_till;
 
-    expiring() : T{}, good_till{clk_t::time_point::min()} // bool(expiring()) == false
+#if 1
+    expiring() : T{}, good_till{clk_t::time_point::min()} // expired!
     {}
+#else
+    // Relax the condition that T is default-constructible by
+    // disabling expring<T>'s default constructor.  Not terribly
+    // useful because we need the expiring<T> default-constructor in
+    // expiring_cache::lookup.
+    expiring(typename std::enable_if<std::is_default_constructible<U>::value>::type* = 0)
+        : T{}, good_till{clk_t::time_point::min()}
+    {}
+#endif
 
     // More ambitious would be to template the
     // constructor over any argument pack that
