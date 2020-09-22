@@ -34,7 +34,7 @@ if errmsg=$(cat $MTPT/$d/doesnotexist 2>&1); then
 fi
 case "$errmsg" in
     *No\ such\ file\ or\ directory);;
-    *) die "expected ENOENT error message" ;;
+    *) die "expected ENOENT error message.  Got ${errmsg}" ;;
 esac
 
 # Exercise the code for special files:

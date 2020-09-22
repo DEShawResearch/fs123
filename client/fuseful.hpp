@@ -8,6 +8,7 @@
 #include <core123/diag.hpp>
 #include <fuse/fuse_lowlevel.h>
 #include <core123/complaints.hpp>
+#include <core123/str_view.hpp>
 #include <iostream>
 #include <atomic>
 
@@ -63,6 +64,10 @@ inline void reply_buf(fuse_req_t req, const char *buf, size_t len){
     int ret = fuse_reply_buf(req, buf, len);
     if( ret )
         core123::complain("fuse_%s failed with ret=%d", __func__, ret);
+}
+
+inline void reply_buf(fuse_req_t req, core123::str_view sv){
+    return reply_buf(req, sv.data(), sv.size());
 }
 
 inline void  reply_iov(fuse_req_t req, const struct iovec* iov, int count){
