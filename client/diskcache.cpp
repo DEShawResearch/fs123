@@ -1008,6 +1008,28 @@ diskcache::serialize(const reply123& r, const std::string& path, const std::stri
 
 void
 diskcache::detached_update_expiration(const reply123& r, const std::string& path) noexcept /*protected*/ try {
+    // FIXME(?) - this relies on some fairly subtle "guarantees" about
+    // atomicity of concurrent reads, writes, opens and renames.
+    // Multiple threads may call this function concurrently, each
+    // doing open/pwrite/close, while other threads may be calling
+    // deserialize, which does open/read/close of the same pathname.
+    // Are we *absolutely sure* the data read by any of the
+    // deserializers will correspond, in its entirety (no torn writes)
+    // to the 32 bytes of data written by one of the threads executing
+    // this function.
+    //
+    // An alternative would be to replace the call to this function
+    // with a call to detached_serialize.  This would demand much less
+    // of the filesystem.  We would rely exclusively on the
+    // correctness of open/write/close/rename sequence in
+    // detached_serialize.  The cost is that we'd be doing
+    // open/write(128kB)/close/rename rather than
+    // open/pwrite(32B)/close.  But does that matter?  We're off the
+    // critical path.  Writes typically don't hit the disk until the
+    // kernel feels like it. And for spinning disks, the seek time is
+    // 5-10x longer than the time to write 128kB anyway.  It would be
+    // difficult, if not impossible, for an end-user to notice the
+    // difference.
     atomic_scoped_nanotimer _t(&stats.dc_update_sec);
     refcounted_scoped_nanotimer _rt(update_nanotimer_ctrl);
     refcounted_scoped_nanotimer _rtx(serdes_nanotimer_ctrl);
@@ -1020,12 +1042,25 @@ diskcache::detached_update_expiration(const reply123& r, const std::string& path
     // the header bytes in the file and that readers will see either the new
     // or the old data, but never a mixture.
     acfd fd = sew::openat(rootfd_, path.c_str(), O_RDWR);
-    // Defend against another thread replacing the contents of path with completely different
-    // data while we were twiddling our thumbs...
+    // Defend against another thread replacing the file at path
+    // with completely different data while we were twiddling our
+    // thumbs...  N.B.  If another thread replaces the file now that
+    // we've got an open fd, it will do so with a rename, which
+    // will make the next few lines moot, but it won't make them
+    // wrong.
     uint64_t ondisketag64;
     auto nread = sew::pread(fd, &ondisketag64, sizeof(uint64_t), offsetof(reply123, etag64) - reply123_pod_begin);
     if(nread == sizeof(uint64_t) && ondisketag64 == r.etag64){
-        auto nwrote = sew::write(fd, (char*)&r + reply123_pod_begin, reply123_pod_length);
+        // Only write the cache-control related values that might have
+        // been changed by the call to be->refresh: expires, etag64,
+        // last_refresh and stale_while_revalidate.  But first,
+        // static_assert that they're really contiguous in the reply
+        // structure:
+        static_assert( (offsetof(reply123, stale_while_revalidate) - offsetof(reply123, expires)) ==
+                       (sizeof(r.expires) + sizeof(r.etag64) + sizeof(r.last_refresh)) );
+        auto nwrote = sew::pwrite(fd, (char*)&r + offsetof(reply123, expires),
+                                  sizeof(r.expires) + sizeof(r.etag64) + sizeof(r.last_refresh) + sizeof(r.stale_while_revalidate),
+                                  offsetof(reply123, expires) - reply123_pod_begin);
         stats.dc_update_bytes += nwrote;
     }else{
         stats.dc_failed_updates++;

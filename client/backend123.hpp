@@ -26,10 +26,14 @@ struct reply123{
     // seconds-since-1970 and ttl is -age.
     int32_t magic;
     int32_t eno;
+    // These four fields are updated with an atomic pwrite to the diskcache
+    // when we get at 304.
+    // DO NOT PUT ANYTHING BETWEEN HERE...
     clk123_t::time_point expires;
     uint64_t etag64;  
     clk123_t::time_point last_refresh;
     clk123_t::duration stale_while_revalidate;
+    // AND HERE
     uint64_t estale_cookie;
     int64_t chunk_next_offset;
     // N.B.  chunk_next_meta and content_encoding are actually much
