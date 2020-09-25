@@ -486,7 +486,7 @@ public:
 };
 
 #define ALLOPTS \
-OPTION(bool, allow_unencrypted_requests, true, "if false, then only accept requests encoded in the /e/ envelope");\
+OPTION(bool, allow_unencrypted_requests, false, "if true, then unencrypted requests are allowed, even when secretbox encryption is enabled");\
 OPTION(unsigned, nlisteners, 4, "run with this many listening processes");\
 OPTION(std::string, bindaddr, "127.0.0.1", "bind to this address");\
 OPTION(uint16_t, port, 0, "bind to this port.  If 0, an ephemeral port is chosen.  The port number in use is available via server::get_sockaddr_in.");\

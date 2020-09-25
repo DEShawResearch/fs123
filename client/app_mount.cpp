@@ -967,7 +967,10 @@ void fs123_init(void *, struct fuse_conn_info *conn_info) try {
         encoding_keyid_file = envto<std::string>("Fs123EncodingKeyidFile", "encoding");
         sharedkeydir_fd = sew::open(sharedkeydir_name.c_str(), O_DIRECTORY|O_RDONLY);
         secret_mgr = std::make_unique<sharedkeydir>(sharedkeydir_fd, encoding_keyid_file, sharedkeydir_refresh);
-        encrypt_requests = envto<bool>("Fs123EncryptRequests", false);
+        encrypt_requests = envto<bool>("Fs123EncryptRequests", true);
+    }else{
+        if(envto<bool>("Fs123EncryptRequests", false))
+            throw se(EINVAL, fmt("Fs123EncryptRequests is true, but Fs123Sharedkeydir is empty.  Can't encrypt"));
     }
 
     proto_minor = envto<int>("Fs123ProtoMinor", fs123_protocol_minor_default);

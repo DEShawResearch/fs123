@@ -143,7 +143,7 @@ clientopts+=" -oFs123SupportXattr=true"
 clientopts+=" -oFs123ProtoMinor=$ProtoMinor"
 # It's important to test with encryption turned on, but it's much harder
 # to make sense of the logs when debugging.  To turn off encryption, comment
-# out these three lines (and see below for lines to comment out in the server config)
+# out the next three lines (and see below for lines to comment out in the server config)
 clientopts+=" -oFs123Sharedkeydir=$RCroot/secrets.d"
 clientopts+=" -oFs123SharedkeydirRefresh=1"
 clientopts+=" -oFs123EncryptRequests=true"
@@ -183,10 +183,10 @@ cat > $etc/fs123p7exportd.gflags <<- EOF
 --diag_names=fs123server:http:bufev:proc:fs123req:secretbox:cc_rules:err:complaints:exportd_handler
 #--libevent_debug=true
 --diag_destination=$diag_file
-# To turn off encryption, comment out the next two lines:
+# To turn off encryption, comment out the next two lines and uncomment --allow_unencrypted_requests:
 --sharedkeydir=$RCroot/secrets.d
 --sharedkeydir_refresh=1
---allow_unencrypted_requests=true
+#--allow_unencrypted_requests=true
 --no_rules_cc=max-age=3, stale-while-revalidate=3
 EOF
 
