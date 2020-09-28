@@ -545,19 +545,6 @@ struct backend123_http::curl_handler{
         auto max_age = get_max_age();
         auto swr = get_stale_while_revalidate();
         if( http_code == 304 ){
-            if(max_age == 0){
-                // See comment in get_max_age().
-                max_age = std::chrono::duration_cast<std::chrono::seconds>(replyp->expires - replyp->last_refresh).count();
-		if( age > max_age ){
-		    // the max_age probably changed.  But we'll never
-		    // learn what it is if we keep making INM
-		    // requests.  So we have to zero out the
-		    // etag64 so that the next time we
-		    // request it, we get a 200.
-		    complain(LOG_WARNING,  "age > max_age - set etag64=0  and hope it clears"); // don't know the url here!?
-		    replyp->etag64 = 0;
-		}
-            }
             replyp->last_refresh = clk123_t::now() - std::chrono::seconds(age);
             replyp->expires = replyp->last_refresh + std::chrono::seconds(max_age);
             replyp->stale_while_revalidate = std::chrono::seconds(swr);
@@ -706,15 +693,9 @@ protected:
     }
 
     time_t get_max_age() const try{
-        // First, find the Cache-control header:
-        // RFC7232 says that 304s MUST contain cache-control
-        // if the 200 would have contained it.  But squid 3.3
-        // doesn't play by those rules.  So we return 0 rather
-        // than throwing an error, and have logic at the call
-        // site to try to work around the defeciency.
         auto ii = hdrmap.find("cache-control");
         if(ii == hdrmap.end())
-            return 0; //throw se(EPROTO, "No Cache-control header.  Something is wrong");
+            throw se(EPROTO, "No Cache-control header.  Something is wrong");
         std::string s = get_key_from_string(ii->second, "max-age=");
         // Should we be more strict here?  There are good reasons for no max-age,
         // e.g., there's a no-cache directive instead.  Just return 0.
