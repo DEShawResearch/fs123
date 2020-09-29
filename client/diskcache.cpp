@@ -570,15 +570,47 @@ void diskcache::detached_upstream_refresh(req123& req, const std::string& path, 
     // no point in rethrowing.  See comment in diskcache.hpp
 }
 
-void diskcache::detached_serialize(const reply123& r, const std::string& path, const std::string& url) noexcept /*protected*/ try {
-    DIAGkey(_diskcache,  "detached_serialize(r.content.data(): " << (const void*)r.content.data() << ", path=" << path << ")\n");
-    serialize(r, path, url);
-}catch(std::exception& e){
-    complain(LOG_WARNING, e, "detached_serialize:  caught error: ");
-}catch(...){
-    complain(LOG_CRIT, "detached_serialize:  caught something other than std::exception.  This can't happen");
-    // no point in rethrowing.  See comment in diskcache.hpp
-}
+void diskcache::do_serialize(const reply123* r, const std::string& path, const std::string& urlstem, bool already_detached){
+    // already_detached means two things:
+    //  1 - we're already running in the threadpool.  DO NOT tp->submit.
+    //  2 - we're wrapped in a try{}catch(...){}.  Don't worry about throwing.
+    if(already_detached || foreground_serialize){
+        // we're already detached.  Call serialize synchronously.
+        // Nobody's waiting for us, and the threadpool will throw
+        // an EINVAL if we try to submit to it recursively.
+        DIAGkey(_diskcache, "upstream_refresh(detached) in " << std::this_thread::get_id() << " r->expires: " << ins(r->expires) << ", r->etag64: "  << r->etag64 << "\n");
+        serialize(*r, path, urlstem);  // might throw, but we're already_detached, so it's caught by caller
+    }else{
+        // We are not already detached.  Submit the serializer to
+        // the threadpool.
+        //
+        // Take care to pass args by value!  Don't do std::move(r)
+        // because the caller is still "using" r.  We're not allowed
+        // to trash it.  If std::string is copy-on-write (it shouldn't
+        // be, but it still is in RedHat's devtoolsets in 2020), then
+        // operator[] should force a copy.  Even if we didn't force
+        // the copy here, there shouldn't be a problem, because we're
+        // careful to avoid casting away const-ness of content.data()
+        // elsewhere in the code.  But just to be sure, use operator[]
+        // here and explicitly check that content isn't shared.
+        DIAGkey(_diskcache, "tp->submit(detached_serialize(r->content.data()=" << (const void*)r->content.data() << ", path=" << path << "))\n");
+        auto rcd = &r->content[0];
+        tp->submit([rv = r->copy(), path, rcd, urlstem = urlstem, this](){
+                       try{
+                           if(rcd == &rv.content[0]){
+                               complain(LOG_CRIT, "Uh oh.  Copy-on-write problems!  reply was not copied correctly into lambda %s:%d", __FILE__, __LINE__);
+                               std::terminate();
+                           }
+                           serialize(rv, path, urlstem);
+                       }catch(std::exception& e){
+                           complain(LOG_WARNING, e, "detached_serialize:  caught error: ");
+                       }catch(...){
+                           complain(LOG_CRIT, "detached_serialize:  caught something other than std::exception.  This can't happen");
+                           // no point in rethrowing.  See comment in diskcache.hpp
+                       }
+                   });
+    }
+}    
 
 void diskcache::upstream_refresh(const req123& req, const std::string& path, reply123* r, bool already_detached, bool usable_if_error)/*protected*/{
     if( vols_.disconnected && usable_if_error){
@@ -590,40 +622,8 @@ void diskcache::upstream_refresh(const req123& req, const std::string& path, rep
     }
     if(upstream_->refresh(req, r)){
         stats.dc_rf_200++;
-        if(already_detached || foreground_serialize){
-            // we're already detached.  Call serialize synchronously.
-            // Nobody's waiting for us, and the threadpool will throw
-            // an EINVAL if we try to submit to it recursively.
-            DIAGkey(_diskcache, "upstream_refresh(detached) in " << std::this_thread::get_id() << " r->expires: " << ins(r->expires) << ", r->etag64: "  << r->etag64 << "\n");
-            serialize(*r, path, req.urlstem);  // might throw, but we're already_detached, so it's caught by caller
-        }else{
-            // We are not already detached.  This is a fine
-            // opportunity to run the serializer detached.
-            //
-            // The lambda will run in another thread.  Take care to
-            // pass args by value!  Don't do std::move(*r) because the
-            // caller is still "using" r.  We're not allowed to trash
-            // it.
-            DIAGkey(_diskcache, "tp->submit(detached_serialize(r->content.data()=" << (const void*)r->content.data() << ", path=" << path << "))\n");
-            // if std::string is copy-on-write (it shouldn't be, but
-            // it still is in RedHat's devtoolsets in 2020), then
-            // operator[] should force a copy.  Even if we didn't
-            // force the copy here, there shouldn't be a problem,
-            // because we're careful to avoid casting away const-ness
-            // of content.data() elsewhere in the code.  But just to
-            // be sure, use operator[] here and explicitly check
-            // that content isn't shared.
-            auto rcd = &r->content[0];
-            tp->submit([rv = r->copy(), path, rcd, urlstem = req.urlstem, this](){
-                           if(rcd == &rv.content[0]){
-                               complain(LOG_CRIT, "Uh oh.  Copy-on-write problems!  reply was not copied correctly into lambda %s:%d", __FILE__, __LINE__);
-                               std::terminate();
-                           }
-                           detached_serialize(rv, path, urlstem);
-                       });
-        }
+        do_serialize(r, path, req.urlstem, already_detached);
     }else{
-        stats.dc_rf_304++;
         if(req.no_cache){
             // Not clear what we should do here.  If we get here, it
             // means some serious misunderstanding has happened.  We
@@ -633,10 +633,26 @@ void diskcache::upstream_refresh(const req123& req, const std::string& path, rep
             // ASAP.
             throw se(EINVAL, "diskcache:: upstream_->refresh returned false, interpreted as 304 Not Modified, but the request is no-cache.  That shouldn't happen.  Find this error message in the code and FIX THE UNDERLYING PROBLEM!");
         }
-        if(already_detached)
-            detached_update_expiration(*r, path);
-        else
-            tp->submit([rv = r->copy(), path, this](){ detached_update_expiration(rv, path); });
+        // In earlier versions, we had some "clever" code that used a
+        // single pwrite to update only the expiration times in the
+        // on-disk cache.  POSIX says that read() and pwrite() are
+        // "atomic", i.e., "If two threads each call one of these
+        // functions, each call shall either see all of the specified
+        // effects of the other call or none of them".  But Linux
+        // (apparently) interprets this as though "the effects" of the
+        // write are undefined from the time the call is made till the
+        // time it returns.  So a read that happens concurrently with
+        // a write has no(!) all-or-nothing guarantee.
+        // 
+        // In light of this, we now just call serialize, which
+        // replaces the whole file using the conventional
+        // open(tmpfile)/write/close/rename idiom.  Writing 128k of
+        // data so that we can atomically update 32 bytes seems
+        // wasteful.  But it shouldn't be noticeable unless Fs123Chunk
+        // is a lot bigger than 128(kB).
+        stats.dc_rf_304++;
+        stats.dc_rf_304_bytes += r->content.size();
+        do_serialize(r, path, req.urlstem, already_detached);
     }
 }
     
@@ -676,7 +692,7 @@ diskcache::refresh(const req123& req, reply123* r) /*override*/ try {
     // clearly defined meaning in http.
     auto swr = r->stale_while_revalidate + std::chrono::seconds(req.past_stale_while_revalidate);
     if(req.max_stale >= 0){
-        auto reqms = std::chrono::seconds(req.max_stale);
+       auto reqms = std::chrono::seconds(req.max_stale);
         if(reqms < swr)
             swr = reqms;
     }
@@ -968,7 +984,7 @@ diskcache::serialize(const reply123& r, const std::string& path, const std::stri
         iov[5].iov_len = sizeof(r.magic);
 #if 1   // N.B.  We believe r.content is now managed correctly, even
         // if std::string is copy-on-write.  There is an O(1)
-        // check in detached_serialize to confirm that.  So the
+        // check in do_serialize to confirm that.  So the
         // O(content.size()) check here is probably unnecessary.
         if(threeroe(r.content).hexdigest().compare(0, 32, r.content_threeroe, 32) != 0){
             throw se(EINVAL, fmt("diskcache::serialize: threeroe mismatch: r.content.data(): %p, r.content.size(): %zu threeroe(data): %s, threeroe(in header): %.32s",
@@ -1005,76 +1021,3 @@ diskcache::serialize(const reply123& r, const std::string& path, const std::stri
         std::throw_with_nested(std::runtime_error("diskcache::serialize(path=" + path + "): failed"));
     }
 }
-
-void
-diskcache::detached_update_expiration(const reply123& r, const std::string& path) noexcept /*protected*/ try {
-    // FIXME(?) - this relies on some fairly subtle "guarantees" about
-    // atomicity of concurrent reads, writes, opens and renames.
-    // Multiple threads may call this function concurrently, each
-    // doing open/pwrite/close, while other threads may be calling
-    // deserialize, which does open/read/close of the same pathname.
-    // Are we *absolutely sure* the data read by any of the
-    // deserializers will correspond, in its entirety (no torn writes)
-    // to the 32 bytes of data written by one of the threads executing
-    // this function.
-    //
-    // An alternative would be to replace the call to this function
-    // with a call to detached_serialize.  This would demand much less
-    // of the filesystem.  We would rely exclusively on the
-    // correctness of open/write/close/rename sequence in
-    // detached_serialize.  The cost is that we'd be doing
-    // open/write(128kB)/close/rename rather than
-    // open/pwrite(32B)/close.  But does that matter?  We're off the
-    // critical path.  Writes typically don't hit the disk until the
-    // kernel feels like it. And for spinning disks, the seek time is
-    // 5-10x longer than the time to write 128kB anyway.  It would be
-    // difficult, if not impossible, for an end-user to notice the
-    // difference.
-    atomic_scoped_nanotimer _t(&stats.dc_update_sec);
-    refcounted_scoped_nanotimer _rt(update_nanotimer_ctrl);
-    refcounted_scoped_nanotimer _rtx(serdes_nanotimer_ctrl);
-
-    stats.dc_updates++;
-    DIAG(_diskcache, "detached_update_expiration(" + path + ")");
-    // I think that this:
-    //    http://pubs.opengroup.org/onlinepubs/9699919799/functions/V2_chap02.html#tag_15_09_07
-    // promises that write and writev are atomic.  I.e., that we can write over
-    // the header bytes in the file and that readers will see either the new
-    // or the old data, but never a mixture.
-    acfd fd = sew::openat(rootfd_, path.c_str(), O_RDWR);
-    // Defend against another thread replacing the file at path
-    // with completely different data while we were twiddling our
-    // thumbs...  N.B.  If another thread replaces the file now that
-    // we've got an open fd, it will do so with a rename, which
-    // will make the next few lines moot, but it won't make them
-    // wrong.
-    uint64_t ondisketag64;
-    auto nread = sew::pread(fd, &ondisketag64, sizeof(uint64_t), offsetof(reply123, etag64) - reply123_pod_begin);
-    if(nread == sizeof(uint64_t) && ondisketag64 == r.etag64){
-        // Only write the cache-control related values that might have
-        // been changed by the call to be->refresh: expires, etag64,
-        // last_refresh and stale_while_revalidate.  But first,
-        // static_assert that they're really contiguous in the reply
-        // structure:
-        static_assert( (offsetof(reply123, stale_while_revalidate) - offsetof(reply123, expires)) ==
-                       (sizeof(r.expires) + sizeof(r.etag64) + sizeof(r.last_refresh)) );
-        auto nwrote = sew::pwrite(fd, (char*)&r + offsetof(reply123, expires),
-                                  sizeof(r.expires) + sizeof(r.etag64) + sizeof(r.last_refresh) + sizeof(r.stale_while_revalidate),
-                                  offsetof(reply123, expires) - reply123_pod_begin);
-        stats.dc_update_bytes += nwrote;
-    }else{
-        stats.dc_failed_updates++;
-        complain(LOG_WARNING, "on-disk etag64 does not match reply that got 304 for " + path + " .  This can happen when a 200 and a 304 'overlap', but it shouldn't happen often");
-    }
-    fd.close();
- }catch(std::exception& e){
-    // unlinking the bad path is an attempt to avoid cascading errors.
-    // There's a good chance this unlink will fail, e.g., if the
-    // original error was ENOENT.  But let's try anyway, and let's not
-    // worry about whether it succeeds.
-    ::unlinkat(rootfd_, path.c_str(), 0);
-    complain(LOG_WARNING, e, "detached_update_expiration(" + path +") caught error");
- }catch(...){
-    complain(LOG_CRIT, "detached_update_expiration:  caught something other than std::exception.  This can't happen");
-    // no point in rethrowing.  See comment in diskcache.hpp
- }

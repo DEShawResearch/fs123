@@ -40,7 +40,7 @@ struct diskcache : public backend123{
     std::ostream& report_stats(std::ostream& os) override;
     std::string get_uuid() override;
 
-    // FIXME - hash, serialize, deserialize and update_expiration are
+    // FIXME - hash, serialize, and deserialize are
     // 'internal', so they could be protected.  But that would make
     // unit-testing harder.
 
@@ -111,8 +111,7 @@ protected:
     // To emphasize this, we declare them noexcept, even though a
     // thrown exception wouldn't actually do any harm.
     void detached_upstream_refresh(req123& req, const std::string& path, reply123* r) noexcept ;
-    void detached_serialize(const reply123&, const std::string&, const std::string&) noexcept;
-    void detached_update_expiration(const reply123& r, const std::string& path) noexcept;
+    void do_serialize(const reply123* r, const std::string& path, const std::string& urlstem, bool already_detached);
     std::unique_ptr<core123::threadpool<void>> tp;
     volatiles_t& vols_;
     std::string uuid;
@@ -128,6 +127,7 @@ STATISTIC(dc_maybe_rf_retired)\
 STATISTIC(dc_must_refresh)\
 STATISTIC(dc_detached_refresh_failures)\
 STATISTIC(dc_rf_304)\
+STATISTIC(dc_rf_304_bytes)\
 STATISTIC(dc_rf_200)\
 STATISTIC(dc_rf_stale_if_error)\
 STATISTIC(dc_rf_disconnected_skipped)\

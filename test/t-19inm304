@@ -61,7 +61,7 @@ rfd4 = os.open(rfname4, os.O_RDONLY|os.O_DIRECT)
 txt4 = os.read(rfd4, 128)
 assert txt4 == some_text
 os.close(rfd4)
-before = subprocess.check_output(['awk', '/dc_rf_304/{print $2}', opj(MTPT, '.fs123_statistics')]).decode('utf-8').strip()
+before = subprocess.check_output(['awk', '/dc_rf_304:/{print $2}', opj(MTPT, '.fs123_statistics')]).decode('utf-8').strip()
 print("Waiting for max-age but within swr-window")
 time.sleep(5) # between max-age and max-age + swr
 rfd4 = os.open(rfname4, 0)
@@ -69,7 +69,7 @@ txt4 = os.read(rfd4, 128) # the first one should accept the stale
 assert txt4 == some_text
 os.close(rfd4)
 time.sleep(1) 
-after = subprocess.check_output(['awk', '/dc_rf_304/{print $2}', opj(MTPT, '.fs123_statistics')]).decode('utf-8').strip()
+after = subprocess.check_output(['awk', '/dc_rf_304:/{print $2}', opj(MTPT, '.fs123_statistics')]).decode('utf-8').strip()
 print("before: ", before, "after: ", after)
 assert int(before)+1 == int(after), "expected dc_rf_304 statistic to increase by 1"
 
