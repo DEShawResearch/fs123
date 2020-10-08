@@ -56,10 +56,23 @@ void timecheck(const std::string& name, int millis){
     
 }
 
+void iterated_logistic_map(unsigned n, double r, double x){
+    while(n--)
+        x = r*x*(1-x);
+    if(x==.5)
+        throw std::runtime_error("Surprising result.");
+}
+            
+    
+
 int main(int, char**){
     Nthreads = core123::envto<int>("UT_TIMEIT_NTHREADS", 6);
     int msec = core123::envto<int>("UT_TIMEIT_MSEC", 200);
     
+    // First, let's try out timeit with arguments:
+    auto m = core123::timeit(std::chrono::milliseconds(msec), iterated_logistic_map, 100, 3.8, 0.5);
+    printf("iterated_logistic_map(100, 3.8, 5): %g times per sec\n", m.iter_per_sec());
+
     std::cout << "Recommended generators:\n";
     timecheck<philox<2, uint64_t, 10>>("philox<2, uint64_t, 10>", msec);
     timecheck<philox<4, uint64_t, 10>>("philox<4, uint64_t, 10>", msec);

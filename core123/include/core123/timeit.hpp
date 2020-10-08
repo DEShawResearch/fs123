@@ -2,10 +2,10 @@
 
 // inspired by Python's timeit utility...
 //
-// timeit(dur, func) - Call func repeatedly for specified duration.
-// Report how many times the function was called, and how much time
-// was spent (which is close, but not exactly equal to the specified
-// duration).
+// timeit(dur, func, args...) - Call func(args...) repeatedly for the
+// specified duration.  Report how many times the function was called,
+// and how much time was spent (which is close, but not exactly equal
+// to the specified duration).
 //
 // Usage:
 //
@@ -18,7 +18,7 @@
 // std::cout << "lambda was called " << result.count << " times in about 1s\n";
 // std::cout << "Actually, the elapsed time was exactly:  " << dur2string(result.dur) << " seconds\n";
 //
-// You can pass any no-argument functor at all to timeit: a plain-old
+// You can pass any functor at all to timeit: a plain-old
 // function, a class with an operator()(), or a lambda (as above).
 //
 // Note that if f() has no side-effects, it's *possible* for an
@@ -34,8 +34,9 @@
 namespace core123{
 struct timeit_result{
     long long count;
-    timer<std::chrono::high_resolution_clock>::duration dur;
-    timeit_result(long long count_, const timer<>::duration& dur_):
+    using dur_t = std::chrono::high_resolution_clock::duration;
+    dur_t dur;
+    timeit_result(long long count_, const dur_t& dur_):
         count(count_), dur(dur_)
     {}
     timeit_result() : timeit_result(0, {}){}
@@ -43,9 +44,9 @@ struct timeit_result{
     float sec_per_iter() const { return std::chrono::duration<float>(dur).count()/count; }
 };
 
-template <class Rep, class Period, class Functor>
+template <class Rep, class Period, class Fn, class ... Args>
 timeit_result
-timeit(const std::chrono::duration<Rep, Period>& dur, Functor f){
+timeit(const std::chrono::duration<Rep, Period>& dur, Fn&& f, Args&&... args){
     std::atomic<bool> done(false);
     std::thread t( [&](){
             std::this_thread::sleep_for(dur);
@@ -66,7 +67,7 @@ timeit(const std::chrono::duration<Rep, Period>& dur, Functor f){
         // noticeably different from manual unrolling, Duff's device,
         // etc.  Let's just "keep it simple".  The caller can unroll
         // inside f() if it matters...
-        f();
+        f(std::forward<Args>(args)...);
         n++;
     }while(!done.load());
     auto elapsed = nt.elapsed();
