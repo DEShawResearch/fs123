@@ -584,21 +584,21 @@ void diskcache::do_serialize(const reply123* r, const std::string& path, const s
         // We are not already detached.  Submit the serializer to
         // the threadpool.
         //
-        // Take care to pass args by value!  Don't do std::move(r)
-        // because the caller is still "using" r.  We're not allowed
-        // to trash it.  If std::string is copy-on-write (it shouldn't
-        // be, but it still is in RedHat's devtoolsets in 2020), then
-        // operator[] should force a copy.  Even if we didn't force
-        // the copy here, there shouldn't be a problem, because we're
-        // careful to avoid casting away const-ness of content.data()
-        // elsewhere in the code.  But just to be sure, use operator[]
-        // here and explicitly check that content isn't shared.
-        DIAGkey(_diskcache, "tp->submit(detached_serialize(r->content.data()=" << (const void*)r->content.data() << ", path=" << path << "))\n");
-        auto rcd = &r->content[0];
-        tp->submit([rv = r->copy(), path, rcd, urlstem = urlstem, this](){
+        // Work around issues when r->content is "copy-on-write".  (It
+        // shouldn't be, but it still is in RedHat's devtoolsets in
+        // 2020).  Since C++11, r->copy() *should* make a bona fide
+        // copy of r->content, and the copy should have a lifetime
+        // completely independent of the original.  But if std::string
+        // is CoW, things get confused, and when the copied reply
+        // ultimately gets destroyed in the lambda, we end up with a
+        // double-free.  To work around, we force r->content to be
+        // copied by calling its *non-const* operator[]() before
+        // calling r->copy().
+        const char* rc0 = &const_cast<std::string&>(r->content)[0];
+        tp->submit([rv = r->copy(), path, rc0, urlstem = urlstem, this](){
                        try{
-                           if(rcd == &rv.content[0]){
-                               complain(LOG_CRIT, "Uh oh.  Copy-on-write problems!  reply was not copied correctly into lambda %s:%d", __FILE__, __LINE__);
+                           if(rc0 == &rv.content[0]){
+                               complain(LOG_CRIT, "Uh oh.  Copy-on-write problems!  rc0=%p, &rv.content[0]=%p.  Reply was not copied correctly into lambda %s:%d", rc0, &rv.content[0], __FILE__, __LINE__);
                                std::terminate();
                            }
                            serialize(rv, path, urlstem);

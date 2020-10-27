@@ -49,14 +49,14 @@ void dotest(str_view svin) {
         str_view svs4;
 
         // Let's try again with the scan_netstring with skip_white=false
-        // That should fail.
-        bool caught;
+        // That should fail (some of the time)
         try{
             svscan_netstring<false>(sssv, &svs4, next);
+            CHECK(!isspace(sssv.at(next)))
         }catch(std::exception&){
-            caught = true;
+            CHECK(isspace(sssv.at(next)));
         }
-        CHECK(caught);
+
         // But if we skip over the whitespace, it should succeed:
         auto nn = core123::svscan(sssv, nullptr, next);
         nn = svscan_netstring<false>(sssv, &svs4, nn);

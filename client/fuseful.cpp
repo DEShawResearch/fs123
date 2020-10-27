@@ -141,7 +141,7 @@ void complain_and_abort(){
 static const int safe_complain_fd = -9999; // not -1, which is the failed-to-open value in fuseful_handler.
 void safe_complain(int logfd, str_view msg){
     if(logfd == safe_complain_fd)
-        complain(LOG_NOTICE, msg.data());
+        complain(LOG_NOTICE, "%s", msg.data());
     else if(logfd >= 0)
         unused(::write(logfd, msg.data(), msg.size()));
     // else nothing.  Sometimes there's just nothing to do.
