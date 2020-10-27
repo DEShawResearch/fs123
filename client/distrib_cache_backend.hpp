@@ -78,7 +78,7 @@
 //   do its best to hold on to frequently used data, but will probably
 //   be subject to significant eviction pressure.
 //
-// 3 - discache-behind:  the stackable backends  look something like this:
+// 3 - diskcache-behind:  the stackable backends look something like this:
 //
 //                      origin
 //      distrib_cache ---------> ------------------ diskcache------> backend123_http(origin server)
