@@ -105,36 +105,6 @@ int gardenfs_opt_proc(void */*data*/, const char *arg, int key,
 }
 // </fuse argument handling>
 
-std::terminate_handler sys_terminate_handler = nullptr;
-
-// complain_and_abort - intended to be the C++ termination handler.
-// Send a stack trace and the nested exception to the complaint
-// channel, then call fuseful_teardown, and then fall through to the
-// standard terminate handler (which should call abort, and might
-// also write some info to stderr).
-void complain_and_abort(){
-    complain(LOG_CRIT, "std::terminate handler:  Backtrace:" + str(stacktrace_from_here()));
-    
-    std::type_info* t = abi::__cxa_current_exception_type();
-    if(t){
-        try{throw;}
-        catch(const std::exception& e){
-            complain(LOG_CRIT, e, "std::terminate handler.  current exception is:");
-        }catch(...){
-            complain(LOG_CRIT, "std::terminate handler.  current exception of type %s is not derived from std::exception", t->name());
-        }
-    }else{
-        complain(LOG_CRIT, "std::terminate handler.  abi::__cxa_current_exception_type returned nullptr");
-    }
-
-    complain(LOG_CRIT, "std::terminate handler:  calling fuseful_teardown()");
-    fuseful_teardown();
-
-    if(sys_terminate_handler)
-        (*sys_terminate_handler)();
-    abort();
-}
-
 // safe_complain - if logfd is the special value safe_complain_fd,
 // then call complain(LOG_NOTICE, ...).  Otherwise, if logfd>=0, call
 // write(logfd, ...).  Otherwise, do nothing.
@@ -197,10 +167,12 @@ static const char *signal_filename;
 void fuseful_handler(int signum){
     // syslog is not async-signal-safe.  Even if it were, our
     // 'complain' API isn't, and it would be A LOT of effort to make
-    // it so.  Instead, we try to write a line to
-    // 'signal_filename' (which was specified as an argument to
+    // it so.  Instead, we open(2) and write(2) to the file named by
+    // signal_filename (which was specified as an argument to
     // fuseful_main_ll).  If open() or write() fails, we just carry
-    // on.  It's too late to try anything else...
+    // on.  It's too late to try anything else.  We pass the open fd
+    // to other functions, e.g., do_fuse_unmount(), that might also
+    // produce diagnostic messages.
     auto eno = errno;  // glibc docs advise that we restore errno before returning.
     int fd = -1;
     if(signal_filename)
@@ -285,8 +257,6 @@ void fuseful_handler(int signum){
 }
 
 void handle_all_signals(){
-    sys_terminate_handler = std::set_terminate(complain_and_abort);
-
     // *Exactly* what happens in libfuse's handler changes from
     // version to version.  In general, the handler sets a flag
     // somewhere in libfuse's internal data structures, and the
