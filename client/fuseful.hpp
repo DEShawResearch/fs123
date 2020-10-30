@@ -114,29 +114,10 @@ void lowlevel_notify_inval_entry_detached(fuse_ino_t pino, const std::string& na
 void lowlevel_notify_inval_inode_detached(fuse_ino_t ino, off_t off, off_t len);
 //int lowlevel_notify_delete(fuse_ino_t pino, fuse_ino_t cino, const char* name, size_t namelen); // not implemented
 
-// And a few "handlers" for things that shouldn't happen, but
-// inevitably will.
-
-// my_close_failure_handler - report xautoclose failures to syslog.
-// They're not fatal, but they might be leaking file descriptors.
-void my_close_failure_handler(const std::string& msg);
-
 // fuse_main_ll - lifted from examples/hello_ll.c in the fuse 2.9.2 tree.
 int fuseful_main_ll(fuse_args* args, const fuse_lowlevel_ops& llops,
                     const char *signal_report_filename,
                     void (*crash_handler)());
-
-// fuseful_teardown - gracefully bring down the lowlevel fuse
-// infrastructure: sessions are destroyed, channels are closed,
-// signals are restored, mounts are unmounted.  May be called when
-// things are crashing or failing or the system is critically short of
-// resources like memory or threads, in which case a best-effort is
-// made to clean up as much as possible.  It is safe (but not
-// necessarily advisable) to call recursively, or concurrently from
-// multiple threads, in which case only the "first" call shuts
-// everything down (and returns true) and all other calls return
-// immediately with no side-effects.
-bool fuseful_teardown();
 
 // fuseful_initiate_shutdown - call this when it's time to bring it
 // all down.  This is the way to shut things down when some external

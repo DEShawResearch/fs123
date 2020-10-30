@@ -11,6 +11,11 @@
 #include <core123/stacktrace.hpp>
 #include <string>
 #include <syslog.h>
+#include <unistd.h>
+#include <sys/types.h>
+#if __has_include(<sys/syscall.h>)
+#include <sys/syscall.h>
+#endif
 
 using namespace core123;
 
@@ -25,6 +30,8 @@ std::atomic<int> fuseful_net_open_handles{0};
 std::string fuse_device_option;
 
 namespace {
+auto _shutdown = diag_name("shutdown");
+
 #define STATS_INCLUDE_FILENAME "fuseful_statistic_names"
 #define STATS_STRUCT_TYPENAME fuseful_stats_t
 #include <core123/stats_struct_builder>
@@ -33,6 +40,8 @@ fuseful_stats_t stats;
 struct fuse_chan *g_channel;
 void (*crash_handler)();
 void (*g_ll_destroy)(void*);
+
+pid_t fuseful_main_tid;
 
 // It's illegal to call the fuse_lowlevel_notify_inval_{entry,inode} functions
 // from a filesystem 'op' callback.  So we need to background them somehow.
@@ -190,6 +199,9 @@ void fuseful_handler(int signum){
         auto tmp_hndlr = libfuse_handler;
         libfuse_handler = nullptr;
         (*tmp_hndlr)(signum);
+        safe_complain(fd, "fuseful_handler: returned from libfuse_handler.  Expect fuse_session_loop_mt to return on its next iteration.\n");
+    }else{
+        safe_complain(fd, "fuseful_handler: libfuse_handler is NULL.  Either it was never initialized or we've called it already.\n");
     }
 
     // When used by fuse_set_signal_handlers, the libfuse_handler
@@ -207,8 +219,6 @@ void fuseful_handler(int signum){
     // the signal with the SIG_DFL handler.  fuse_unmount isn't
     // async-safe either, so this could hang (or worse), but it's
     // still probably better than leaving the endpoint disconnected.
-    // N.B.  When called with an fd argument, do_fuse_unmount writes to
-    // the fd rather than the normal complaint channel.
     switch(signum){
     // These are the "Program Error Signals" according to:
     // https://www.gnu.org/software/libc/manual/html_node/Program-Error-Signals.html#Program-Error-Signals
@@ -225,6 +235,8 @@ void fuseful_handler(int signum){
     case SIGEMT:
 #endif
     case SIGSYS:
+        // N.B.  When called with an fd argument, do_fuse_unmount
+        // writes to the fd rather than the normal complaint channel.
         do_fuse_unmount(fd);
 #ifdef __GLIBC__
         // backtrace() is async-signal *un*safe.  But it's worth the
@@ -312,6 +324,80 @@ void handle_all_signals(){
         }
     }
 }
+
+// fuseful_teardown is called "normally" immediately after
+// fuse_session_loop returns or when something throws unexpectedly in
+// fuse_main_ll.  Note that it is always invoked on the "main" thread.
+// It must not be called by signal or termination handlers.  Use
+// 'do_fuse_unmount' and/or 'crash_handler' if there is no choice but
+// to shut down from inside a signal handler.  Note that some of the
+// logic (e.g., the atomic 'entered' flag and zeroing out g_session
+// and g_channel) is excessively paranoid because in earlier versions,
+// fuseful_teardown might have been called concurrently by termination
+// handlers and/or other threads.
+void fuseful_teardown() try {
+    // ????? What's the right order here ?????
+    // It seems that the shutdown sequence suggested by examples/hello_ll.c
+    // results in spurious calls to fusermount /path/to/mountpoint, which
+    // are troublesome if you use 'umount -l' to permit client upgrades
+    // without requiring termination of long-running processes.  The
+    // conventional sequence is:
+    //    fuse_remove_signal_handlers(g_session)
+    //    fuse_session_remove_chan(ch)
+    //    fuse_session_destroy(g_session)
+    //    fuse_unmount(mountpoint, ch)
+    //    fuse_opt_free_args(&args)
+    //
+    // The problem is that session_destroy closes the channel.  With a
+    // destroyed channel as its second argument, fuse_unmount always
+    // kernel-unmounts whatever is mounted at mountpoint.  But if
+    // 'this' process has been umount -l'ed, some *other* process
+    // might be managing that mount-point, and it's wrong for us to
+    // unmount it.  On the other hand, if fuse_unmount is called with
+    // a still-intact channel, it carefully avoids unmounting too
+    // soon.
+    //
+    // So it looks like the solution is to call fuse_unmount before
+    // fuse_session_destroy.  Almost ...
+    //
+    // In libfuse-2.9.2 (and earlier, probably fixed in 2.9.3)
+    // fuse_unmount *incorrectly* closes the fuse_chan_fd twice: once
+    // in fuse_kern_unmount and then a second time in
+    // fuse_kern_chan_destroy.  If there are other threads running
+    // (e.g., maintenance threads, eviction threads, etc.), they might
+    // open an fd, and then find it closed "behind their back" by the
+    // second, erroneous close in fuse_kern_chan_destroy.  If we
+    // followed the conventional sequence this wouldn't be a problem
+    // because fuse_session_destroy would have called the
+    // fuse_lowlevel_ops destroy callback and we wouldn't have any
+    // other threads running that could be confused by this bug.  To
+    // work around, we arrange to call the destroy callback,
+    // g_ll_destroy, *before* calling fuse_unmount.  We avoid calling
+    // it again by nulling it out of the callback in the lowlevel_ops
+    // structure we pass to fuse_lowelevel_new.
+    static std::atomic_flag entered = ATOMIC_FLAG_INIT; // N.B. ATOMIC_FLAG_INIT is unnecessary and deprecated in C++20
+    if(entered.test_and_set()){
+        complain(LOG_WARNING, "fuseful_teardown:  Return immediately from re-invocation");
+        return;
+    }
+    invaltp.reset();
+    if(g_session)
+        fuse_remove_signal_handlers(g_session);
+    libfuse_handler = nullptr;
+    if(g_ll_destroy){
+        auto tmp = g_ll_destroy;
+        g_ll_destroy = nullptr;
+        complain(LOG_NOTICE, "fuseful_teardown:  calling llops->destroy directly");
+        (*tmp)(nullptr);
+    }
+    do_fuse_unmount();
+    if(g_session){
+        fuse_session_destroy(g_session);
+        g_session = nullptr;
+    }
+ }catch(std::exception& e){
+    complain(LOG_CRIT, e, "fuseful_teardown: ignoring exception.  This probably won't end well.");
+ }
 
 } // namespace <anon>
 
@@ -440,10 +526,11 @@ std::ostream& fuseful_report(std::ostream& os){
 // fuseful_main_ll - inspired by examples/hello_ll.c in the fuse 2.9.2 tree.
 int fuseful_main_ll(fuse_args *args, const fuse_lowlevel_ops& llops,
                     const char *_signal_filename,
-                    void (*crash_handler_arg)()) try {
+                    void (*crash_handler_arg)()) {
+    int err = -1;
+    try{
         signal_filename = _signal_filename;
         char *mountpoint = nullptr;
-	int err = -1;
 
         int multithreaded; // ignored
         int foreground;
@@ -519,7 +606,6 @@ int fuseful_main_ll(fuse_args *args, const fuse_lowlevel_ops& llops,
         // lowlevel destroy op.  See the comments in fuse_teardown for why.
         auto llops_no_destroy = llops;
         llops_no_destroy.destroy = nullptr;
-        g_ll_destroy = llops.destroy;
         g_session = fuse_lowlevel_new(args, &llops_no_destroy, sizeof(llops_no_destroy), nullptr);
         fuse_opt_free_args(args);
         // It seems that we don't detect bad command line args until
@@ -533,101 +619,49 @@ int fuseful_main_ll(fuse_args *args, const fuse_lowlevel_ops& llops,
         complain(LOG_NOTICE, "starting fuse_session_loop: %s-threaded, %sground", 
                multithreaded?"multi":"single",
                foreground?"fore":"back");
+#ifdef SYS_gettid
+        fuseful_main_tid = ::syscall(SYS_gettid); // N.B.  man gettid says "This call is always successful"
+#endif
+        // wait till the last possible moment to set g_ll_destroy, so
+        // that an exception prior to this doesn't result in
+        // fuseful_teardown calling llops.destroy.
+        g_ll_destroy = llops.destroy;
         if(multithreaded)
             err = fuse_session_loop_mt(g_session);
         else
             err = fuse_session_loop(g_session);
 
-        complain(LOG_NOTICE, "fuse_session_loop returned %d.  Calling fuseful_teardown", err);
-        fuseful_teardown();
-	return err ? 1 : 0;
- }catch(std::exception& e){
-    std::throw_with_nested(std::runtime_error("exception thrown by fuseful_main_ll.  call fuseful_teardown and return 1"));
+        complain(LOG_NOTICE, "fuse_session_loop returned %d.", err);
+    }catch(std::exception& e){
+        complain(LOG_ERR, e, "Exception thrown/caught in fuse_main_ll");
+    }
     fuseful_teardown();
-    return 1;
+    return err ? 1 : 0;
  }
                            
-// fuseful_teardown is called "normally" immediately after
-// fuse_session_loop returns.  It's also called "abnormally" when
-// something throws unexpectedly in fuse_main_ll, by the top-level
-// exception handler around app_mount (i.e., "main"), by our terminate
-// handler and by the Fs123Subprocess-running thread.  It uses a
-// std::atomic flag to guarantee that it returns immediately with no
-// side-effects after the first call.  When it runs, it also takes
-// extra care to zero out g_session and g_channel after it has
-// "destroyed" them.
-bool fuseful_teardown() try {
-    // ????? What's the right order here ?????
-    // It seems that the shutdown sequence suggested by examples/hello_ll.c
-    // results in spurious calls to fusermount /path/to/mountpoint, which
-    // are troublesome if you use 'umount -l' to permit client upgrades
-    // without requiring termination of long-running processes.  The
-    // conventional sequence is:
-    //    fuse_remove_signal_handlers(g_session)
-    //    fuse_session_remove_chan(ch)
-    //    fuse_session_destroy(g_session)
-    //    fuse_unmount(mountpoint, ch)
-    //    fuse_opt_free_args(&args)
-    //
-    // The problem is that session_destroy closes the channel.  With a
-    // destroyed channel as its second argument, fuse_unmount always
-    // kernel-unmounts whatever is mounted at mountpoint.  But if
-    // 'this' process has been umount -l'ed, some *other* process
-    // might be managing that mount-point, and it's wrong for us to
-    // unmount it.  On the other hand, if fuse_unmount is called with
-    // a still-intact channel, it carefully avoids unmounting too
-    // soon.
-    //
-    // So it looks like the solution is to call fuse_unmount before
-    // fuse_session_destroy.  Almost ...
-    //
-    // In libfuse-2.9.2 (and earlier, probably fixed in 2.9.3)
-    // fuse_unmount *incorrectly* closes the fuse_chan_fd twice: once
-    // in fuse_kern_unmount and then a second time in
-    // fuse_kern_chan_destroy.  If there are other threads running
-    // (e.g., maintenance threads, eviction threads, etc.), they might
-    // open an fd, and then find it closed "behind their back" by the
-    // second, erroneous close in fuse_kern_chan_destroy.  If we
-    // followed the conventional sequence this wouldn't be a problem
-    // because fuse_session_destroy would have called the
-    // fuse_lowlevel_ops destroy callback and we wouldn't have any
-    // other threads running that could be confused by this bug.  To
-    // work around, we arrange to call the destroy callback,
-    // g_ll_destroy, *before* calling fuse_unmount.  We avoid calling
-    // it again by nulling it out of the callback in the lowlevel_ops
-    // structure we pass to fuse_lowelevel_new.
-    static std::atomic_flag entered = ATOMIC_FLAG_INIT; // N.B. ATOMIC_FLAG_INIT is unnecessary and deprecated in C++20
-    if(entered.test_and_set()){
-        complain(LOG_WARNING, "fuseful_teardown:  Return immediately from re-invocation");
-        return false;
-    }
-    invaltp.reset();
-    if(g_session)
-        fuse_remove_signal_handlers(g_session);
-    libfuse_handler = nullptr;
-    if(g_ll_destroy){
-        auto tmp = g_ll_destroy;
-        g_ll_destroy = nullptr;
-        complain(LOG_NOTICE, "fuseful_teardown:  calling llops->destroy directly");
-        (*tmp)(nullptr);
-    }
-    do_fuse_unmount();
-    if(g_session){
-        fuse_session_destroy(g_session);
-        g_session = nullptr;
-    }
-    return true;
- }catch(std::exception& e){
-    complain(LOG_CRIT, e, "fuseful_teardown: ignoring exception.  This probably won't end well.");
-    return false;
- }
-
-// fuseful_initiate_shutdown - call this when you want to tear things down.  Don't call
-// fuseful_teardown directly, because the shutdown process might try to join the thread
-// you've called teardown from, and that doesn't end well.
+// fuseful_initiate_shutdown - call this when you want to tear things down.
 void fuseful_initiate_shutdown(){
-    // N.B.  Don't use 'raise(3)'.  It calls tgkill, which sends the signal to
-    // the thread that called it, and that thread probably doesn't have the
-    // signal handler we're trying to initiate.
-    sew::kill(sew::getpid(), SIGTERM);
+    // raise(SIGTERM) ought to be the simple answer here.  But...
+    //
+    // In glibc, raise(sig) calls tgkill(selfpid, selftid, sig) to
+    // send sig to the caller's own thread.  But libfuse blocks TERM,
+    // INT, HUP and QUIT in fuse_start_thread (in fuse_loop_mt.c), so
+    // raise() won't work if called from a "worker" thread.  We could
+    // unblock it, but that would defeat whatever reason libfuse had
+    // for blocking it in the first place.
+    //
+    // Furthermore, fuse_main_ll can't return from
+    // fuse_session_loop_mt until one of libfuse's worker threads
+    // finishes or the thread running fuse_session_loop_mt gets a
+    // signal.  So if we call raise() from something *other* than
+    // a worker thread, there's nothing to break libfuse out of
+    // fuse_session_loop_mt.
+    //
+    // Solution - use tgkill to direct the signal to the main tid,
+    // or if tgkill isn't available, use kill and hope for the best.
+#if defined(SYS_tgkill) && defined(SYS_gettid)
+    ::syscall(SYS_tgkill, ::getpid(), fuseful_main_tid, SIGTERM);
+#else
+    ::kill(::getpid(), SIGTERM); // kills *some* thread.  Maybe the one we want?
+#endif
 }
