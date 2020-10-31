@@ -23,13 +23,7 @@ using namespace core123;
 namespace {
 auto _init = diag_name("init");
 
-const string fs123p7pfx = "fs123p7";
-#ifndef __APPLE__
-const string mountprog = "mount." + fs123p7pfx;
-#else
-const string mountprog = "mount_" + fs123p7pfx;
-#endif
-const string usage = "Usage: "+fs123p7pfx+" OP OPARGS\n       where OP is one of mount, exportd, cachedump, ctl, flushfile, secretbox or setxattr";
+const string usage = "Usage: fs123p7 OP OPARGS\n       where OP is one of mount, exportd, cachedump, ctl, flushfile, secretbox or setxattr";
 
 // Just enough of a capabilities "API" to allow us to acquire
 // CAP_DAC_OVERRIDE in setxattr and drop all capabilities
@@ -151,10 +145,12 @@ int main(int argc, char *argv[]) try {
     fs123p7_argv = argv;
     char **args = argv;
     auto op = pathsplit(argv[0]).second;
-    if (startswith(op, mountprog)) {
+    if (startswith(op, "mount") && endswith(op, "fs123p7")) {
         // Hack so we can copy or link the binary to
-        // /sbin/mount.fs123p7[xxx] so that automount and fstab will
-        // recognize fs123p7[xxx] as a filesystem type.
+        // /sbin/mount.fs123p7 (most Unix) or
+        // /Library/Filesystems/fs123p7.fs/Contents/Resources/mount_fs123p7 (MacOS)
+        // so that automount and fstab will recognize fs123p7 as
+        // a filesystem type.
         op = "mount";
     }else if (argc > 1) {
         op = argv[1];

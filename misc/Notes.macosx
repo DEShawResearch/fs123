@@ -32,7 +32,7 @@ recognize -p.
 
 But make check fails a few of the regression tests:
 
-- t-15cornercases and t-02disconnectd fail because fs123p7 ctl fails.
+- t-19inm304, t-15cornercases and t-02disconnectd fail because fs123p7 ctl fails.
 
 - t-09w2r and t-07modified fails because fs123 is apparently *not*
 satisfying its consistency guarantees.  The kernel-side caching with
