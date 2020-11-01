@@ -1,5 +1,4 @@
 #include "diskcache.hpp"
-#include "fuseful.hpp"
 #include "fs123/stat_serializev3.hpp"
 #include "fs123/acfd.hpp"
 #include <core123/complaints.hpp>

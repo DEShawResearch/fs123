@@ -4,25 +4,22 @@
 #include <core123/datetimeutils.hpp>
 #include <core123/threadpool.hpp>
 #include <core123/sew.hpp>
-#include <core123/exnest.hpp>
 #include <core123/throwutils.hpp>
 #include <core123/envto.hpp>
 #include <core123/stats.hpp>
-#include <core123/stacktrace.hpp>
+#include <atomic>
 #include <string>
-#include <syslog.h>
 #include <unistd.h>
-#include <sys/types.h>
-#if __has_include(<sys/syscall.h>)
-#include <sys/syscall.h>
+#include <signal.h>
+#include <pthread.h>
+#if __has_include(<execinfo.h>)
+#include <execinfo.h>
 #endif
 
 using namespace core123;
 
 std::string g_mountpoint;
-struct fuse_session* g_session;
 fuse_ino_t g_mount_dotdot_ino = 1;
-std::atomic<bool> g_destroy_called;
 std::atomic<int> fuseful_net_open_handles{0};
 
 // fuse_device_option will be set by fuse_parse_cmdline, called
@@ -38,10 +35,12 @@ auto _shutdown = diag_name("shutdown");
 fuseful_stats_t stats;
 
 struct fuse_chan *g_channel;
+struct fuse_session* g_session;
 void (*crash_handler)();
 void (*g_ll_destroy)(void*);
 
-pid_t fuseful_main_tid;
+pthread_t fuseful_main_pthread;
+bool fuseful_main_pthread_valid = false;
 
 // It's illegal to call the fuse_lowlevel_notify_inval_{entry,inode} functions
 // from a filesystem 'op' callback.  So we need to background them somehow.
@@ -115,8 +114,10 @@ int gardenfs_opt_proc(void */*data*/, const char *arg, int key,
 // </fuse argument handling>
 
 // safe_complain - if logfd is the special value safe_complain_fd,
-// then call complain(LOG_NOTICE, ...).  Otherwise, if logfd>=0, call
-// write(logfd, ...).  Otherwise, do nothing.
+// then call complain(LOG_NOTICE, ...).
+// Otherwise, if logfd>=0, call write(logfd, ...).
+// Otherwise, do nothing.
+// If logfd!=safe_complain_fd, safe_complain is async-signal-safe.
 static const int safe_complain_fd = -9999; // not -1, which is the failed-to-open value in fuseful_handler.
 void safe_complain(int logfd, str_view msg){
     if(logfd == safe_complain_fd)
@@ -132,7 +133,8 @@ void safe_complain(int logfd, str_view msg){
 // BUS, etc.) even though fuse_unmount is not async-signal-safe.  (See
 // the comment in fuseful_handler for justification.)  Since it might
 // be called in a signal-handler, use safe_complain and avoid
-// formatting.
+// formatting.  The only non-async-signal-safe call is fuse_unmount
+// itself.
 void do_fuse_unmount(int logfd = safe_complain_fd){
     static std::atomic_flag entered = ATOMIC_FLAG_INIT;
     if(entered.test_and_set()){
@@ -173,15 +175,35 @@ void do_fuse_unmount(int logfd = safe_complain_fd){
 static void (*libfuse_handler)(int);
 static const char *signal_filename;
 
+// fuseful_handler - established as the signal handler for almost all
+// signals (see handle_all_signals()).  Don't forget - may only call
+// async-signal-safe functions.  No syslog.  No printf.  No malloc or
+// new.  No strings or containers.  No ...  REALLY!
+//
+// It does the following:
+// 1 - open and append a few lines to 'signal_filename'.
+// 2 - call libfuse's "original" libfuse_handler (which is assumed to
+//     be async-signal-safe).
+// 3 - If the signal is a non-recoverable "Program Error Signal" (see
+//     below):
+//    a - call do_fuse_unmount() (not async-signal-safe, but it's
+//        definitely worth the risk).
+//    b - write a backtrace to signal_filename (not async-signal-safe,
+//        but we think the reward is worth the risk).
+//    c - call crash_handler (assumed to be async-signal-safe.  See
+//        description in fuseful.hpp.)
+//    d - reset the signal's handler to SIG_DFL and reraise it.
+
+// In general, signal handlers may be called multiple times, perhaps
+// on different threads.  There is code in do_fuse_unmount() to
+// prevent it from calling fuse_unmount() more than once.  Steps
+// are taken to insure that we only call libfuse_handler and crash_handler
+// only once.
+
 void fuseful_handler(int signum){
-    // syslog is not async-signal-safe.  Even if it were, our
-    // 'complain' API isn't, and it would be A LOT of effort to make
-    // it so.  Instead, we open(2) and write(2) to the file named by
-    // signal_filename (which was specified as an argument to
-    // fuseful_main_ll).  If open() or write() fails, we just carry
-    // on.  It's too late to try anything else.  We pass the open fd
-    // to other functions, e.g., do_fuse_unmount(), that might also
-    // produce diagnostic messages.
+    // syslog and our 'complain' API are not async-signal-safe, but
+    // open, write and close are.  Open the signal_filename here and
+    // pass the fd to 'safe_complain' for diagnostics.
     auto eno = errno;  // glibc docs advise that we restore errno before returning.
     int fd = -1;
     if(signal_filename)
@@ -238,7 +260,7 @@ void fuseful_handler(int signum){
         // N.B.  When called with an fd argument, do_fuse_unmount
         // writes to the fd rather than the normal complaint channel.
         do_fuse_unmount(fd);
-#ifdef __GLIBC__
+#if __has_include(<execinfo.h>)
         // backtrace() is async-signal *un*safe.  But it's worth the
         // risk when we're handling a "Program Error Signal".
         if(fd >= 0){
@@ -325,16 +347,16 @@ void handle_all_signals(){
     }
 }
 
-// fuseful_teardown is called "normally" immediately after
-// fuse_session_loop returns or when something throws unexpectedly in
-// fuse_main_ll.  Note that it is always invoked on the "main" thread.
-// It must not be called by signal or termination handlers.  Use
-// 'do_fuse_unmount' and/or 'crash_handler' if there is no choice but
-// to shut down from inside a signal handler.  Note that some of the
-// logic (e.g., the atomic 'entered' flag and zeroing out g_session
-// and g_channel) is excessively paranoid because in earlier versions,
-// fuseful_teardown might have been called concurrently by termination
-// handlers and/or other threads.
+// fuseful_teardown is called by fuse_main_ll, either immediately
+// after fuse_session_loop returns or when something throws
+// unexpectedly during initialization.  Note that it is always invoked
+// on the "main" thread, and it can only be called once, but if it is
+// called after a throw, the normal initialization steps may not have
+// been completed.  It is not called by "worker threads", or signal or
+// termination handlers.  Some of the logic (e.g., the atomic
+// 'entered' flag and zeroing out g_session and g_channel) may be
+// excessively paranoid but should not cause trouble, and may even
+// avoid trouble if a signal is received while teardown is running.
 void fuseful_teardown() try {
     // ????? What's the right order here ?????
     // It seems that the shutdown sequence suggested by examples/hello_ll.c
@@ -373,14 +395,20 @@ void fuseful_teardown() try {
     // other threads running that could be confused by this bug.  To
     // work around, we arrange to call the destroy callback,
     // g_ll_destroy, *before* calling fuse_unmount.  We avoid calling
-    // it again by nulling it out of the callback in the lowlevel_ops
-    // structure we pass to fuse_lowelevel_new.
+    // it again by nulling out the 'destroy' member of the
+    // lowlevel_ops structure we pass to fuse_lowlevel_new (see
+    // comment in fuse_main_ll).
     static std::atomic_flag entered = ATOMIC_FLAG_INIT; // N.B. ATOMIC_FLAG_INIT is unnecessary and deprecated in C++20
     if(entered.test_and_set()){
         complain(LOG_WARNING, "fuseful_teardown:  Return immediately from re-invocation");
         return;
     }
     invaltp.reset();
+    // N.B.  fuse_remove_signal_handlers is almost a no-op because
+    // handle_all_signals() changed all the signal handlers after calling
+    // fuse_set_signal_handlers.  It does restore SIGPIPE to SIG_DFL,
+    // but the other handlers intalled by handle_all_signals() are still
+    // in place.
     if(g_session)
         fuse_remove_signal_handlers(g_session);
     libfuse_handler = nullptr;
@@ -619,9 +647,8 @@ int fuseful_main_ll(fuse_args *args, const fuse_lowlevel_ops& llops,
         complain(LOG_NOTICE, "starting fuse_session_loop: %s-threaded, %sground", 
                multithreaded?"multi":"single",
                foreground?"fore":"back");
-#ifdef SYS_gettid
-        fuseful_main_tid = ::syscall(SYS_gettid); // N.B.  man gettid says "This call is always successful"
-#endif
+        fuseful_main_pthread = ::pthread_self();  // N.B.  POSIX says "The pthread_self() function shall always be successful"
+        fuseful_main_pthread_valid = true;
         // wait till the last possible moment to set g_ll_destroy, so
         // that an exception prior to this doesn't result in
         // fuseful_teardown calling llops.destroy.
@@ -639,29 +666,55 @@ int fuseful_main_ll(fuse_args *args, const fuse_lowlevel_ops& llops,
     return err ? 1 : 0;
  }
                            
-// fuseful_initiate_shutdown - call this when you want to tear things down.
+// fuseful_init_failed - may be called by the init callback when it
+// can't initialize correctly.  Should not be called anywhere else.
+//
+// If the init callback just returns, the fuse layer will start
+// invoking callbacks, which might not be properly initialized,
+// resulting in all manner of havoc.  If it calls exit(), the
+// mount-point is left borked in an ENOTCONN state.  So what to do?
+// 
+// https://sourceforge.net/fuse/mailman/messages/11634250 suggests
+// that we should call fuse_exit(), but that's in the high-level API.
+// Looking at the library code, fuse_exit() just calls
+// fuse_session_exit(f->se).  So let's try that.  fuse_session_exit
+// sets the g_session->exited flag.  That should cause
+// fuse_session_loop_mt to return before executing any more callbacks.
+void fuseful_init_failed(){
+    if(g_session){
+        complain(LOG_NOTICE, "fs123_init_failed:  calling fuse_session_exit");
+        fuse_session_exit(g_session);
+    }else{
+        complain(LOG_CRIT, "fuseful_init_failed:  g_session is null.  How did we get here without a g_session?  Calling std::terminate.");
+        std::terminate();
+    }
+}
+
+// fuseful_initiate_shutdown - call this when you want to tear things
+// down.  It is intended to be safe to call from anywhere (a "worker"
+// thread, or a background or maintenance thread).  In practice, we
+// currently (Nov 2020) call it only from maintenance threads when the
+// idle timer expires or the suprocess exits.
 void fuseful_initiate_shutdown(){
     // raise(SIGTERM) ought to be the simple answer here.  But...
     //
-    // In glibc, raise(sig) calls tgkill(selfpid, selftid, sig) to
-    // send sig to the caller's own thread.  But libfuse blocks TERM,
-    // INT, HUP and QUIT in fuse_start_thread (in fuse_loop_mt.c), so
-    // raise() won't work if called from a "worker" thread.  We could
-    // unblock it, but that would defeat whatever reason libfuse had
-    // for blocking it in the first place.
+    // fuse_main_ll can't return from fuse_session_loop_mt until one
+    // of libfuse's worker threads finishes or the thread running
+    // fuse_session_loop_mt gets interrupted out of sem_wait().  So
+    // the only way to be sure we break out of the loop in
+    // fuse_session_loop_mt is to deliver the signal to the main
+    // thread.
     //
-    // Furthermore, fuse_main_ll can't return from
-    // fuse_session_loop_mt until one of libfuse's worker threads
-    // finishes or the thread running fuse_session_loop_mt gets a
-    // signal.  So if we call raise() from something *other* than
-    // a worker thread, there's nothing to break libfuse out of
-    // fuse_session_loop_mt.
-    //
-    // Solution - use tgkill to direct the signal to the main tid,
-    // or if tgkill isn't available, use kill and hope for the best.
-#if defined(SYS_tgkill) && defined(SYS_gettid)
-    ::syscall(SYS_tgkill, ::getpid(), fuseful_main_tid, SIGTERM);
-#else
-    ::kill(::getpid(), SIGTERM); // kills *some* thread.  Maybe the one we want?
-#endif
+    // Simply calling raise(SIGTERM) won't do that because raise
+    // delivers the signal to the caller's own thread.  Also note that
+    // libfuse blocks TERM, INT, HUP and QUIT in fuse_start_thread (in
+    // fuse_loop_mt.c), so raise(SIGTERM) in a "worker" thread will do
+    // nothing.
+    if(fuseful_main_pthread_valid){
+        complain(LOG_NOTICE, "fuseful_initiate_shutdown: call pthread_kill(fuseful_main_pthread, SIGTERM)");
+        ::pthread_kill(fuseful_main_pthread, SIGTERM);
+    }else{
+        complain(LOG_ERR, "fuseful_initiate_shutdown:  fuseful_main_pthread not valid.  How can this happen??  Call raise(SIGTERM) and hope for the best...");
+        raise(SIGTERM);
+    }
 }

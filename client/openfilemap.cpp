@@ -335,7 +335,8 @@ void openfile_stopscan(){
     loopcv.notify_one();
     lk.unlock();
     DIAGfkey(_ofmap||_shutdown, "joining scan thread loopdone = %d\n", loopdone);
-    scanthread.join();
+    if(scanthread.joinable())
+        scanthread.join();
     DIAGfkey(_ofmap||_shutdown, "scanthread joined.  We're done here.\n");
     complain(LOG_NOTICE, "openfile_stopscan:  scanthread joined.  Scanning stopped");
 }

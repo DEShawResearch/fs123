@@ -1081,24 +1081,10 @@ void fs123_init(void *, struct fuse_conn_info *conn_info) try {
     // managers, DNS caches, etc.) are live whenever it runs.
     maintenance_task = std::make_unique<core123::periodic>(once_per_minute_maintenance);
 }catch(std::exception& e){
-    // Something is wrong.  Get out.  If we return the fuse layer will
-    // start invoking callbacks, which might not be properly
-    // initialized.  If we just exit(), we leave the mount-point
-    // borked in an ENOTCONN state.  So what to do?
-    // 
-    // https://sourceforge.net/fuse/mailman/messages/11634250 suggests
-    // that we should call fuse_exit(), but that's in the high-level
-    // API.  Looking at the library code, fuse_exit() just calls
-    // fuse_session_exit(f->se).  So let's try that.  See the long
-    // comment in fuse_main_ll in fuseful.cpp for a blow-by-blow of
-    // what happens after fuse_session_exit.
     complain(e, "fs123_init caught exception.  Are we misconfigured?  Exception: ");
-    if(g_session){
-        complain("fs123_init:  calling fuse_session_exit");
-        fuse_session_exit(g_session);
-    }else{
-        complain(LOG_CRIT, "fs123_init:  g_session is null.  How did we get into the fuse_init callback without a g_session?");
-    }
+    // Something is wrong.  We can't continue, but recovery tricky.
+    // See the comments in fuseful.cpp
+    fuseful_init_failed();
  }
 
 // N.B.  Unlke the other lowlevel ops, the destroy op is *not* called
@@ -1171,18 +1157,9 @@ void wait_for_subprocess(){
     }
 }
 
+// See description in fuseful.hpp:  do as little as possible to avoid
+// leaving filesystem litter in the event of a hard crash.
 void fs123_crash(){
-    // Called by fuseful's signal handlers *only* for "Program
-    // Termination Signals", e.g., SIGSEGV, SIGILL - the signals that
-    // we can't return from.  The very limited goal here is to make a
-    // best-effort to clean up anything that would have persistent
-    // consequences, e.g., filesystem litter.  Since we're called by a
-    // signal handler, only async-signal-safe functions should be
-    // used.  Assume as little as possible about the integrity of data
-    // structures, threads, etc., and do no more than necessary to
-    // achieve the limited goal.  Also note that shutting fuse itself
-    // down is handled by our caller, so there's no need to call
-    // fuse_unmount, fuse_session_exit, etc.
     if(!named_pipe_name.empty())
         unlink(named_pipe_name.c_str());
 }
