@@ -541,6 +541,16 @@ struct backend123_http::curl_handler{
 		DIAG(true, "header \"" << h.first << "\" : \"" << h.second << "\"" << (endswith(h.second, "\n")? ""  : "\n"));
             DIAG(true, "content (size=" << content.size() << ") \"\"\"" << quopri({content.data(), std::min(size_t(512), content.size())}) << "\"\"\"\n");
 	}
+        if(!(http_code == 200 || http_code == 304)){
+            // We're only prepared to deal with 200 and 304.  If we
+            // get anything else, we throw.
+            //
+            // content probably has newlines, and might even contain
+            // html, which is annoying if we ship it to syslog,
+            // but discarding it seems wrong.  Maybe the http_throw
+            // needs a better API?
+            httpthrow(http_code, content);
+        }
         auto age = get_age();
         auto max_age = get_max_age();
         auto swr = get_stale_while_revalidate();
@@ -552,12 +562,7 @@ struct backend123_http::curl_handler{
             bep->stats.backend_304_bytes_saved += replyp->content.size();
             return false; 
         }
-        if( http_code != 200 ) {
-            // content probably has newlines, and might even contain html, which might be annoying if we
-            // ship it to syslog, but discarding it seems wrong.  Maybe the http_error object should
-            // have a 'content' separate from a 'message'?
-            httpthrow(http_code, content);
-	}
+        // N.B.  http_code is known to be 200 from here on...
 
         auto ii = hdrmap.find(HHERRNO);
         if(ii == hdrmap.end())
