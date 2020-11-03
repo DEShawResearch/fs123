@@ -12,6 +12,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <pthread.h>
+#include <cstddef>
 #if __has_include(<execinfo.h>)
 #include <execinfo.h>
 #endif
