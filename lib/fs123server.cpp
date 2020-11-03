@@ -1036,6 +1036,7 @@ void req::add_header(const std::string& name, const std::string& value){
     add_hdr(evhttp_request_get_output_headers(evhr), name, value);
 }
 
+#if __cpp_lib_optional
 std::optional<std::string> req::get_header(const std::string& name){
     if(function != "p")
         httpthrow(500, "handler called get_header while handling " + std::string(function) + " request");
@@ -1047,6 +1048,17 @@ std::optional<std::string> req::get_header(const std::string& name){
         return std::make_optional(std::string(value));
     else
         return std::nullopt;
+}
+#endif
+
+const char* req::get_header_ntcs(const std::string& name)
+{
+    if(function != "p")
+        httpthrow(500, "handler called get_header while handling " + std::string(function) + " request");
+    auto inheaders = evhttp_request_get_input_headers(evhr);
+    if(!inheaders)
+        httpthrow(500, "evhttp_request_get_input_headers returned NULL");
+    return evhttp_find_header(inheaders, name.c_str());
 }
 
 void req::d_reply(bool at_eof, uint64_t etag64, uint64_t esc, const std::string& cc) try {
