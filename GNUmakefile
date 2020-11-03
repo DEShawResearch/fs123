@@ -51,20 +51,24 @@ core123-check:
 	$(MAKE) -C core123-build -f $(abstop/)core123/GNUmakefile check
 
 OPT?=-O3 # if not explicitly set
+DASHG?=-ggdb
 CPPFLAGS += -iquote $(top/)include
 CPPFLAGS += -I $(top/)core123/include
 CXXFLAGS += -DFUSE_USE_VERSION=26
-CXXFLAGS += -std=c++17 -ggdb -Wall
+CXXFLAGS += -std=c++17 -Wall
 CXXFLAGS += -Wshadow
 CXXFLAGS += -Werror
 CXXFLAGS += -Wextra
-CXXFLAGS += $(OPT)
 CXXFLAGS += -D_FILE_OFFSET_BITS=64
-CFLAGS += -std=c99 -ggdb
+CXXFLAGS += $(OPT)
+CXXFLAGS += $(DASHG)
+
+CFLAGS += -std=c99
 CFLAGS += $(OPT)
+CFLAGS += $(DASHG)
 LDFLAGS += -pthread
 
-GIT_DESCRIPTION?=$(cd $(top/) shell git describe --always --dirty || echo not-git)
+GIT_DESCRIPTION?=$(shell cd $(top/); git describe --always --dirty || echo not-git)
 CXXFLAGS += -DGIT_DESCRIPTION=\"$(GIT_DESCRIPTION)\"
 
 serverlibs=-levent -levent_pthreads -lsodium
