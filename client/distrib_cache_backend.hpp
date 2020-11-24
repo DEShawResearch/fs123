@@ -64,7 +64,7 @@
 //                  ---------> backend123_http(peer)   /
 //                    peer (if discovered)            /
 //                                                   /
-//       server --------------> diskache ----------->
+//       server --------------> diskcache----------->
 //             (server backend)
 //
 //   In this configuration, there are two diskcaches: one for data
@@ -90,7 +90,7 @@
 //             (server backend)
 //
 //   There is one diskcache "shared" by all peers.  Local requests are
-//   either forwarded to the local diskache (1/N of them) or forwarded
+//   either forwarded to the local diskcache (1/N of them) or forwarded
 //   to a peer ((N-1)/N of them).  Requests received from clients are
 //   routed through the same diskcache as local requests.  This
 //   configuration has increased LAN traffic, but also prevents local
