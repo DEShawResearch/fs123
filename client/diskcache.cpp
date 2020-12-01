@@ -315,7 +315,7 @@ diskcache::evict_once() /*protected*/ try {
             // We're above evict_target_fraction.  Try to get down to 'evict_lwm'
             auto evict_fraction = (usage_fraction - vols_.evict_lwm)/usage_fraction;
             Nevict = clip(0, int(ceil(Nfiles*evict_fraction)), int(scan.names.size()));
-            complain(LOG_NOTICE, "evict %zd files from %zx. In this directory: files: %zu (%g) bytes: %zu (%g)",
+            complain(LOG_INFO, "evict %zd files from %zx. In this directory: files: %zu (%g) bytes: %zu (%g)",
                      Nevict, dir_to_evict_, Nfiles, filefraction, scan.nbytes, bytefraction);
         }
         evict(Nevict, dir_to_evict_, scan);
