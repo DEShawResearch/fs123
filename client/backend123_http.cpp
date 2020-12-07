@@ -115,12 +115,6 @@ void wrap_curl_easy_getinfo(CURL* curl, CURLINFO option, double *dp){
 struct wrapped_curl_slist{
     // construct an empty slist
     wrapped_curl_slist() : chunk{nullptr} {}
-    // construct an slist from a range of std::strings:
-    template<typename ITER>
-    wrapped_curl_slist(ITER b, ITER e) : wrapped_curl_slist() {
-        while(b!=e)
-            append(*b++);
-    }
     // The copy-constructor and assignment operators are asking
     // for trouble.  Delete them until/unless we need them.
     wrapped_curl_slist(const wrapped_curl_slist& rhs) = delete;
@@ -140,6 +134,12 @@ struct wrapped_curl_slist{
         append(s.c_str());
     }
 
+    template<typename ITER>
+    void append(ITER b, ITER e){
+        while(b!=e)
+            append(*b++);
+    }
+
     void append(const char *s){
         auto newchunk = curl_slist_append(chunk, s);
         if(newchunk == nullptr){
@@ -151,9 +151,11 @@ struct wrapped_curl_slist{
         }
         chunk = newchunk;
     }
+
     ~wrapped_curl_slist(){
         reset();
     }
+
     void reset(){
         if(chunk)
             curl_slist_free_all(chunk);
@@ -333,6 +335,7 @@ struct backend123_http::curl_handler{
     char curl_errbuf[CURL_ERROR_SIZE]; // 256
     std::vector<std::string> headers;
     wrapped_curl_slist connect_to_sl;
+    wrapped_curl_slist headers_sl;
 
     void reset(){
         content.clear();
@@ -342,23 +345,32 @@ struct backend123_http::curl_handler{
 
     bool perform_without_fallback(CURL *curl, const url_info& urli, reply123* replyp){
         // The curl_slist API doesn't support deletion or replacement.
-        // Since we can't replace the Host header, we create a new
-        // single-use curl_slist with the common headers and
-        // conditionally append a Host header to it.  It must stay
-        // in-scope until curl_easy_perform is done.
+        // Since we can't replace the Host header, we re-initialize
+        // the headers_sl curl_slist with the common headers and
+        // conditionally append a Host header to it every time through.
         //
-        // FIXME: The docs for both CURLOPT_HTTPHEADER and
+        // N.B. The docs for both CURLOPT_HTTPHEADER and
         // CURLOPT_CONNECT_TO say this about the slist: "When this
         // option is passed to curl_easy_setopt, libcurl will not copy
         // the entire list, so you *must* keep it around until you no
         // longer use this `handle` for a transfer before you call
         // curl_slist_free_all on the list".
         //
-        // We're not doing that here!  And (IIUC), when we do fallbacks,
-        // we re-use the same CURL without doing a curl_easy_reset() (which
-        // isn't documented, but is probably sufficient to satisfy the
-        // 'until you no longer use this handle' requirement.)
-        wrapped_curl_slist headers_sl(headers.begin(), headers.end());
+        // It's not completely clear what the rules really are, or
+        // whether we're following them.  We do always call
+        //   curl_setoption(curl, CURLOPT_HTTPHEADERS, valid-pointer)
+        // immediately before any call to curl_easy_perform().  And
+        // the valid pointer remains valid through the call to
+        // curl_easy_perform and while we retrieve the results.
+        // HOWEVER - between calls to curl_easy_perform, (with the same
+        // handle), we might call curl_slist_free_all, and initialize
+        // and append to a "new" slist, which is passed to the next
+        // call to curl_setoption.  We might also call
+        // curl_easy_reset().  This looks safe (from a quick read of the
+        // libcurl code), but it's not promised by libcurl's
+        // documentation.
+        headers_sl.reset();
+        headers_sl.append(headers.begin(), headers.end());
         std::string burl = urli.original;
         if(bep->vols.namecache && !urli.do_not_lookup){
             struct addrinfo hints = {};
