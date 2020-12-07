@@ -202,3 +202,38 @@
    fun:exit
    fun:(below main)
 }
+
+# Dec 2020 - valgrind on alpine with libmusl reports on two
+# leaks.  I suspect these are false positives.  But even
+# if not, I'm not going to worry about 4k of leakage.
+#==9526== HEAP SUMMARY:
+#==9526==     in use at exit: 85,707 bytes in 84 blocks
+#==9526==   total heap usage: 295,797 allocs, 295,713 frees, 423,986,568 bytes allocated
+#==9526== 
+#==9526== 1,040 (520 direct, 520 indirect) bytes in 1 blocks are definitely lost in loss record 40 of 43
+#==9526==    at 0x48A1633: calloc (vg_replace_malloc.c:761)
+#==9526==    by 0x401C928: __cxa_atexit (in /lib/ld-musl-x86_64.so.1)
+#==9526== 
+#==9526== 3,472 bytes in 1 blocks are possibly lost in loss record 41 of 43
+#==9526==    at 0x48A1633: calloc (vg_replace_malloc.c:761)
+#==9526==    by 0x4059CBA: __dls3 (in /lib/ld-musl-x86_64.so.1)
+#==9526==    by 0x3C4D6AF7C149B0DA: ???
+#==9526==    by 0x2F632F706D742F6E: ???
+#==9526==    by 0x756F6D2F6E696272: ???
+#==9526==    by 0x33323173662E746D: ???
+#==9526==    by 0x365F36387800376F: ???
+
+{
+  musl_atexit
+  Memcheck:Leak
+  fun:calloc
+  fun:__cxa_atexit
+}
+
+{
+   musl_dsl3
+   Memcheck:Leak
+   fun:calloc
+   fun:__dls3
+   ...
+}
