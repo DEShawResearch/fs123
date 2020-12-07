@@ -25,6 +25,12 @@ apk add libdwarf libdwarf-dev libdwarf-static libelf-static elfutils-dev
 export LDLIBS="-ldwarf -lelf -lz"
 export CPPFLAGS="-DBACKWARD_HAS_DWARF=1 -I/usr/include/libdwarf"
 export LDFLAGS="-static"
+# Staticly compiled code doesn't play well with valgrind.  This
+# answer: https://stackoverflow.com/a/7515951/989586 suggests that such
+# problems occur when libc itself is staticly linked.  Note that
+# prereqs.alpine:3.11 does *not* set LDFLAGS=-static, so if we do
+# make check there, it should benefit from valgrind.
+export FS123_TEST_WITH_VALGRIND=no
 
 # This is sufficient to run make -f .../GNUmakefile check
 # valgrind will report a couple of false positives.

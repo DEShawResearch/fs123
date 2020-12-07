@@ -134,7 +134,7 @@ clientopts="-f"
 clientopts+=" -oFs123CommandPipe=${MTroot}/cmdpipe"
 clientopts+=" -oFs123SignalFile=${MTroot}/fs123.sig"
 clientopts+=" -oFs123LogRateWindow=10"
-clientopts+=" -oFs123FallbackUrls=http://127.0.0.1:\$(cat ${RCroot}/portfile)/02"
+clientopts+=" -oFs123FallbackUrls=http://localhost:\$(cat ${RCroot}/portfile)/02"
 clientopts+=" -oFs123RetryTimeout=10"
 clientopts+=" -oFs123BuggyAutomountWorkaround=1"
 clientopts+=" -oFs123EnhancedConsistency=1"
@@ -152,7 +152,7 @@ clientopts+=" -oFs123DiagDestination=$MTroot/fs123.diag"
 clientopts+=" -oFs123DiagNames=complaints:err"
 clientopts+=" -o ro,noatime"
 clientopts+=" $CLIENTOPTS"
-url="http://127.0.0.1:\$(cat ${RCroot}/portfile)/01"
+url="http://localhost:\$(cat ${RCroot}/portfile)/01"
 mtpt="${MTroot}/mtpt"
 client="$clientexe $clientopts $url $mtpt"
 
@@ -269,7 +269,7 @@ trap 'rv=$?; trap "" ERR; j=$(jobs -pr); [ "$j" ] && ( kill $j || echo kill fail
 
 set -x
 
-: ${FS123_TEST_WITH_VALGRIND=$(if type valgrind; then echo yes; else echo no; fi)}
+: ${FS123_TEST_WITH_VALGRIND=$(if type valgrind > /dev/null ; then echo yes; else echo no; fi)}
 export FS123_TEST_WITH_VALGRIND
 
 rm -f $RCroot/portfile
@@ -342,7 +342,7 @@ else
     echo PASSED: ALL
 fi
 
-$MTroot/stop
+$MTroot/stop || { echo try again in 10 seconds; sleep 10; $MTroot/stop; }
 # if valgrind noticed anything, it will exit 99, which will
 # cause the wait to trap ERR.
 echo If the next line exits with status=99 look for valgrind errors in $MTroot/fs123.err

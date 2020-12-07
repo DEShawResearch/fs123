@@ -17,6 +17,6 @@ TOP=$(cd $(dirname $0)/..; pwd -P)
 docker run  \
   --device /dev/fuse \
   --mount=type=bind,src=${TOP},destination=/fs123 \
-  --mount=type=bind,src=/tmp,destination=/tmp \
+  --mount=type=bind,src=/tmp,destination=/host-tmp \
   --cap-add SYS_PTRACE --cap-add SYS_ADMIN --security-opt apparmor:unconfined \
   "$@"
