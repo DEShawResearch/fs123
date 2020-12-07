@@ -132,6 +132,10 @@ struct wrapped_curl_slist{
         return chunk;
     }
 
+    const curl_slist* get() const{
+        return chunk;
+    }
+
     void append(const std::string& s){
         append(s.c_str());
     }
@@ -148,12 +152,26 @@ struct wrapped_curl_slist{
         chunk = newchunk;
     }
     ~wrapped_curl_slist(){
+        reset();
+    }
+    void reset(){
         if(chunk)
             curl_slist_free_all(chunk);
+        chunk = nullptr;
     }
 private:
     curl_slist* chunk;
 };
+
+inline // silence a -Wunused-function warning
+std::ostream& operator<<(std::ostream& os, const curl_slist* sl){
+    for( ; sl; sl=sl->next){
+        os << ((sl->data)?sl->data:"<null>");
+        if(sl->next)
+            os << ", ";
+    }
+    return os;
+}
 
 // Let's build some RAII autoclosing magic for CURL*.
 struct CURLcloser{
@@ -314,6 +332,7 @@ struct backend123_http::curl_handler{
     long http_code;
     char curl_errbuf[CURL_ERROR_SIZE]; // 256
     std::vector<std::string> headers;
+    wrapped_curl_slist connect_to_sl;
 
     void reset(){
         content.clear();
@@ -327,27 +346,19 @@ struct backend123_http::curl_handler{
         // single-use curl_slist with the common headers and
         // conditionally append a Host header to it.  It must stay
         // in-scope until curl_easy_perform is done.
+        //
+        // FIXME: The docs for both CURLOPT_HTTPHEADER and
+        // CURLOPT_CONNECT_TO say this about the slist: "When this
+        // option is passed to curl_easy_setopt, libcurl will not copy
+        // the entire list, so you *must* keep it around until you no
+        // longer use this `handle` for a transfer before you call
+        // curl_slist_free_all on the list".
+        //
+        // We're not doing that here!  And (IIUC), when we do fallbacks,
+        // we re-use the same CURL without doing a curl_easy_reset() (which
+        // isn't documented, but is probably sufficient to satisfy the
+        // 'until you no longer use this handle' requirement.)
         wrapped_curl_slist headers_sl(headers.begin(), headers.end());
-
-        // N.B. we wouldn't have to fiddle with the Host header with a
-        // newer libcurl: Since 7.49.0 libcurl has had
-        // CURLOPT_CONNECT_TO, which looks like the "right" way to
-        // tell libcurl to connect to an IP address of our choosing.
-        // CURLOPT_RESOLVE, introduced in 7.21.3 (memory leak fixed in
-        // 7.35.0), would be almost as good.  Unfortunately, CentOS7
-        // ships with libcurl-7.29.0, and CentOS6 ships with
-        // libcurl-7.19.7.  So for backward compatibility, we modify
-        // the URL and add a Host: header.  This isn't ideal for
-        // a couple of reasons:
-        // - Headers are associated with the CURL* handle, and hence
-        //   are re-used when following redirects (c.f.
-        //   CURL_FOLLOW_REDIRECTION).  Sending the original Host:
-        //   header to the redirected-to server is definitely
-        //   surprising, but might be ok, depending on how the
-        //   redirected-to server is configured.
-        // - If CURLOPT_NETRC is in effect, curl will look up
-        //   the IP address rather than a hostname in the netrc file.
-        // - Curl might use the hostname in other ways.
         std::string burl = urli.original;
         if(bep->vols.namecache && !urli.do_not_lookup){
             struct addrinfo hints = {};
@@ -372,9 +383,53 @@ struct backend123_http::curl_handler{
                 sockaddr_in* sin = reinterpret_cast<sockaddr_in*>(aip->ai_addr);
                 const char* dotted_decimal = ::inet_ntop(aip->ai_family, &sin->sin_addr, buf, sizeof(buf));
                 if(dotted_decimal){
-                    burl = urli.before_hostname + dotted_decimal + urli.after_hostname;
-                    headers_sl.append("Host:"+urli.hostname);
-                    DIAG(_namecache, "replacing " << urli.original << " with " << burl << " and Host:" + urli.hostname + " header\n");
+                    // N.B.  CURLOPT_xxx are enums, NOT pp-symbols.  We can't check for them at compile-time
+#if LIBCURL_VERSION_NUM >= 0x73100 // CURLOPT_CONNECT_TO is in libcurl >= 7.49
+                    // This appears to be the "best" way to bypass libcurl's own
+                    // resolver and tell it to connect to an address of our choosing:
+                    // N.B.  if we somehow get here multiple times (e.g., via fallback),
+                    // we just keep appending to the slist.  That seems to be what
+                    // curl wants.
+                    connect_to_sl.append(urli.hostname + "::" + dotted_decimal + ":");
+                    wrap_curl_easy_setopt(curl, CURLOPT_CONNECT_TO, connect_to_sl.get());
+                    DIAG(_namecache, "CURLOPT_CONNECT_TO: " << connect_to_sl.get());
+#elif LIBCURL_VERSION_NUM >= 0x072300 // CURLOPT_RESOLVE is in 7.21.3, but a memory leak was fixed in 7.35
+                    // If we don't have CURL_OPT_CONNECT_TO, we can use CURLOPT_RESOLVE
+                    // to tell libcurl's resolver to to trust us instead.
+                    // N.B.  if we somehow get here multiple times, we
+                    // pass a length=1 slist each time.  It's not
+                    // clear what the lifetime requirements are, but
+                    // keeping the slist around at least until after
+                    // the curl_easy_perform returns seems prudent.
+                    connect_to_sl.reset();
+                    connect_to_sl.append(urli.hostname + ":" + dotted_decimal);
+                    wrap_curl_easy_setopt(curl, CURLOPT_RESOLVE, connect_to_sl.get());
+                    DIAG(_namecache, "CURLOPT_RESOLVE: " << connect_to_sl.get());
+#else
+                    // Unfortunately, CentOS7 ships with 7.29.0 and CentOS6 ships
+                    // with 7.17.7, so we need a workaround when we can't use CURLOPT_RESOLVE.
+                    //
+                    // Modify the URL and add a Host: header.  This isn't ideal for
+                    // a couple of reasons:
+                    // - Headers are associated with the CURL* handle, and hence
+                    //   are re-used when following redirects (c.f.
+                    //   CURL_FOLLOWLOCATION).  Sending the original Host:
+                    //   header to the redirected-to server is definitely
+                    //   surprising, but might be ok, depending on how the
+                    //   redirected-to server is configured.
+                    // - If CURLOPT_NETRC is in effect, curl will look up
+                    //   the IP address rather than a hostname in the netrc file.
+                    // - Curl uses the hostname in other ways, e.g.,
+                    //   for TLS verification.
+                    if(!bep->using_https){
+                        burl = urli.before_hostname + dotted_decimal + urli.after_hostname;
+                        headers_sl.append("Host:"+urli.hostname);
+                        DIAG(_namecache, "replacing " << urli.original << " with " << burl << " and Host:" + urli.hostname + " header\n");
+                    }else{
+                        bep->vols.namecache.store(false);
+                        complain(LOG_WARNING, "libcurl older than 7.35.0 cannot use the namecache with https.  Namecache disabled.  Using libcurl's resolver.");
+                    }
+#endif
                 }else{
                     complain(LOG_ERR, "inet_ntop failed.  There's an address in the addrinfo_cache but we can't write it in dotted decimal.  How can that happen?");
                 }
