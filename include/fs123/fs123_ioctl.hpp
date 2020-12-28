@@ -23,7 +23,7 @@ struct fs123_ioctl_data{
 #define CACHE_TAG_IOC _IOW(0, 111, fs123_ioctl_data)
 //#define FAKE_INO_IN_DIRENT_IOC _IOW(0, 112, fs123_ioctl_data)
 #define DIAG_DESTINATION_IOC _IOW(0, 113, fs123_ioctl_data)
-#define CURL_MAXREDIRS_IOC _IOW(0,114, fs123_ioctl_data)
+#define HTTP_MAXREDIRECTS_IOC _IOW(0,114, fs123_ioctl_data)
 #define LOG_MAX_HOURLY_RATE_IOC _IOW(0, 115, fs123_ioctl_data)
 #define LOG_DESTINATION_IOC _IOW(0, 116, fs123_ioctl_data)
 #define LOAD_TIMEOUT_FACTOR_IOC _IOW(0, 117, fs123_ioctl_data)
@@ -37,5 +37,6 @@ struct fs123_ioctl_data{
 #define ADD_PEER_IOC _IOW(0, 125, fs123_ioctl_data)
 #define REMOVE_PEER_IOC _IOW(0, 126, fs123_ioctl_data)
 #define INVALIDATE_INODE_IOC _IOW(0, 127, fs123_ioctl_data)
+#define CURL_HANDLES_REDIRECTS_IOC _IOW(0,128, fs123_ioctl_data)
 
 #endif

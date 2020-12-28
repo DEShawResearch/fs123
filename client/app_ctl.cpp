@@ -31,7 +31,8 @@ int complain(){
         " IgnoreEstaleMismatch\n"
         " DiagDestination\n"
         " LogDestination\n"
-        " CurlMaxRedirs\n"
+        " HttpMaxRedirects\n"
+        " CurlHandlesRedirects\n"
         " LogMaxHourlyRate\n"
         " EvictLwm\n"
         " EvictTargetFraction\n"
@@ -114,8 +115,10 @@ int app_ctl(int argc, char **argv) try {
         ioc = DIAG_DESTINATION_IOC;
     }else if(cmd == "LogDestination"){
         ioc = LOG_DESTINATION_IOC;
-    }else if(cmd == "CurlMaxRedirs"){
-        ioc = CURL_MAXREDIRS_IOC;
+    }else if(cmd == "HttpMaxRedirects"){
+        ioc = HTTP_MAXREDIRECTS_IOC;
+    }else if(cmd == "CurlHandlesRedirects"){
+        ioc = CURL_HANDLES_REDIRECTS_IOC;
     }else if(cmd == "LogMaxHourlyRate"){
         ioc = LOG_MAX_HOURLY_RATE_IOC;
     }else if(cmd == "EvictLwm"){

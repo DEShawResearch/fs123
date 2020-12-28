@@ -25,7 +25,8 @@ struct volatiles_t{
     // used in backend_http.cpp
     std::atomic<long> connect_timeout{core123::envto<long>("Fs123ConnectTimeout", 20L)};
     std::atomic<long> transfer_timeout{core123::envto<long>("Fs123TransferTimeout", 40L)};
-    std::atomic<long> curl_maxredirs{core123::envto<long>("Fs123CurlMaxRedirs", 2)};
+    std::atomic<long> http_maxredirects{core123::envto<long>("Fs123HttpMaxRedirects", 2)};
+    std::atomic<bool> curl_handles_redirects{core123::envto<bool>("Fs123CurlHandlesRedirects", true)};
     std::atomic<bool> namecache{core123::envto<bool>("Fs123NameCache", true)};
 
     // See retry logic in app_mount.cpp

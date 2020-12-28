@@ -333,15 +333,14 @@ struct backend123_http::curl_handler{
         }
     }
 
-    curl_handler(backend123_http* bep_, const std::string& urlstem_) :
-        bep(bep_), urlstem(urlstem_), exptr{}, content{}, hdrmap{}
+    curl_handler(backend123_http* bep_) :
+        bep(bep_), exptr{}, content{}, hdrmap{}
     {
         if(bep->content_reserve_size>0)
             content.reserve(bep->content_reserve_size);
     }
 
     backend123_http* bep;
-    std::string urlstem;
     std::exception_ptr exptr;
     std::string content;
     // Note that the keys in hdrmap are all lower-case, e.g.,
@@ -360,7 +359,7 @@ struct backend123_http::curl_handler{
         exptr = nullptr;
     }
 
-    bool perform_without_fallback(CURL *curl, const url_info& urli, reply123* replyp){
+    bool perform_without_fallback(CURL *curl, const url_info& baseurli, const std::string& urlstem, reply123* replyp, int recursion_depth = 0){
         // The curl_slist API doesn't support deletion or replacement.
         // Since we can't replace the Host header, we re-initialize
         // the headers_sl curl_slist with the common headers and
@@ -388,15 +387,15 @@ struct backend123_http::curl_handler{
         // documentation.
         headers_sl.reset();
         headers_sl.append(headers.begin(), headers.end());
-        std::string burl = urli.original;
-        if(bep->vols.namecache && !urli.do_not_lookup){
+        std::string burl = baseurli.original;
+        if(bep->vols.namecache && !baseurli.do_not_lookup){
             struct addrinfo hints = {};
             hints.ai_family = AF_INET;
             hints.ai_protocol = IPPROTO_TCP;
             hints.ai_socktype = SOCK_STREAM;
-            auto ai_result = bep->aicache.lookup(urli.hostname, {}, &hints);
+            auto ai_result = bep->aicache.lookup(baseurli.hostname, {}, &hints);
             if(ai_result->status != 0)
-                complain(LOG_WARNING, str("addrinfo_cache.lookup(", urli.hostname, ") returned ", ai_result->status));
+                complain(LOG_WARNING, str("addrinfo_cache.lookup(", baseurli.hostname, ") returned ", ai_result->status));
             unsigned naddrs = 0; // count the addresses in ai_result
             for(auto p = ai_result->aip; p!=nullptr; p = p->ai_next)
                 naddrs++;
@@ -419,7 +418,7 @@ struct backend123_http::curl_handler{
                     // N.B.  if we somehow get here multiple times (e.g., via fallback),
                     // we just keep appending to the slist.  That seems to be what
                     // curl wants.
-                    connect_to_sl.append(urli.hostname + "::" + dotted_decimal + ":");
+                    connect_to_sl.append(baseurli.hostname + "::" + dotted_decimal + ":");
                     wrap_curl_easy_setopt(curl, CURLOPT_CONNECT_TO, connect_to_sl.get());
                     DIAG(_namecache, "CURLOPT_CONNECT_TO: " << connect_to_sl.get());
 #elif LIBCURL_VERSION_NUM >= 0x072300 // CURLOPT_RESOLVE is in 7.21.3, but a memory leak was fixed in 7.35
@@ -431,7 +430,7 @@ struct backend123_http::curl_handler{
                     // keeping the slist around at least until after
                     // the curl_easy_perform returns seems prudent.
                     connect_to_sl.reset();
-                    connect_to_sl.append(urli.hostname + ":" + dotted_decimal);
+                    connect_to_sl.append(baseurli.hostname + ":" + dotted_decimal);
                     wrap_curl_easy_setopt(curl, CURLOPT_RESOLVE, connect_to_sl.get());
                     DIAG(_namecache, "CURLOPT_RESOLVE: " << connect_to_sl.get());
 #else
@@ -440,20 +439,17 @@ struct backend123_http::curl_handler{
                     //
                     // Modify the URL and add a Host: header.  This isn't ideal for
                     // a couple of reasons:
-                    // - Headers are associated with the CURL* handle, and hence
-                    //   are re-used when following redirects (c.f.
-                    //   CURL_FOLLOWLOCATION).  Sending the original Host:
-                    //   header to the redirected-to server is definitely
-                    //   surprising, but might be ok, depending on how the
-                    //   redirected-to server is configured.
+                    // - Headers are associated with the CURL* handle,
+                    //   and get carried along if libcurl follows redirects.
+                    //   (Shouldn't be an issue if curl_handles_redirects is false.)
                     // - If CURLOPT_NETRC is in effect, curl will look up
                     //   the IP address rather than a hostname in the netrc file.
                     // - Curl uses the hostname in other ways, e.g.,
                     //   for TLS verification.
                     if(!bep->using_https){
-                        burl = urli.before_hostname + dotted_decimal + urli.after_hostname;
-                        headers_sl.append("Host:"+urli.hostname);
-                        DIAG(_namecache, "replacing " << urli.original << " with " << burl << " and Host:" + urli.hostname + " header\n");
+                        burl = baseurli.before_hostname + dotted_decimal + baseurli.after_hostname;
+                        headers_sl.append("Host:"+baseurli.hostname);
+                        DIAG(_namecache, "replacing " << baseurli.original << " with " << burl << " and Host:" + baseurli.hostname + " header\n");
                     }else{
                         bep->vols.namecache.store(false);
                         complain(LOG_WARNING, "libcurl older than 7.35.0 cannot use the namecache with https.  Namecache disabled.  Using libcurl's resolver.");
@@ -466,7 +462,9 @@ struct backend123_http::curl_handler{
         }
         wrap_curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers_sl.get());
         wrap_curl_easy_setopt(curl, CURLOPT_URL, (void*)(burl + urlstem).c_str());
-        return perform_once(curl, replyp);
+        DIAG(_http>=2, "perform_once: CURLOPT_URL: " + (burl + urlstem));
+        DIAG(_http>=2, "perform_once: CURLOPT_HTTPHEADER: " << headers_sl.get());
+        return perform_once(curl, replyp, recursion_depth);
     }
 
     // perform_with_fallback is a method of curl_handler so we can
@@ -476,13 +474,13 @@ struct backend123_http::curl_handler{
     // first viable 'baseurl', i.e., the first one whose
     // 'deferred_until' time_point is in the past.  It is assumed that
     // retry-looping takes place at a higher level.
-    bool perform_with_fallback(CURL* curl, reply123* replyp){
+    bool perform_with_fallback(CURL* curl, const std::string& urlstem, reply123* replyp){
         // If there's only one baseurl, i.e., no fallbacks, then go
         // straight to perform_without_fallback.  Skip the rigamarole
         // of checking and updating the list of deferrals,
         // complaining, etc.
         if(bep->baseurls.size() < 2)
-            return perform_without_fallback(curl, bep->baseurls.at(0), replyp);
+            return perform_without_fallback(curl, bep->baseurls.at(0), urlstem, replyp);
         
         size_t i = 0; 
         size_t nurls = bep->baseurls.size();
@@ -502,7 +500,7 @@ struct backend123_http::curl_handler{
             complain(LOG_WARNING, "curl_handler::perform:  All fallbacks are deferred.  Use the least deferred: " + bep->baseurls[i].original);
         }
         try{
-            return perform_without_fallback(curl, bep->baseurls.at(i), replyp);
+            return perform_without_fallback(curl, bep->baseurls.at(i), urlstem, replyp);
         }catch(std::exception& e){
             auto now = std::chrono::system_clock::now();
             // There's a lot of scope for different "policy" choices
@@ -536,7 +534,7 @@ struct backend123_http::curl_handler{
     // returned by getreply: a bool indicating whether the reply was
     // modified (a requirement of the backend123 api that should be
     // reconsidered)
-    bool perform_once(CURL* curl, reply123* replyp){
+    bool perform_once(CURL* curl, reply123* replyp, int recursion_depth){
         bep->stats.curl_performs++;
         CURLcode ret;
         {
@@ -615,7 +613,25 @@ struct backend123_http::curl_handler{
             throw se;
         }
         wrap_curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+        DIAG(_http>=2, "http_code: " << http_code << " curl_handles_redirects: " << bep->vols.curl_handles_redirects.load() << " recursion_depth: " << recursion_depth << " http_maxredirectss: " << bep->vols.http_maxredirects.load());
         gather_stats(curl);
+        if(!bep->vols.curl_handles_redirects.load() &&
+           (http_code == 301 || http_code == 302) &&
+           recursion_depth < bep->vols.http_maxredirects.load()){
+            auto ii = hdrmap.find("location");
+            if(ii == hdrmap.end())
+                throw se(EINVAL, "Reply is 301 or 302 but there is no Location header.");
+            DIAG(_http>=2, "Follow redirect: level: " << recursion_depth+1 << "  new url: " << ii->second );
+            // The url_info constructor has some tricky regex's to
+            // pick apart a URL.  The idea was to precompute those
+            // regexs for a small number of never-changing baseurls.
+            // But here we're constructing a new url_info every time
+            // we follow a redirect.  It's correct, but it doesn't
+            // benefit from re-use in any way.
+            url_info newurli(ii->second);
+            reset(); // N.B.  clears the hdrmap, invalidates ii, ii->second, etc.
+            return perform_without_fallback(curl, newurli, {}, replyp, recursion_depth+1);
+        }
         return getreply(replyp);
     }
 
@@ -980,9 +996,11 @@ void backend123_http::setoptions(CURL *curl) const{
         curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, cto);
     if(tto)        // see comment in ctor.
         curl_easy_setopt(curl, CURLOPT_TIMEOUT, tto);
-    auto maxredirs = vols.curl_maxredirs.load();
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, !!maxredirs);
-    curl_easy_setopt(curl, CURLOPT_MAXREDIRS, maxredirs);
+    if(vols.curl_handles_redirects.load()){
+        auto maxredirs = vols.http_maxredirects.load();
+        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, !!maxredirs);
+        curl_easy_setopt(curl, CURLOPT_MAXREDIRS, maxredirs);
+    }
 
     if(using_https){
         // Command line options to set '--insecure'??
@@ -1072,7 +1090,7 @@ backend123_http::refresh(const req123& req, reply123* replyp) try{
     // get_curl gives us a CURL* that has been curl_easy_init'ed or curl_easy_reset.
     // We have to call curl_easy_setopt to establish our own policies and defaults.
     setoptions(curl);
-    curl_handler ch(this, req.urlstem);
+    curl_handler ch(this);
     wrap_curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, curl_handler::header_callback);
     wrap_curl_easy_setopt(curl, CURLOPT_HEADERDATA, (void *)&ch);
     wrap_curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_handler::write_callback);
@@ -1119,7 +1137,7 @@ backend123_http::refresh(const req123& req, reply123* replyp) try{
         }
         ch.headers.push_back(oss.str());
     }
-    bool ret = ch.perform_with_fallback(curl, replyp);
+    bool ret = ch.perform_with_fallback(curl, req.urlstem, replyp);
     if(replyp->content.size() > content_reserve_size){
         // reserve 10% more than the largest reply so far, up to 8M
         content_reserve_size = std::min(size_t(1.1*replyp->content.size()), size_t(8192*1024));

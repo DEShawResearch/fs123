@@ -2014,8 +2014,11 @@ void fs123_ioctl(fuse_req_t req, fuse_ino_t ino, int cmd, void *arg, struct fuse
         complain(LOG_NOTICE, "changed Fs123LogDestination=" + log_destination);
         fuse_reply_ioctl(req, 0, nullptr, 0);
         return;
-    case CURL_MAXREDIRS_IOC:
-        VOLATILE_IOCTL(curl_maxredirs);
+    case HTTP_MAXREDIRECTS_IOC:
+        VOLATILE_IOCTL(http_maxredirects);
+        return;
+    case CURL_HANDLES_REDIRECTS_IOC:
+        VOLATILE_IOCTL(curl_handles_redirects);
         return;
     case LOG_MAX_HOURLY_RATE_IOC:
         if( in_bufsz != sizeof(fs123_ioctl_data) )
@@ -2254,7 +2257,8 @@ std::ostream& report_config(std::ostream& os){
        << "Fs123NoKernelAttrCaching: " << no_kernel_attr_caching << "\n"
        << "Fs123NoKernelDentryCaching: " << no_kernel_dentry_caching << "\n"
        << "Fs123CacheTag: " << req123::cachetag << "\n"
-       << "Fs123CurlMaxRedirs: " << volatiles->curl_maxredirs << "\n"
+       << "Fs123HttpMaxRedirects: " << volatiles->http_maxredirects << "\n"
+       << "Fs123CurlHandlesRedirects: " << volatiles->curl_handles_redirects << "\n"
        << "Fs123LogMaxHourlyRate: " << get_complaint_max_hourly_rate() << "\n"
        << "Fs123LogRateWindow: " << get_complaint_averaging_window() << "\n"
         ;
@@ -2307,7 +2311,8 @@ std::ostream& report_config(std::ostream& os){
         //Prt(Fs123Disconnected)
         Prt(Fs123NetrcFile, "<unset>")       // default in backend123_http.cpp
         //Prt(Fs123CacheTag)
-        //Prt(Fs123CurlMaxRedirs)
+        //Prt(Fs123HttpMaxRedirects)
+        //Prt(Fs123CurlHandlesRedirects)
         // In diskcache:
         //Prt(Fs123CacheDir)
         Prt(Fs123DistribCacheExperimental, "false")// default in distrib_cache_backend.cpp
@@ -2409,6 +2414,8 @@ try {
                                     "Fs123NoKernelDentryCaching=",// Debug/diagnostic only.  Will kill performance.
                                     "Fs123NetrcFile=",
                                     "Fs123CacheTag=",
+                                    "Fs123HttpMaxRedirects=",
+                                    "Fs123CurlHandlesRedirects=",
                                     // In diskcache:
                                     "Fs123CacheDir=",
                                     "Fs123PastStaleWhileRevalidate=",
