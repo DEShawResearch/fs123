@@ -100,6 +100,12 @@ void wrap_curl_easy_setopt(CURL *curl, CURLoption option, curl_write_callback cb
         libcurl_throw(ret, fmt("curl_easy_setopt(%p, %d, (curl_write_callback*)%p)", curl, option, cb));
 }
 
+void wrap_curl_easy_setopt(CURL *curl, CURLoption option, int (*cb)(CURL* handle, curl_infotype, char*, size_t, void*)){
+    auto ret = curl_easy_setopt(curl, option, cb);
+    if(ret != CURLE_OK)
+        libcurl_throw(ret, fmt("curl_easy_setopt(%p, %d, (debug_callback*)%p)", curl, option, cb));
+}
+
 void wrap_curl_easy_getinfo(CURL* curl, CURLINFO option, long *lp){
     auto ret = curl_easy_getinfo(curl, option, lp);
     if(ret != CURLE_OK)
@@ -241,6 +247,17 @@ void release_curl(CURL_ac c){
 // a singleton too, even if by some miracle we manage to instantiate
 // multiple backend_http's.
 refcounted_scoped_nanotimer_ctrl refcountedtimerctrl(libcurl_stats.backend_curl_perform_inuse_sec);
+
+int curl_debug_to_diag_stream(CURL* /*handle*/, curl_infotype type, char *data, size_t /*size*/, void */*userptr*/){
+    switch(type){
+    case CURLINFO_TEXT:
+        DIAGf(_http, "CURLINFO_TEXT: %s", data);
+        return 0;
+    default:
+        return 0;
+    }
+    return 0;
+}
 
 } // namespace <anonymous>
  
@@ -604,8 +621,6 @@ struct backend123_http::curl_handler{
 
     bool getreply(reply123* replyp) {
 	if (_http >= 2) {
-	    for (const auto h : hdrmap)
-		DIAG(true, "header \"" << h.first << "\" : \"" << h.second << "\"" << (endswith(h.second, "\n")? ""  : "\n"));
             DIAG(true, "content (size=" << content.size() << ") \"\"\"" << quopri({content.data(), std::min(size_t(512), content.size())}) << "\"\"\"\n");
 	}
         if(!(http_code == 200 || http_code == 304)){
@@ -715,21 +730,42 @@ struct backend123_http::curl_handler{
 
 protected:
     void recv_hdr(char *buffer, size_t size, size_t nitems){
-        std::string s(buffer, size * nitems);
-        std::string ignore;
-        if( s[0] == '\n' || s[0] == '\r' || startswith(s, "HTTP/") )
-            return; // curl tells us about the CRLFCRLF header delimiter and the HTTP/1.1 line!
-        auto firstcolonpos = s.find(':');
+        str_view sv(buffer, size * nitems);
+        if(!endswith(sv, "\r\n"))
+            throw se(EPROTO, "Header does not end with CRLF.  Somebody is very confused");
+        sv = sv.substr(0, sv.size()-2); // ignore the CRLF from now on
+        if( sv.size() == 0 /* nothing but CRLF */ || startswith(sv, "HTTP/") )
+            return; // curl tells us about the CRLFCRLF header delimiter and the HTTP/1.1 line.  Ignore them.
+        auto firstcolonpos = sv.find(':');
         if(firstcolonpos == std::string::npos)
-            throw se(EPROTO, fmt("recv_hdr:  no colon on line: %s", s.c_str()));
-        auto key = s.substr(0, firstcolonpos);
+            throw se(EPROTO, "recv_hdr:  no colon on line: " + std::string(sv));
+        std::string key(sv.substr(0, firstcolonpos)); // RFC7230 doesn't allow WS between field-name and ":"
         // down-case the key.  Note that this could have trouble with non-ASCII.  Tough.
         std::transform(key.begin(), key.end(), key.begin(), ::tolower);
-        auto val = s.substr(firstcolonpos+1);
-        // += here means that headers that appear multiple times,
-        // e.g., "Warning", are recorded as multiline values in hdrmap
-        // with CRLF separators.
-        hdrmap[key] += val;
+        // skip optional whitespace (OWS).  HTTP RFCs define OWS as SP/HTAB!)
+        str_view val = sv.substr(firstcolonpos+1);
+        auto firstnonwhitepos = val.find_first_not_of(" \t");
+        if(firstnonwhitepos == std::string::npos){
+            // There's nothing but OWS and CRLF after the colon.
+            // This is pretty sketchy - but we'll allow it.
+            val = str_view{};
+        }else{
+            auto lastnonwhitepos = val.find_last_not_of(" \t");
+            val = val.substr(firstnonwhitepos, (lastnonwhitepos - firstnonwhitepos)+1);
+        }
+        auto where_whether = hdrmap.emplace(key, val);
+        // C++17:  auto [where, whether] = ...
+        if(!where_whether.second){
+            // Multiple headers with the same field-name (key)!
+            // RFC7230, 3.2.2 says the only keys for which this is
+            // legal can be treated as though the field were a
+            // comma-delimited list and the client can append to the
+            // list.  In fact, we almost never get here.  The Warning
+            // header is the only one we typically see that might be
+            // repeated, and we currently don't do anything with it.
+            where_whether.first->second += "," + std::string(val);
+        }
+        DIAG(_http>=2, "recv_hdr: hdrmap[" << key << "] = '" <<  hdrmap[key] << "'");
     }
 
     void recv_data(char *buffer, size_t size, size_t nitems){
@@ -884,10 +920,14 @@ void backend123_http::setoptions(CURL *curl) const{
     // keepalive).  Let's take our chances for now.  We can make it an
     // option later, if necessary.
     wrap_curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
-    // FIXME - curl's verbosity can be very informative.  Can  we figure out
-    // how to divert it somewhere useful to us other than uncommenting this
-    // line, recompiling and running -f (oreground).
-    //wrap_curl_easy_setopt(curl, CURLOPT_VERBOSE, 1);
+
+    // If the _http diagnostic level is >= 2, then direct curl's
+    // debug stream to our diagnostic stream:
+    if(_http >= 2){
+        wrap_curl_easy_setopt(curl, CURLOPT_VERBOSE, 1);
+        wrap_curl_easy_setopt(curl, CURLOPT_DEBUGFUNCTION, curl_debug_to_diag_stream);
+    }
+
     curl_easy_setopt(curl, CURLOPT_SOCKOPTFUNCTION, sockoptcallback);
     // libcurl's SIGALRM handler is buggy.  We've definitely seen the
     // *** longjmp causes uninitialized stack frame *** bugs that it
