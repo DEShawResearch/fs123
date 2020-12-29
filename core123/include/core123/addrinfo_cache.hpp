@@ -97,6 +97,7 @@
 #include <mutex>
 #include <map>
 #include <string>
+#include <atomic>
 #include <cstring>
 #include <cerrno>
 #include <sys/types.h>
@@ -182,10 +183,12 @@ struct addrinfo_cache{
         auto p = the_map.find(args);
         if(p!=the_map.end()){
             make_most_ru(p);
+            _hit_count++;
             return p->second.air;
         }
         lk.unlock();
         auto newvalue = std::make_shared<addrinfo_result>(args); // might be slow
+        _miss_count++;
         if(newvalue->status == EAI_AGAIN){
             _eai_again_count++;
             return newvalue; // return it, but don't record it in the_map.
@@ -225,6 +228,7 @@ struct addrinfo_cache{
         for(auto& e : the_map){
             lk.unlock();
             auto newvalue = std::make_shared<addrinfo_result>(e.first); // might be slow
+            _refresh_count++;
             lk.lock();
             if(newvalue->status != EAI_AGAIN) // don't update the_map with transient failures
                 e.second.air = newvalue;
@@ -242,6 +246,17 @@ struct addrinfo_cache{
         return _eai_again_count;
     }
 
+    size_t hit_count() const{
+        return _hit_count;
+    }
+
+    size_t miss_count() const{
+        return _miss_count;
+    }
+
+    size_t refresh_count() const{
+        return _refresh_count;
+    }
     addrinfo_cache() = default;
     // Non-copyable
     addrinfo_cache(const addrinfo_cache&) = delete;
@@ -249,7 +264,10 @@ struct addrinfo_cache{
 private:
     detail::gai_map_t the_map;
     using iter = detail::gai_map_t::iterator;
-    size_t _eai_again_count = 0; // count of EAI_AGAIN returns
+    std::atomic<size_t> _eai_again_count = 0; // count of EAI_AGAIN returns
+    std::atomic<size_t> _hit_count = 0;
+    std::atomic<size_t> _miss_count = 0;
+    std::atomic<size_t> _refresh_count = 0;
     // most_ru and least_ru are the head and tail of an auxiliary
     // linked list in recently-used order.  They are uninitialized,
     // and may not be used unless the_map contains at least one entry.

@@ -31,7 +31,9 @@
     STATISTIC(backend_304_bytes_saved)                  \
     STATISTIC(backend_couldnt_connect)                  \
     STATISTIC(backend_got_nothing)                      \
-    STATISTIC(backend_disconnected)
+    STATISTIC(backend_disconnected)                     \
+    STATISTIC(aicache_lookups)                          \
+    STATISTIC(aicache_successes)
 
 struct url_info{
     // Extracting the hostname from a url, and remembering the

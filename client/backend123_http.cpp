@@ -394,6 +394,7 @@ struct backend123_http::curl_handler{
             hints.ai_protocol = IPPROTO_TCP;
             hints.ai_socktype = SOCK_STREAM;
             auto ai_result = bep->aicache.lookup(baseurli.hostname, {}, &hints);
+            bep->stats.aicache_lookups++;
             if(ai_result->status != 0)
                 complain(LOG_WARNING, str("addrinfo_cache.lookup(", baseurli.hostname, ") returned ", ai_result->status));
             unsigned naddrs = 0; // count the addresses in ai_result
@@ -411,6 +412,7 @@ struct backend123_http::curl_handler{
                 sockaddr_in* sin = reinterpret_cast<sockaddr_in*>(aip->ai_addr);
                 const char* dotted_decimal = ::inet_ntop(aip->ai_family, &sin->sin_addr, buf, sizeof(buf));
                 if(dotted_decimal){
+                    bep->stats.aicache_successes++;
                     // N.B.  CURLOPT_xxx are enums, NOT pp-symbols.  We can't check for them at compile-time
 #if LIBCURL_VERSION_NUM >= 0x73100 // CURLOPT_CONNECT_TO is in libcurl >= 7.49
                     // This appears to be the "best" way to bypass libcurl's own
@@ -613,7 +615,6 @@ struct backend123_http::curl_handler{
             throw se;
         }
         wrap_curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-        DIAG(_http>=2, "http_code: " << http_code << " curl_handles_redirects: " << bep->vols.curl_handles_redirects.load() << " recursion_depth: " << recursion_depth << " http_maxredirectss: " << bep->vols.http_maxredirects.load());
         gather_stats(curl);
         if(!bep->vols.curl_handles_redirects.load() &&
            (http_code == 301 || http_code == 302) &&
@@ -885,7 +886,12 @@ protected:
 
 std::ostream& backend123_http::report_stats(std::ostream& os){
     return os << stats
-              << "getaddrinfo_again: " << aicache.eai_again_count() << "\n";
+              << "aicache_hits: " << aicache.hit_count() << "\n"
+              << "aicache_misses: " << aicache.miss_count() << "\n"
+              << "aicache_refreshes: " << aicache.refresh_count() << "\n"
+              << "aicache_agains: " << aicache.eai_again_count() << "\n"
+              << "aicache_size: " << aicache.size() << "\n"
+        ;
 }
 
 int sockoptcallback(void */*clientp*/, curl_socket_t curlfd, curlsocktype /*purpose*/){
