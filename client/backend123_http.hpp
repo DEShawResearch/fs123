@@ -32,6 +32,7 @@
     STATISTIC(backend_couldnt_connect)                  \
     STATISTIC(backend_got_nothing)                      \
     STATISTIC(backend_disconnected)                     \
+    STATISTIC(backend_30x_redirected)                   \
     STATISTIC(aicache_lookups)                          \
     STATISTIC(aicache_successes)
 

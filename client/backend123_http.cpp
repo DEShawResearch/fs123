@@ -631,6 +631,7 @@ struct backend123_http::curl_handler{
             // benefit from re-use in any way.
             url_info newurli(ii->second);
             reset(); // N.B.  clears the hdrmap, invalidates ii, ii->second, etc.
+            bep->stats.backend_30x_redirected++;
             return perform_without_fallback(curl, newurli, {}, replyp, recursion_depth+1);
         }
         return getreply(replyp);
