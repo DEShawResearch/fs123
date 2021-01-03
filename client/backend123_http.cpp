@@ -31,6 +31,7 @@ using namespace core123;
 
 static auto _http = diag_name("http");
 static auto _namecache = diag_name("namecache");
+static auto _transactions = diag_name("transactions");
 
 namespace{
 
@@ -890,6 +891,43 @@ protected:
         curlstat(STARTTRANSFER);
         curlstat(TOTAL);
 #undef curlstat
+        if(_transactions){
+            // curl can tell us everything we need to know or we can
+            // measure and count ourselves and/or retrieve stuff from
+            // *this.  Let's ask curl...
+            wrap_curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME, &t);
+            double bytes_read;
+            wrap_curl_easy_getinfo(curl, CURLINFO_SIZE_DOWNLOAD, &bytes_read);
+            const char *url = nullptr;
+            wrap_curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &url);
+            // Ignore everything after the /fs123 sigil.
+            std::string baseurl;
+            if(url){
+                str_view surl(url);
+                auto len = surl.find("/fs123");
+                if(len != std::string::npos)
+                    len += 1;
+                baseurl = surl.substr(0, len);
+            }else{
+                baseurl = "<unknown>";
+            }
+            const char *ip = "0.0.0.0";
+            wrap_curl_easy_getinfo(curl, CURLINFO_PRIMARY_IP, &ip);
+            long code = 599;
+            wrap_curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
+            // DIAGsend saves time, but more importantly, it writes
+            // only what we give it.  We expect that if we're logging
+            // transactions, we're probably doing it to a
+            // circular_shared_buffer, in which case eliding "extra"
+            // characters is very helpful.
+            DIAGsend(fmt("\n%.6f GET %ld %.0f %ld %s %s",
+                        tp2dbl(std::chrono::system_clock::now()),
+                        code,
+                        bytes_read,
+                        (long)(t*1.e6),
+                        ip,
+                        baseurl.c_str()));
+        }
     }
 
 };

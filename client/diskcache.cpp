@@ -26,6 +26,7 @@ using namespace core123;
 
 static auto _diskcache = diag_name("diskcache");
 static auto _evict = diag_name("evict");
+static auto _transactions = diag_name("transactions");
 
 namespace{
 #define STATS_MACRO_NAME DISKCACHE_STATISTICS
@@ -864,6 +865,14 @@ diskcache::deserialize_no_unlink(int rootfd, const std::string& path,
         }
     }
     fd.close();
+    if(_transactions){
+        auto elapsed_nanos = _t.finish();
+        DIAGsend(fmt("\n%.6f DR 0 %zd %lld %s",
+                    tp2dbl(std::chrono::system_clock::now()),
+                    nread,
+                    elapsed_nanos/1000ll,
+                    path.c_str()));
+    }
     // ret->content_threeroe is not NUL-terminated, so we have to use the
     // four-argument string::compare.
     static const size_t thirtytwo = sizeof(ret->content_threeroe);
@@ -1003,6 +1012,14 @@ diskcache::serialize(const reply123& r, const std::string& path, const std::stri
         fd.close();
         sew::renameat(rootfd_, pathnew.c_str(), rootfd_, path.c_str());
 	DIAGkey(_diskcache, "diskcache::serialize wrote " << path << "\n");
+        if(_transactions){
+            auto elapsed_nanos = _t.finish();
+            DIAGsend(fmt("\n%.6f DW 0 %zd %lld %s",
+                        tp2dbl(std::chrono::system_clock::now()),
+                        wrote,
+                        elapsed_nanos/1000ll,
+                        path.c_str()));
+        }
     }catch(std::exception& e){
         // it's critical that we unlink pathnew.  Otherwise, we'll
         // never successfully open it again.  (see comments about
