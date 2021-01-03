@@ -304,7 +304,7 @@ distrib_cache_backend::refresh(const req123& req, reply123* reply) /*override*/ 
         myreq.urlstem = "/p" + req.urlstem;
         return p->be->refresh(myreq, reply);
     }catch(exception& e){
-        complain(LOG_WARNING,  "peer->be->refresh threw.  Discouraging future attempts to use that peer: " + p->url);
+        complain(LOG_WARNING, e, "peer->be->refresh threw.  Discouraging future attempts to use that peer: " + p->url);
         discourage_peer(p->url);
         discouraged_peer(p->url);
         return upstream_backend->refresh(req, reply);

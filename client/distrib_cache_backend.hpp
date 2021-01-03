@@ -158,6 +158,9 @@ struct peer{
         be_owner(std::move(_beowner)),
         be(be_owner.get())
     {}
+    friend std::ostream& operator<<(std::ostream& os, const peer& p){
+        return os << p.uuid << " " << p.url;
+    }
 };
 
 // The peer_map is accessed in several ways:
@@ -200,8 +203,16 @@ public:
         url_to_uuid[sp->url] = sp->uuid;
         std::lock_guard<std::mutex> uu2plg(uu2pmtx);
         uuid_to_peer[sp->uuid] = sp;
-        core123::complain(LOG_INFO, "peer_map::insert_peer %s %s.  Now %zd", sp->url.c_str(), sp->uuid.c_str(), url_to_uuid.size());  // This *should* happen mainly at startup.
-
+        static auto _distrib_cache = core123::diag_name("distrib_cache");
+        DIAGf(_distrib_cache, "peer_map::insert_peer %s %s.  Now %zd", sp->url.c_str(), sp->uuid.c_str(), url_to_uuid.size());  // This *should* happen mainly at startup.
+        if(_distrib_cache>=2){
+            for(const auto& e : uuid_to_peer){
+                DIAG(_distrib_cache>=2, "uuid_to_peer[" << e.first << "] = " << (*e.second));
+            }
+            for(const auto& e : url_to_uuid){
+                DIAG(_distrib_cache>=2, "url_to_uuid[" << e.first << "] = " << e.second);
+            }                
+        }
     }
 
     void remove_url(const std::string& url){
@@ -211,7 +222,8 @@ public:
             // This is "normal" but if it probably indicates a lot of churn
             // in our peer set.  It means we saw an ABSENT before we ever
             // saw a PRESENT.
-            core123::complain(LOG_INFO, "peer_map::remove_url("+ url + "): no such url");
+            static auto _distrib_cache = core123::diag_name("distrib_cache");
+            DIAG(_distrib_cache, "peer_map::remove_url("+ url + "): no such url in url_to_uuid");
             return;
         }
         std::string& uuid  = found->second;
@@ -223,8 +235,17 @@ public:
             auto h = hash(uuid, i);
             ring.erase(h);
         }
-        core123::complain(LOG_INFO, "peer_map::remove_url %s %s.  Now %zd", url.c_str(), uuid.c_str(), uuid_to_peer.size());
         url_to_uuid.erase(found);
+        static auto _distrib_cache = core123::diag_name("distrib_cache");
+        DIAGf(_distrib_cache, "peer_map::remove_url %s %s.  Now %zd", url.c_str(), uuid.c_str(), uuid_to_peer.size());
+        if(_distrib_cache>=2){
+            for(auto& e : uuid_to_peer){
+                DIAG(_distrib_cache>=2, "uuid_to_peer[" << e.first << "] = " << (*e.second));
+            }
+            for(auto& e : url_to_uuid){
+                DIAG(_distrib_cache>=2, "url_to_uuid[" << e.first << "] = " << e.second);
+            }                
+        }
     }
 
     bool check_url(const std::string& url) const{
