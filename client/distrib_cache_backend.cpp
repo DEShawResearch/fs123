@@ -18,6 +18,8 @@ using namespace std;
 auto _distrib_cache = diag_name("distrib_cache");
 auto _shutdown = diag_name("shutdown");
 
+distrib_cache_statistics_t distrib_cache_stats;
+
 namespace {
 
 // distrib_cache_message:  encapsulate some of the details of sending, receiving
@@ -201,7 +203,7 @@ distrib_cache_backend::regular_maintenance() try {
 
 std::ostream&
 distrib_cache_backend::report_stats(std::ostream& os){
-    os << "distrib_cache_backend: 1\n";
+    os << distrib_cache_stats;
     peer_map.forall_peers([&os,this](const pair<string, peer::sp>& p){
                               if(p.second->be == upstream_backend)
                                   return;
@@ -452,10 +454,19 @@ peer_handler_t::p(req::up req, uint64_t etag64, istream&) try {
     }
         
     DIAG(_distrib_cache, "/p request for " << myreq.urlstem);
+    // N.B.  These requests will also be tallied in the statistics of
+    // the server_backend, but the server_backend may also be getting
+    // requests from others (see the ascii art in
+    // distrib_cache_backend.hpp).
+    atomic_scoped_nanotimer _t(&distrib_cache_stats.distc_server_refresh_sec);
     bool modified = be.server_backend->refresh(myreq, &reply123);
+    distrib_cache_stats.distc_server_refreshes++;
+    distrib_cache_stats.distc_server_refresh_bytes += reply123.content.size();
     string cc = cache_control(reply123);
-    if(!modified)
+    if(!modified){
+        distrib_cache_stats.distc_server_refresh_not_modified++;
         return not_modified_reply(move(req), cc);
+    }
     req->add_header(HHCOOKIE, str(reply123.estale_cookie));
     req->add_header(HHERRNO, str(reply123.eno));
     if(reply123.chunk_next_meta != reply123::CNO_MISSING){

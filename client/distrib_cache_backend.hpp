@@ -117,11 +117,28 @@
 #include <core123/http_error_category.hpp>
 #include <core123/sew.hpp>
 #include <core123/complaints.hpp>
+#include <core123/stats.hpp>
 #include <mutex>
 #include <memory>
 #include <algorithm>
 #include <sys/socket.h>
 #include <sys/types.h>
+
+#define DISTRIB_CACHE_STATISTICS \
+    STATISTIC(distc_inserted_peers)    \
+    STATISTIC(distc_removed_peers)     \
+    STATISTIC(distc_replaced_peers)    \
+    STATISTIC(distc_server_refreshes)   \
+    STATISTIC(distc_server_refresh_not_modified) \
+    STATISTIC_NANOTIMER(distc_server_refresh_sec) \
+    STATISTIC(distc_server_refresh_bytes) \
+    
+
+#define STATS_STRUCT_TYPENAME distrib_cache_statistics_t
+#define STATS_MACRO_NAME DISTRIB_CACHE_STATISTICS
+#include <core123/stats_struct_builder>
+#undef DISTRIB_CACHE_STATISTICS
+extern distrib_cache_statistics_t distrib_cache_stats;
 
 struct peer{
     // Peers must satisfy:
@@ -138,6 +155,19 @@ struct peer{
     // invented for.  In the 'discovery' process, we must learn
     // the peer's basurl and its name (i.e., uuid).  Diskcaches now
     // have a 'get_uuid' member that can be used for this.
+    //
+    // But there's a complication: it's not really possible to
+    // guarantee uniqueness over time.  E.g., if a peer crashes
+    // and restarts, it will generally get a new port (and hence
+    // a new URL), but it will have the same uuid.  So while it's
+    // practical to enforce a one-to-one mapping from url to uuid
+    // *at any one time*, the mapping may change with time.
+    //
+    // Also note that we routinely allow clients for different
+    // mount-points to share a diskcache, which implies that they'll
+    // share the same UUID.  This is still permitted, but they MUST
+    // NOT share the same multicast reflector
+    // (-oFs123DistribCacheReflector).
     std::string uuid;
     std::string url;
     // Question: Who owns the backend?  That depends on how we were
@@ -194,39 +224,53 @@ class peer_map_t{
     
 public:
     void insert_peer(peer::up up){
+        static auto _distrib_cache = core123::diag_name("distrib_cache");
+        distrib_cache_stats.distc_inserted_peers++;
         peer::sp sp = std::move(up);
         std::lock_guard<std::mutex> lg(mtx);
+        DIAGf(_distrib_cache, "peer_map::insert_peer %s %s", sp->url.c_str(), sp->uuid.c_str());
         for(int i=1; i<=Nrep; ++i){
             auto h = hash(sp->uuid, i);
-            ring.insert({h, sp});
+            peer::sp& rhpeersp = ring[h];
+            // All Nrep entries in the ring are shared pointers pointing to the
+            // same peer, so we only have to check this once.
+            if(rhpeersp && i==1){
+                DIAG(_distrib_cache, "peer_map::insert_peer:  replacing existing peer: " << (*rhpeersp) << " with: " << (*sp));
+                url_to_uuid.erase(rhpeersp->url);
+                distrib_cache_stats.distc_replaced_peers++;
+            }
+            rhpeersp = sp;
         }
         url_to_uuid[sp->url] = sp->uuid;
-        std::lock_guard<std::mutex> uu2plg(uu2pmtx);
-        uuid_to_peer[sp->uuid] = sp;
-        static auto _distrib_cache = core123::diag_name("distrib_cache");
-        DIAGf(_distrib_cache, "peer_map::insert_peer %s %s.  Now %zd", sp->url.c_str(), sp->uuid.c_str(), url_to_uuid.size());  // This *should* happen mainly at startup.
+        {
+            std::lock_guard<std::mutex> uu2plg(uu2pmtx);
+            uuid_to_peer[sp->uuid] = sp;
+        }
         if(_distrib_cache>=2){
-            for(const auto& e : uuid_to_peer){
-                DIAG(_distrib_cache>=2, "uuid_to_peer[" << e.first << "] = " << (*e.second));
-            }
             for(const auto& e : url_to_uuid){
                 DIAG(_distrib_cache>=2, "url_to_uuid[" << e.first << "] = " << e.second);
             }                
+            std::lock_guard<std::mutex> uu2plg(uu2pmtx);
+            for(const auto& e : uuid_to_peer){
+                DIAG(_distrib_cache>=2, "uuid_to_peer[" << e.first << "] = " << (*e.second));
+            }
         }
     }
 
     void remove_url(const std::string& url){
+        static auto _distrib_cache = core123::diag_name("distrib_cache");
+        distrib_cache_stats.distc_removed_peers++;
         std::lock_guard<std::mutex> lg(mtx);
         auto found = url_to_uuid.find(url);
         if(found == url_to_uuid.end()){
             // This is "normal" but if it probably indicates a lot of churn
             // in our peer set.  It means we saw an ABSENT before we ever
             // saw a PRESENT.
-            static auto _distrib_cache = core123::diag_name("distrib_cache");
             DIAG(_distrib_cache, "peer_map::remove_url("+ url + "): no such url in url_to_uuid");
             return;
         }
         std::string& uuid  = found->second;
+        DIAGf(_distrib_cache, "peer_map::remove_url %s %s.", url.c_str(), uuid.c_str());
         {
             std::lock_guard<std::mutex> uu2plg(uu2pmtx);
             uuid_to_peer.erase(uuid);
@@ -236,15 +280,14 @@ public:
             ring.erase(h);
         }
         url_to_uuid.erase(found);
-        static auto _distrib_cache = core123::diag_name("distrib_cache");
-        DIAGf(_distrib_cache, "peer_map::remove_url %s %s.  Now %zd", url.c_str(), uuid.c_str(), uuid_to_peer.size());
         if(_distrib_cache>=2){
-            for(auto& e : uuid_to_peer){
-                DIAG(_distrib_cache>=2, "uuid_to_peer[" << e.first << "] = " << (*e.second));
-            }
             for(auto& e : url_to_uuid){
                 DIAG(_distrib_cache>=2, "url_to_uuid[" << e.first << "] = " << e.second);
             }                
+            std::lock_guard<std::mutex> uu2plg(uu2pmtx);
+            for(auto& e : uuid_to_peer){
+                DIAG(_distrib_cache>=2, "uuid_to_peer[" << e.first << "] = " << (*e.second));
+            }
         }
     }
 
