@@ -18,6 +18,10 @@
 //        no additional whitespace or punctuation permitted.  If the
 //        level is unspecified, it is LOG_NOTICE.  If the facility is
 //        unspecified, it is LOG_USER.
+//   %csb^/path^nrecs=NNN^reclen=LLL
+//        The file argument is required.  The others are optional.
+//        Order doesn't matter.  nrecs defaults to 1024 and reclen
+//        defaults to 128 if unspecified.
 //
 // In addition, when the output is *not* to syslog, a newline
 // will be automatically appended to any record that does not
@@ -39,6 +43,8 @@
 #include "sew.hpp"
 #include "syslog_number.hpp"
 #include "strutils.hpp"
+#include "svto.hpp"
+#include "circular_shared_buffer.hpp"
 #include <string>
 #include <mutex>
 #include <stdexcept>
@@ -50,6 +56,7 @@ struct log_channel{
     int dest_fd = -1;
     int dest_fac = 0;
     int dest_lev = 0;
+    std::unique_ptr<circular_shared_buffer> dest_csb;
     bool dest_opened = false;
     std::string opened_dest;
     int opened_mode;
@@ -91,6 +98,8 @@ struct log_channel{
         }else if(core123::startswith(dest, "%syslog")){
             parse_dest_priority(dest); // might throw
             dest_syslog = true;
+        }else if(core123::startswith(dest, "%csb^")){
+            dest_csb = parse_csb_dest(dest, mode);
         }else if(dest == "%stderr"){
             dest_fd = fileno(stderr);
         }else if(dest == "%stdout"){
@@ -126,6 +135,11 @@ struct log_channel{
             auto lev = (level == -1) ? dest_lev : (level&0x7);
             // no autonewline for syslog
             ::syslog(dest_fac | lev, "%.*s", int(sv.size()), sv.data());
+        }else if(dest_csb){
+            auto r = dest_csb->ac_record();
+            ::memcpy(r->data(), sv.data(), std::min(sv.size(), r->size()));
+            if(r->size() > sv.size())
+                ::memset(r->data()+sv.size(), ' ', r->size() - sv.size());
         }else if(dest_fd >= 0){
             // autonewline with writev
             struct iovec iov[2] = {{const_cast<char*>(sv.data()), sv.size()},
@@ -146,6 +160,7 @@ private:
             sew::close(dest_fd);
         dest_fd = -1;
         dest_opened = false;
+        dest_csb.reset();
     }
     
     // A note on terminology:
@@ -183,7 +198,40 @@ private:
             else
                 dest_fac = n;
         }        
-}
+    }
+
+    decltype(dest_csb) parse_csb_dest(const std::string& destarg, int mode) try {
+        using std::runtime_error;
+        auto args = svsplit_exact(destarg, "^");
+        if(args.size() < 1 || args[0] != "%csb")
+            throw runtime_error("no %csb");
+        if(args.size() < 2)
+            throw runtime_error("no filename");
+        std::string filename = std::string(args[1]);
+        int drop = 2;
+        size_t nrecs = 1024;
+        size_t reclen = 128;
+        for(auto& keqv : args) try {
+            if(drop-- > 0)  // With C++20, could use 'args | ranges::views::drop(2)'
+                continue;
+            auto eqpos = keqv.find('=');
+            if(eqpos == std::string::npos)
+                throw runtime_error("No '=' in argument");
+            auto k = keqv.substr(0, eqpos);
+            auto v = keqv.substr(eqpos+1);
+            if(k == "nrecs"){
+                nrecs = svto<size_t>(v);
+            }else if(k == "reclen"){
+                reclen = svto<size_t>(v);
+            }else
+                throw runtime_error("");
+        }catch(std::exception& e){
+            std::throw_with_nested(runtime_error("Argument: " + std::string(keqv)));
+        }
+        return std::make_unique<circular_shared_buffer>(filename, O_RDWR|O_CREAT, nrecs, reclen, mode); // O_TRUNC?
+    }catch(std::exception& e){
+        std::throw_with_nested(std::runtime_error("log_channel::parse_csb - expected a %csb^FILENAME^nrecs=NNN^reclen=LLL"));
+    }
 
 };
 } // namespace core123
