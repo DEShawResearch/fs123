@@ -145,7 +145,8 @@ void read_special_ino(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, st
         // Return 0 bytes (but not an error) if the offset is past the
         // end.
         size_t soff = std::min(size_t(off), sp->size());
-        return reply_buf(req, soff+sp->data(), sp->size() - soff);
+        size_t sz = std::min(sp->size() - soff, size);
+        return reply_buf(req, soff+sp->data(), sz);
         }
     case SPECIAL_INO_IOCTL:
         return reply_buf(req, nullptr, 0);
