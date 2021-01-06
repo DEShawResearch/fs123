@@ -173,11 +173,13 @@ private:
 
 inline // silence a -Wunused-function warning
 std::ostream& operator<<(std::ostream& os, const curl_slist* sl){
+    os << "slist[";
     for( ; sl; sl=sl->next){
         os << ((sl->data)?sl->data:"<null>");
         if(sl->next)
-            os << ", ";
+            os << "|";
     }
+    os << "]";
     return os;
 }
 
@@ -771,19 +773,26 @@ protected:
             auto lastnonwhitepos = val.find_last_not_of(" \t");
             val = val.substr(firstnonwhitepos, (lastnonwhitepos - firstnonwhitepos)+1);
         }
-        auto where_whether = hdrmap.emplace(key, val);
-        // C++17:  auto [where, whether] = ...
-        if(!where_whether.second){
-            // Multiple headers with the same field-name (key)!
-            // RFC7230, 3.2.2 says the only keys for which this is
-            // legal can be treated as though the field were a
-            // comma-delimited list and the client can append to the
-            // list.  In fact, we almost never get here.  The Warning
-            // header is the only one we typically see that might be
-            // repeated, and we currently don't do anything with it.
-            where_whether.first->second += "," + std::string(val);
-        }
+        hdrmap[key] = val;
         DIAG(_http>=2, "recv_hdr: hdrmap[" << key << "] = '" <<  hdrmap[key] << "'");
+        // N.B.  RFC7230, 3.2.2 says that keys whose values can be
+        // treated as a comma-delimited list may appear multiple
+        // times.
+        //
+        // We ignore that because when curl_handles_redirects is true,
+        // recv_hdr is called for all the headers in the original
+        // reply, and then all the headers in the first redirected
+        // reply, and then all the headers ...  There's no way to
+        // distinguish between a header, (e.g., Content-Length) that
+        // appears in multiple replies and a header that legitimately
+        // appears multiple times in the same reply (e.g., Warning).
+        // Fortunately, all the headers we care about should only
+        // appear once-per-reply, and we definitely want the value
+        // from the last, non-redirect reply.
+        //
+        // Also note that when curl_handles_redirects is false, we
+        // clear the hdrmap between redirects, so this is not an
+        // issue.
     }
 
     void recv_data(char *buffer, size_t size, size_t nitems){
