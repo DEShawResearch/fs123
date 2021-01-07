@@ -337,7 +337,7 @@ struct req{
     friend void exception_reply(up th, const std::exception& e) { th->exception_reply(e); }
     friend void errno_reply(up th, int fs123_errno,  const std::string& cc) { th->errno_reply(fs123_errno, cc); }
     friend void not_modified_reply(up th, const std::string& cc)  { th->not_modified_reply(cc); }
-    friend void redirect_reply(up th, const std::string& location, const std::string& cc) { th->redirect_reply(location, cc); }
+    friend void redirect_reply(up th, const std::string& location, const std::string& cc={}) { th->redirect_reply(location, cc); }
     friend void a_reply(up th, const struct stat& sb, uint64_t content_validator, uint64_t esc, const std::string& cc){
         th->a_reply(sb, content_validator, esc, cc); }
     friend void d_reply(up th, bool at_eof, uint64_t etag64, uint64_t esc, const std::string& cc){

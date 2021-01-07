@@ -986,7 +986,8 @@ void req::not_modified_reply(const std::string& cc) {
 void req::redirect_reply(const std::string& location, const std::string& cc) {
     auto ohdrs = evhttp_request_get_output_headers(evhr);
     add_hdr(ohdrs, "Location", location.c_str());
-    add_hdr(ohdrs, "Cache-control", cc.c_str());
+    if(!cc.empty())
+        add_hdr(ohdrs, "Cache-control", cc.c_str());
     log_and_send_destructively(302);  // 302 is the HTTP Found status
 }
 
