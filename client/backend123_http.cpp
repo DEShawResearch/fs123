@@ -106,16 +106,11 @@ void wrap_curl_easy_setopt(CURL *curl, CURLoption option, int (*cb)(CURL* handle
         libcurl_throw(ret, fmt("curl_easy_setopt(%p, %d, (debug_callback*)%p)", curl, option, cb));
 }
 
-void wrap_curl_easy_getinfo(CURL* curl, CURLINFO option, long *lp){
-    auto ret = curl_easy_getinfo(curl, option, lp);
+template <typename T>
+void wrap_curl_easy_getinfo(CURL* curl, CURLINFO option, T *tp){
+    auto ret = curl_easy_getinfo(curl, option, tp);
     if(ret != CURLE_OK)
-        libcurl_throw(ret, fmt("curl_easy_getinfo(%p, %d, %p)", curl, option, lp));
-}
-
-void wrap_curl_easy_getinfo(CURL* curl, CURLINFO option, double *dp){
-    auto ret = curl_easy_getinfo(curl, option, dp);
-    if(ret != CURLE_OK)
-        libcurl_throw(ret, fmt("curl_easy_getinfo(%p, %d, %p)", curl, option, dp));
+        libcurl_throw(ret, fmt("curl_easy_getinfo(%p, %d, %p)", curl, option, tp));
 }
 
 struct wrapped_curl_slist{
@@ -619,22 +614,26 @@ struct backend123_http::curl_handler{
         wrap_curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
         gather_stats(curl);
         if(!bep->vols.curl_handles_redirects.load() &&
-           (http_code == 301 || http_code == 302) &&
            recursion_depth < bep->vols.http_maxredirects.load()){
-            auto ii = hdrmap.find("location");
-            if(ii == hdrmap.end())
-                throw se(EINVAL, "Reply is 301 or 302 but there is no Location header.");
-            DIAG(_http>=2, "Follow redirect: level: " << recursion_depth+1 << "  new url: " << ii->second );
-            // The url_info constructor has some tricky regex's to
-            // pick apart a URL.  The idea was to precompute those
-            // regexs for a small number of never-changing baseurls.
-            // But here we're constructing a new url_info every time
-            // we follow a redirect.  It's correct, but it doesn't
-            // benefit from re-use in any way.
-            url_info newurli(ii->second);
-            reset(); // N.B.  clears the hdrmap, invalidates ii, ii->second, etc.
-            bep->stats.backend_30x_redirected++;
-            return perform_without_fallback(curl, newurli, {}, replyp, recursion_depth+1);
+            char *url = nullptr;
+            // N.B.  We could look up hdrmap["location"], but to be
+            // fully correct, we'd also have to jump through hoops
+            // with relative urls.  libcurl probably got this right,
+            // so we don't have to.
+            wrap_curl_easy_getinfo(curl, CURLINFO_REDIRECT_URL, &url);
+            if(url){
+                DIAG(_http, "Follow redirect: level: " << recursion_depth+1 << "  new url: " << url);
+                // The url_info constructor has some tricky regex's to
+                // pick apart a URL.  The idea was to precompute those
+                // regexs for a small number of never-changing baseurls.
+                // But here we're constructing a new url_info every time
+                // we follow a redirect.  It's correct, but it doesn't
+                // benefit from re-use in any way.
+                url_info newurli(url);
+                reset(); // N.B.  clears hdrmap content.
+                bep->stats.backend_30x_redirected++;
+                return perform_without_fallback(curl, newurli, {}, replyp, recursion_depth+1);
+            }
         }
         return getreply(replyp);
     }
@@ -797,6 +796,7 @@ protected:
 
     void recv_data(char *buffer, size_t size, size_t nitems){
         content.append(buffer, size*nitems);
+        DIAGf(_http, "recv_data: append %zd bytes to content", size*nitems);
     }
 
     time_t get_age() const try{
