@@ -164,6 +164,11 @@ public:
             *accum_ += e;
         return e;
     }
+    auto finish() {
+        auto e = accumulate();
+        set_accumulator(nullptr);
+        return e;
+    }
     ~_scoped_timer() {
         if(accum_)
             *accum_ += this->elapsed();
