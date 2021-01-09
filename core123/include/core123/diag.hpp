@@ -23,6 +23,12 @@
   bool_expr is false.  Thus, they're safe even in tight loops in high-performance
   code - as long as the bool_expr quickly returns false in the normal case.
 
+  It's also possible to skip all the formatting, conditional evaluation with:
+
+   DIAGsend(str_view);
+
+  which unconditionally sends str_view to the diag channel.
+
   The diag namespace allows one to declare 'named integer' values that
   satisfy the quick-to-evaluate criterion, and that can be set globally,
   either by the program explicitly or from the environment.  E.g.
@@ -195,7 +201,6 @@
    the_diag().opt_srcline - include the value of __LINE__ in each output record
    the_diag().opt_func   - include the value of __func__ in each output record
    the_diag().opt_why    - include the stringified bool_expr in every output record
-   the_diag().opt_newline - unconditionally add a newline to every output record
    the_diag().opt_flood - turns on all DIAG/DIAGf macros unconditionally
 
   opt_func and opt_why are true by default.  All others are
@@ -242,7 +247,6 @@
 #include <string>
 #include <iostream>
 #include <iomanip>
-#include <mutex>
 #include <fcntl.h>
 #if defined(__linux__)
 #include <unistd.h>
@@ -283,9 +287,9 @@
 #define DIAGloc(BOOL, _file, _line, _func, _expr) do{                   \
         if( __diag_unlikely(_diag_flood || bool(BOOL)) ){     \
             core123::diag_t& td = core123::the_diag();                  \
-            std::lock_guard<std::recursive_mutex> __diag_lg(td._diag_mtx); \
-            td._diag_before( #BOOL , _file, _line, _func) << _expr; \
-            td._diag_after( #BOOL , _file, _line, _func);        \
+            core123::osvstream os;                                      \
+            td._diag_before(os, #BOOL , _file, _line, _func) << _expr;  \
+            td._diag_after(os, #BOOL , _file, _line, _func);            \
         }                                                               \
     }while(0)
 
@@ -305,17 +309,6 @@
 #define DIAGkey DIAG
 
 namespace core123{
-
-// streams...  Ugh
-struct fancy_stringbuf : public std::stringbuf{
-    fancy_stringbuf() : std::stringbuf(std::ios_base::out) {}
-    core123::str_view sv(){
-        return {pbase(), size_t(pptr()-pbase())};
-    }
-    void reset(){
-        setp(pbase(), epptr()); // has the side-effect of setting pptr to new_pbase
-    }
-};
 
 struct diag_t{
     // "methods" for working with the names in the named_ref_space.
@@ -372,7 +365,6 @@ struct diag_t{
     }
 
     void set_diag_destination(const std::string& diagfname, int mode=0666){ // umask is respected
-        std::lock_guard<std::recursive_mutex> lk(_diag_mtx);
         logchan.open(diagfname, mode);
     }
 
@@ -405,8 +397,6 @@ struct diag_t{
                 opt_func = !negate;
             else if(tok == "why")
                 opt_why = !negate;
-            else if(tok == "newline")
-                opt_newline = !negate;
             else if(tok == "flood")
                 opt_flood = !negate;
         }while( colon != string::npos );
@@ -427,7 +417,6 @@ struct diag_t{
         _DIAG_OPT(srcline);
         _DIAG_OPT(func);
         _DIAG_OPT(why);
-        _DIAG_OPT(newline);
         _DIAG_OPT(flood);
 #undef _DIAG_OPT
         return oss.str();
@@ -440,19 +429,12 @@ struct diag_t{
     bool opt_srcline;
     bool opt_func;
     bool opt_why;
-    bool opt_newline;
 
     // If opt_flood is set *AND* DIAG_FLOOD_ENABLE is defined, then
     // the first BOOL argument to diag macros is shortcircuited
     // to true.
     bool opt_flood  = false;
 
-    osvstream os;
-    // The intermediate_stream is where DIAG actually writes.  It can be
-    // manipulated, e.g.,
-    //   the_diag().diag_intermediate_stream.precision(17)
-    // but it shouldn't be written to directly or flushed.
-    std::ostream& diag_intermediate_stream;
     log_channel logchan;
 
     // private - do not call or modify
@@ -460,8 +442,7 @@ struct diag_t{
     // We can't make them truly private because we use them in our macro
     // expansions, but users *MUST NOT* call or modify them.  The names
     // start with an _, which should remind you that they're special.
-    std::recursive_mutex _diag_mtx;
-    std::ostream& _diag_before(const char* k, const char *file, int line, const char *func){
+    osvstream& _diag_before(osvstream& os, const char* k, const char *file, int line, const char *func){
         if(opt_tstamp){
             // N.B. formatting the timestamp adds about 1.0 musec on a 2017 intel core!?
             // Without a timestamp, it takes about 0.2 musec.
@@ -530,20 +511,18 @@ struct diag_t{
         return os;
     }
 
-    void _diag_after(const char* /*k*/, const char */*file*/, int /*line*/, const char */*func*/){
-        if(opt_newline)
-            os.put('\n');
+    void _diag_after(osvstream& os, const char* /*k*/, const char */*file*/, int /*line*/, const char */*func*/){
         logchan.send(os.sv());
-        os.clear();
-        os.str({});
     }
 
+    void send(str_view sv){
+        logchan.send(sv);
+    }
     // It's a singleton class.  The only way to construct one is through 'the_diag'
     // which will only ever construct one.
     friend diag_t& the_diag();
 private:
     diag_t() :
-        diag_intermediate_stream(os),
         logchan("%stderr", 0),
         thenames(new core123::named_ref_space<int>)
     {
@@ -570,7 +549,6 @@ private:
         opt_srcline = false;
         opt_func = true;
         opt_why = true;
-        opt_newline = false;
         opt_flood = false;
     }
 
@@ -593,5 +571,9 @@ inline void set_diag_destination(const std::string& diagfname, int mode=0666) { 
 inline void set_diag_opts(const std::string& optarg, bool restore_defaults_before_set = true) { the_diag().set_diag_opts(optarg, restore_defaults_before_set); }
 inline std::string get_diag_opts() { return the_diag().get_diag_opts(); }
 
-
 }// namespace core123
+
+// DIAGsend unconditionally sends its argument to the diag channel, with
+// no formatting, no mutexes, no before/after magic, etc.  The other DIAG
+// "functions" are not in the core123 namespace, so neither is DIAGsend.
+inline void DIAGsend(core123::str_view sv){ return core123::the_diag().send(sv); }

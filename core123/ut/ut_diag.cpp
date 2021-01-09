@@ -70,14 +70,12 @@ int main (int argc, char* argv[]) {
         cerr << "option parsing error: " << e.what() << "\n";
         return 2;
     }
-    ofstream os;
-    the_diag().diag_intermediate_stream.precision(17);
     if (!opt_diag.empty()){
         std::cerr  << "opt_diag: " << opt_diag << "\n";
         set_diag_names(opt_diag);
     }else{
         set_diag_names(__FILE__, false);
-        set_diag_names("NET=1", false);
+        set_diag_names("Net=1", false);
     }
     
     std::cerr << "After command line options, diag::get_names(): " << get_diag_names() << std::endl;
@@ -85,7 +83,8 @@ int main (int argc, char* argv[]) {
 
     DIAG(keyNet, "Good day Mr Net\n");
     double x = 0.1234567890123456789;
-    DIAG(keyMisc, "Expect to see 17 digits: " << x << "\n");
+    DIAG(keyMisc, "Expect to see 17 digits: " << std::setprecision(17) << x << "\n");
+    DIAG(keyMisc, "Expect to see 6 digits (the diag 'stream' is ephemeral): " << x << "\n");
     DIAG(keyNL, "Hi NL its " << 40 << " degrees outside.  This string does not have a newline");
     DIAG(keyNL, "Hi NL.   This string does have a newline\n");
     DIAG(keyMisc, "Hi misc\n");
@@ -94,6 +93,8 @@ int main (int argc, char* argv[]) {
 
     DIAGf(_file, "Straight, no chaser\n");
     
+    DIAGsend("This line sent directly by DIAGsend(...) with no middle-men");
+
     cout << "\n Keys are: \n"<< get_diag_names(false) << "\n";
     cout << "\n Keys are: \n"<< get_diag_names(true) << "\n";
     DIAGf(_file, "lev=%d %s\n", lev, f());
