@@ -35,6 +35,11 @@
 //  must exist, and the number of records is determined from the file's
 //  size.  N is ignored.
 //   
+//  Also note that it's possible for the constructor to throw after
+//  filename is opened.  If oflags contains O_TRUNC or O_CREAT, the
+//  visible state of the filesystem may be changed.  Consequently,
+//  the constructor has "basic" but not "strong"  exception safety.
+//
 //  Each record contains record_sz bytes, of which cksum_sz (8) are
 //  reserved for an automatically generated checksum.  The record_sz
 //  is determined as follows:
@@ -65,11 +70,19 @@
 //    }  // the record is finalized when r goes out-of-scope
 //      
 //  A reading process accessing this record in the shared file will
-//  see an 'invalid' record from the time ac_record() is called
-//  until 'r' goes out of scope (or its release() method is called).
-//  The record will be valid from then on - until the N'th subsequent
-//  ac_record() call, at which time, the circular buffer wraps
-//  around so the same memory is returned by the later call.
+//  see an 'invalid' record from the time ac_record() is called until
+//  'r' goes out of scope (or its close() method is called).  The
+//  record will be valid from then on - until the N'th subsequent
+//  ac_record() call, at which time, the circular buffer wraps around
+//  so the same memory is returned by the later call.  To make the
+//  record valid as quickly as possible, define the value returned by
+//  ac_record with a narrow scope (as above).
+//
+//  Note that 'r' must be close()-ed or destroyed before the
+//  circular_shared_buffer from which it was obtained is destroyed.
+//  Violation of this requirement will likely result in a segfault.
+//  Defining the value returned by ac_record() with a narrow scope
+//  will generally avoid this problem.
 //
 //  Multiple threads in a single process may write concurrently, but
 //  it is an error if more than one process (or thread) opens a file
@@ -148,19 +161,17 @@
 namespace core123{
 
 struct circular_shared_buffer{
-    static const size_t default_record_sz = 128;
+    static constexpr size_t default_record_sz = 128;
+    static constexpr size_t cksum_sz = 8;
     size_t record_sz;
     size_t data_sz;
-    static const size_t default_cksum_sz = 8;
-    const size_t cksum_sz;
     unsigned char *baseaddr;
     core123::ac::fd_t<> fd;
     size_t N;
     bool writable;
     std::atomic<uint64_t> recordctr = 0;
 
-    circular_shared_buffer(const std::string& filename, int flags, size_t _N=0, size_t _record_sz = 0, int mode=0600) :
-        cksum_sz(default_cksum_sz)
+    circular_shared_buffer(const std::string& filename, int flags, size_t _N=0, size_t _record_sz = 0, int mode=0600)
     {
         fd = sew::open(filename.c_str(), flags, mode);
         if( flags & O_WRONLY ){
@@ -177,6 +188,8 @@ struct circular_shared_buffer{
         int mmflags;
         if(_record_sz){
             record_sz = _record_sz;
+        }else if(just_created){
+            record_sz = default_record_sz;
         }else{
             char rszbuf[32];
             // Look for the record size in an xattr.  If there's no
@@ -187,7 +200,7 @@ struct circular_shared_buffer{
 #else
             auto rszlen = fgetxattr(fd, "user.circular_shared_buffer.record_sz", rszbuf, sizeof(rszbuf), XATTR_NOFOLLOW);
 #endif
-            if(rszlen >= 0){
+            if(rszlen >= 0 && size_t(rszlen) <= sizeof(rszbuf)){
                 record_sz = svto<size_t>(str_view{rszbuf, size_t(rszlen)});
             }else{
                 record_sz = default_record_sz;
@@ -227,9 +240,11 @@ struct circular_shared_buffer{
         }
         if(filesz==0 || filesz%getpagesize() || filesz%record_sz)
             throw std::runtime_error("circular_shared_buffer: file size must be non-zero and divisible by pagesize");
+        N = filesz / record_sz;
+        if(record_sz < cksum_sz)
+            throw std::runtime_error("circular_shared_buffer: record_sz must be at least cksum_sz (" + str(cksum_sz) + ")");
         data_sz = record_sz - cksum_sz;
         baseaddr = (unsigned char *)sew::mmap(nullptr, filesz, mmflags, MAP_SHARED, fd, 0);
-        N = filesz / record_sz;
     }            
         
     ~circular_shared_buffer(){
@@ -249,10 +264,16 @@ struct circular_shared_buffer{
     void finishrecord(unsigned char *record) {
         if(!writable)
             throw std::runtime_error("circular_shared_buffer: not writable");
-        printable_cksum16(record, data_sz, &record[data_sz]);
+        printable_cksum(record, data_sz, &record[data_sz]);
         std::atomic_thread_fence(std::memory_order_release);
     }
 
+#if 0
+    // This *should* work, but
+    //     https://gcc.gnu.org/bugzilla/show_bug.cgi?id=70832
+    // makes the ac_record not-assignable because moving the lambda
+    // tries to call the lambda's deleted *copy*-assignment instead of
+    // its default *move*-assignment operator.
     auto ac_record(){
         using S=tcb::span<unsigned char>;
         return core123::make_autocloser(new S(startrecord(), data_sz),
@@ -261,12 +282,30 @@ struct circular_shared_buffer{
                                    delete p;
                                });
     }
+#else
+    // lambdas are just syntactic sugar around a class with an operator()
+private:
+    struct record_closer{
+        circular_shared_buffer* csb;
+        record_closer(circular_shared_buffer *this_csb) : csb(this_csb){}
+        void operator()(tcb::span<unsigned char>* p){
+            csb->finishrecord(p->data());
+            delete p;
+        }
+    };
+public:
+    auto ac_record(){
+        using S=tcb::span<unsigned char>;
+        return core123::make_autocloser(new S(startrecord(), data_sz),
+                                        record_closer(this));
+    }
+#endif
 
-    // printable_cksum writes a cksum_sz (4-byte) checksum each byte
-    // of which is an ascii digit, to dest.  Think of it as a crc16,
-    // written out as four hex digits.
-    void printable_cksum16(void *p, size_t len, unsigned char* dest) const {
-        // threeroe is overkill, but there's no crc16 in libc.
+    // printable_cksum writes a cksum_sz checksum each byte
+    // of which is an ascii digit, to dest.  Think of it as a crc,
+    // written out as hex digits.
+    static void printable_cksum(void *p, size_t len, unsigned char* dest){
+        // threeroe is overkill, but there's no crc32 in libc.
         uint64_t h = threeroe(p, len).hash64();
         for(size_t i=0; i<cksum_sz; ++i){
             dest[i] = "0123456789abcdef"[h&0xf];
@@ -281,7 +320,7 @@ struct circular_shared_buffer{
         ::memcpy(dest, record, data_sz);
         ::memcpy(storedsum, &record[data_sz], cksum_sz);
         unsigned char computedsum[cksum_sz];
-        printable_cksum16(dest, data_sz, computedsum);
+        printable_cksum(dest, data_sz, computedsum);
         bool ret = !::memcmp(storedsum, computedsum, cksum_sz);
         return ret;
     }
