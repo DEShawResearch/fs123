@@ -1,23 +1,51 @@
 #pragma once
 #include <core123/sew.hpp>
 #include <core123/threeroe.hpp>
-#include <core123/autoclosers.hpp>
-#include <core123/uchar_span.hpp>
 #include <core123/svto.hpp>
 #include <atomic>
 #include <cstring>
 #include <thread>
 #include <chrono>
 #include <stdexcept>
-#include <unistd.h>
 #include <sys/mman.h>
 
 // circular_shared_buffer - a shared-memory, file-backed, thread-safe
 //   circular buffer, very loosely inspired by Varnish's log system.
 //
+// Quick start:
+//
+// In the writing process, create a new file for writing with 1024
+// 128-byte records:
+//
+//   circular_shared_buffer writer("/tmp/mycsb", O_WRONLY|O_CREAT|O_TRUNC, 1024);
+//
+// In other threads in the writing process (no synchronization required):
+//
+//   writer.append(sv);
+//                                 
+// Where sv is a str_view (or something that can be converted to
+// str_view).  If sv is larger than 120 (the data_size()), it will
+// be truncated, and if its smaller, it will be padded with spaces.
+//
+// In one or more reader processes or threads:
+//
+//   circular_shared_buffer reader("/tmp/mycsb", O_RDONLY);
+//
+//   std::string rec = reader.copyrecord(i);
+//   if(!rec.empty()){
+//      ... rec is a copy of the (i%csb.size())'th record in the file ...
+//   }
+//     
+// Note that copyrecord occasionally returns an empty record, meaning
+// that the selected record has either never been written, or was in
+// the process of being written when copyrecord was called.  This is
+// not a program error.
+
+// Details:
+//
 //  The constructor has two required and three optional arguments:
 //   circular_shared_buffer(filename, oflags, N=0, recordsz=0, mode=0600)
-
+//
 //  Both oflag and mode are passed to open and have their usual
 //  meaning.
 //
@@ -35,100 +63,78 @@
 //  must exist, and the number of records is determined from the file's
 //  size.  N is ignored.
 //   
+//  Each record contains record_size() bytes, of which 8 (aka
+//  cksum_size()) are reserved for an automatically generated
+//  checksum.  The size of the data payload in each record is given by
+//  data_size() (equal to record_size() - 8).  The
+//  record_size() is determined as follows:
+//    -if the constructor argument is non-zero, then use it.
+//    -else, if the file already exists and has an extended attribute
+//     named user.circular_shared_buffer.record_size, then convert
+//     that using svto<size_t> and use that.
+//    -else, use static const circular_shared_buffer::default_record_size (128).
+//  It is an error if the resulting record_size() is less than 8.
+//  It is an error if the total file size (N * record_size()) is not
+//  divisible by get_pagesize() (typically 4096).
+//
+//  When the constuctor creates a new file, it tries to add an
+//  extended attribute named user.circular_shared_buffer.record_size,
+//  but it is not an error if it is unable to do so.
+//
 //  Also note that it's possible for the constructor to throw after
 //  filename is opened.  If oflags contains O_TRUNC or O_CREAT, the
 //  visible state of the filesystem may be changed.  Consequently,
 //  the constructor has "basic" but not "strong"  exception safety.
 //
-//  Each record contains record_sz bytes, of which cksum_sz (8) are
-//  reserved for an automatically generated checksum.  The record_sz
-//  is determined as follows:
-//    -if the constructor argument is non-zero, then use it.
-//    -else, if the file already exists and has an extended attribute
-//     named user.circular_shared_buffer.record_sz, then use that.
-//    -else, use the default_record_sz (128).
-//  When the constuctor creates a new file, it tries to add an
-//  extended attribute named user.circular_shared_buffer.record_sz,
-//  but it is not an error if it is unable to do so.
-//
-//  The 'records' returned by ac_record (for writing) and getblob()
-//  (for reading) have a usable size of record_sz-cksum_sz.  A file
-//  with N records is of length N*record_sz, which must be a multiple
-//  of the pagesize (4096).
-//
 //  If the file is opened for writing (O_RDWR, O_WRONLY is silently
-//  promoted to O_RDWR), the program may call ac_record() which
-//  returns an autocloser_t<span<unsigned char>>.  I.e., a smart-pointer to a
-//  span<unsigned char> that 'finishes' the shared record when it is destroyed.
-//  Usage is something like:
+//  promoted to O_RDWR), the program may call the member function:
 //
-//    {
-//      auto r = csb.ac_record();
-//      snprintf(r->data(), r->size(), "...", ...);
-//      // or
-//      memcpy(r->data(), ???, r->size());
-//    }  // the record is finalized when r goes out-of-scope
+//    void append(str_view, char fill=' ')
 //      
-//  A reading process accessing this record in the shared file will
-//  see an 'invalid' record from the time ac_record() is called until
-//  'r' goes out of scope (or its close() method is called).  The
-//  record will be valid from then on - until the N'th subsequent
-//  ac_record() call, at which time, the circular buffer wraps around
-//  so the same memory is returned by the later call.  To make the
-//  record valid as quickly as possible, define the value returned by
-//  ac_record with a narrow scope (as above).
+//  which writes the contents of str_view into the next available
+//  record in the file.  If str_view.size() > data_size(), only the
+//  first data_size() bytes are written.  If str_view.size() is less
+//  than data_size(), the remaining bytes are padded with fill.
 //
-//  Note that 'r' must be close()-ed or destroyed before the
-//  circular_shared_buffer from which it was obtained is destroyed.
-//  Violation of this requirement will likely result in a segfault.
-//  Defining the value returned by ac_record() with a narrow scope
-//  will generally avoid this problem.
+//  The append() method is thread-safe.  Any number of threads can
+//  append concurrently.
 //
-//  Multiple threads in a single process may write concurrently, but
-//  it is an error if more than one process (or thread) opens a file
-//  for writing.  Circular shared buffers are expected to be
-//  memory-mapped into multiple processes.  Nothing is guaranteed if
-//  readers and writers access the "same" file over a networked
-//  filesystem.  Behavior is undefined (probably a segfault) if a
+//  A reading process accessing written records with the member
+//  function:
+//
+//    std::string copyrecord(size_t pos)
+//
+//  which copies the (pos%N)'th record from the file.  Note that pos
+//  is automatically reduced modulo N, so the caller need not be aware
+//  of how many records are in the file.  The string returned by
+//  copyrecord will either have size equal to data_size(), or it will
+//  be empty, indicating that the record is currently 'invalid'.  The
+//  i'th record is invalid until append() has been returned i times,
+//  after which it remains valid until append() is called N more
+//  times.  Then it is invalid for a short time while append() runs,
+//  and it becomes valid again after the N'th append() returns, but
+//  with new data.
+//  
+//  Readers should not try to "synchronize" with writers.  Instead,
+//  they should just call copyrecord() and check that the result is
+//  non-empty.  They should expect that the records in the file is
+//  ephemeral, and will sooner or later be overwritten by the writer.
+//  Note, though that behavior is undefined (probably a segfault) if a
 //  writer re-opens a file with O_TRUNC and a new value of N while a
 //  reader has it open.
 //
-//  Readers should expect that another process may be actively writing
-//  to the file while they are reading.  Data in the file is
-//  ephemeral.  It may be overwritten at any time.  Readers must
-//  copy records into their own memory before using the data.
-// 
-//  If the file is opened for reading (O_WRONLY not set), the program
-//  can copy records from an circular_shared_buffer, csb, with:
+//  Informational methods:
 //
-//    unsigned char dest[csb.record_sz];
-//    bool ok = csb.copyrecord(i, dest)
-//
-//  or
-//    auto b = getblob(i);
-//
-//  The former requires the caller to manage storage for dest, which
-//  *must* have space for b.record_sz bytes.  The latter returns a
-//  core123::uchar_blob, which has RAII semantics, data() and size()
-//  methods and can be automagically converted to bool or
-//  tcb::span<unsigned char>.  Usage might be something like:
-//
-//     if(b)
-//        printf("%.*s", b.size(), b.data());
-//  
-//  In either case, readers should ignore/discard invalid data,
-//  recognizing that invalid data is "normal" and should not be
-//  considered a program error.
+//   size_t size() const; // returns N, the number of records
+//   size_t data_size() const; // returns the number of payload/data bytes in each record
+//   size_t record_size() const; // returns the size in bytes of each record
+//   size_t cksum_size() const; // returns 8, the number of checksum bytes in each record
 //
 //  Notes:
 //
-//  There is a low-level startrecord()/finishrecord API that works
-//  with unsigned char* instead of span<unsigned char>, and that does
-//  *not* autoclose.  The ac_record API is preferred.
-//
 //  Note that the contents of the records is completely at the
 //  discretion of the writer.  Writers may (or may not) choose to put
-//  data in the buffer (e.g., sequence numbers, timestamps) that allow
+//  data in the record (e.g., sequence numbers, timestamps) that allow
 //  readers to deduce the order in which records were written, whether
 //  they've "seen" a record before, whether records are part of a
 //  single transaction, etc.
@@ -142,35 +148,38 @@
 //
 //  Caveats:
 //
+//  Nothing is guaranteed if readers and writers access the "same"
+//  file over a networked filesystem.  NFS == "Not a Filesystem".
+//
 //  Checksums are 32 bits (hex-encoded into 8 bytes), so collisions
 //  are unlikely but not impossible.  Expect a false positive, i.e., a
 //  record that is reported valid but in fact has been corrupted by a
 //  concurrent writer approximately once for every 4 billion correctly
-//  reported invalid records.
-//
-//  Future work:
-//
-//  Make the record size and checksum size runtime parameters.  The
-//  only tricky part is to find someplace for the metadata that would
-//  allow re-users to learn the record and checknum size of existing
-//  files.
-//
+//  reported invalid records (which is probably *much* less than once
+//  every 4 billion records).
 
 #include <core123/span.hpp>
 
 namespace core123{
 
 struct circular_shared_buffer{
-    static constexpr size_t default_record_sz = 128;
+    static constexpr size_t default_record_size = 128;
     static constexpr size_t cksum_sz = 8;
+private:
     size_t record_sz;
     size_t data_sz;
-    unsigned char *baseaddr;
+    char *baseaddr;
     core123::ac::fd_t<> fd;
     size_t N;
     bool writable;
     std::atomic<uint64_t> recordctr = 0;
 
+public:
+    circular_shared_buffer(const circular_shared_buffer&) = delete;
+    circular_shared_buffer(circular_shared_buffer&&) = delete;
+    circular_shared_buffer& operator=(const circular_shared_buffer&) = delete;
+    circular_shared_buffer& operator=(circular_shared_buffer&&) = delete;
+    
     circular_shared_buffer(const std::string& filename, int flags, size_t _N=0, size_t _record_sz = 0, int mode=0600)
     {
         fd = sew::open(filename.c_str(), flags, mode);
@@ -189,21 +198,21 @@ struct circular_shared_buffer{
         if(_record_sz){
             record_sz = _record_sz;
         }else if(just_created){
-            record_sz = default_record_sz;
+            record_sz = default_record_size;
         }else{
             char rszbuf[32];
             // Look for the record size in an xattr.  If there's no
-            // such xattr, use default_record_sz.  A missing xattr is
+            // such xattr, use default_record_size.  A missing xattr is
             // *not* an error.
 #ifndef __APPLE__
-            auto rszlen = fgetxattr(fd, "user.circular_shared_buffer.record_sz", rszbuf, sizeof(rszbuf));
+            auto rszlen = fgetxattr(fd, "user.circular_shared_buffer.record_size", rszbuf, sizeof(rszbuf));
 #else
-            auto rszlen = fgetxattr(fd, "user.circular_shared_buffer.record_sz", rszbuf, sizeof(rszbuf), XATTR_NOFOLLOW);
+            auto rszlen = fgetxattr(fd, "user.circular_shared_buffer.record_size", rszbuf, sizeof(rszbuf), XATTR_NOFOLLOW);
 #endif
             if(rszlen >= 0 && size_t(rszlen) <= sizeof(rszbuf)){
                 record_sz = svto<size_t>(str_view{rszbuf, size_t(rszlen)});
             }else{
-                record_sz = default_record_sz;
+                record_sz = default_record_size;
             }
         }            
         if(writable){
@@ -221,9 +230,9 @@ struct circular_shared_buffer{
                 // Ignore errors.  It's ok if the filesystem doesn't support xattrs.
                 // We could complain, but what if the complaint log is a circular-buffer.
                 // Let's just let this one go...
-                (void)fsetxattr(fd, "user.circular_shared_buffer.record_sz", rsc.c_str(), rsc.size(), 0);
+                (void)fsetxattr(fd, "user.circular_shared_buffer.record_size", rsc.c_str(), rsc.size(), 0);
 #else
-                (void)fsetxattr(fd, "user.circular_shared_buffer.record_sz", rsc.c_str(), rsc.size(), 0, 0);
+                (void)fsetxattr(fd, "user.circular_shared_buffer.record_size", rsc.c_str(), rsc.size(), 0, 0);
 #endif
             }
             mmflags = PROT_WRITE|PROT_READ;
@@ -244,7 +253,7 @@ struct circular_shared_buffer{
         if(record_sz < cksum_sz)
             throw std::runtime_error("circular_shared_buffer: record_sz must be at least cksum_sz (" + str(cksum_sz) + ")");
         data_sz = record_sz - cksum_sz;
-        baseaddr = (unsigned char *)sew::mmap(nullptr, filesz, mmflags, MAP_SHARED, fd, 0);
+        baseaddr = (char *)sew::mmap(nullptr, filesz, mmflags, MAP_SHARED, fd, 0);
     }            
         
     ~circular_shared_buffer(){
@@ -252,59 +261,45 @@ struct circular_shared_buffer{
         ::munmap(baseaddr, N*record_sz);
     }
 
-    unsigned char *startrecord() {
+    void append(str_view sv, unsigned char fill = ' '){
         if(!writable)
             throw std::runtime_error("circular_shared_buffer: not writable");
-        auto ret = baseaddr + (recordctr.fetch_add(1)%N)*record_sz;
-        ::memset(&ret[data_sz], '\f', cksum_sz);
+        auto dest = baseaddr + (recordctr.fetch_add(1)%N)*record_sz;
+        ::memcpy(dest, sv.data(), std::min(sv.size(), data_sz));
+        if(data_sz > sv.size())
+            ::memset(&dest[sv.size()], fill, data_sz-sv.size());
+        printable_cksum(dest, data_sz, &dest[data_sz]);
         std::atomic_thread_fence(std::memory_order_release);
-        return ret;
     }
     
-    void finishrecord(unsigned char *record) {
-        if(!writable)
-            throw std::runtime_error("circular_shared_buffer: not writable");
-        printable_cksum(record, data_sz, &record[data_sz]);
-        std::atomic_thread_fence(std::memory_order_release);
+    std::string copyrecord(size_t i) const {
+        auto rec = baseaddr + record_sz*(i%N);
+        std::atomic_thread_fence(std::memory_order_acquire);
+        std::string ret(rec, record_sz);
+        char computedsum[cksum_sz];
+        printable_cksum(&ret[0], data_sz, computedsum);
+        if(::memcmp(&ret[data_sz], computedsum, cksum_sz) != 0)
+            ret.clear();        // discard everything
+        else
+            ret.erase(data_sz); // discard the checksum
+        return ret;
     }
 
-#if 0
-    // This *should* work, but
-    //     https://gcc.gnu.org/bugzilla/show_bug.cgi?id=70832
-    // makes the ac_record not-assignable because moving the lambda
-    // tries to call the lambda's deleted *copy*-assignment instead of
-    // its default *move*-assignment operator.
-    auto ac_record(){
-        using S=tcb::span<unsigned char>;
-        return core123::make_autocloser(new S(startrecord(), data_sz),
-                               [this](S *p){
-                                   finishrecord(p->data());
-                                   delete p;
-                               });
-    }
-#else
-    // lambdas are just syntactic sugar around a class with an operator()
-private:
-    struct record_closer{
-        circular_shared_buffer* csb;
-        record_closer(circular_shared_buffer *this_csb) : csb(this_csb){}
-        void operator()(tcb::span<unsigned char>* p){
-            csb->finishrecord(p->data());
-            delete p;
-        }
-    };
-public:
-    auto ac_record(){
-        using S=tcb::span<unsigned char>;
-        return core123::make_autocloser(new S(startrecord(), data_sz),
-                                        record_closer(this));
-    }
-#endif
+    size_t size() const { return N; }
+    size_t record_size() const { return record_sz; }
+    size_t cksum_size() const { return cksum_sz; }
+    size_t data_size() const { return data_sz; }
+    bool is_writable() const { return writable; }
+
+    // volatile_record_addr - Not recommended!  But it might be useful if
+    // somebody wants to do their own polling, checksum-ing or
+    // debugging.
+    char *volatile_record_addr(size_t i) const{ return baseaddr + record_sz*(i%N); }
 
     // printable_cksum writes a cksum_sz checksum each byte
     // of which is an ascii digit, to dest.  Think of it as a crc,
     // written out as hex digits.
-    static void printable_cksum(void *p, size_t len, unsigned char* dest){
+    static void printable_cksum(void *p, size_t len, char* dest){
         // threeroe is overkill, but there's no crc32 in libc.
         uint64_t h = threeroe(p, len).hash64();
         for(size_t i=0; i<cksum_sz; ++i){
@@ -313,32 +308,6 @@ public:
         }
     }
 
-    bool copyrecord(size_t i, unsigned char *dest) const {
-        auto record = baseaddr + record_sz*(i%N);
-        unsigned char storedsum[cksum_sz];
-        std::atomic_thread_fence(std::memory_order_acquire);
-        ::memcpy(dest, record, data_sz);
-        ::memcpy(storedsum, &record[data_sz], cksum_sz);
-        unsigned char computedsum[cksum_sz];
-        printable_cksum(dest, data_sz, computedsum);
-        bool ret = !::memcmp(storedsum, computedsum, cksum_sz);
-        return ret;
-    }
-
-    uchar_blob getblob(size_t i) const {
-        uchar_blob ret(data_sz);
-        if(copyrecord(i, ret.data()))
-            return ret;
-        return {};
-    }
-
-    size_t nrecords() const { return N; }
-    bool is_writable() const { return writable; }
-
-    // volatile_record_addr - Not recommended!  But it might be useful if
-    // somebody wants to do their own polling, checksum-ing or
-    // debugging.
-    unsigned char *volatile_record_addr(size_t i) const{ return baseaddr + record_sz*(i%N); }
 };
     
 } // namespace core123

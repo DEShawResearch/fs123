@@ -6,10 +6,12 @@
 #include "core123/strutils.hpp"
 #include "core123/sew.hpp"
 #include "core123/exnest.hpp"
+#include "core123/datetimeutils.hpp"
 #include <time.h>
 #include <stdlib.h>
 
 using core123::log_channel;
+using core123::tp2dbl;
 using core123::fmt;
 namespace sew = core123::sew;
 
@@ -29,8 +31,8 @@ int main(int, char **) try {
 
     lc.open("%csb^/tmp/logchannel.csb^nrecs=64", 0666);
     for(int i=0; i<100; ++i){
-        lc.send(fmt("This is the %d'th record in /tmp/logchannel.csb.  The time is now: %s",
-                    i, ::ctime(&rawtime)));
+        lc.send(fmt("\n%.6f This is the %d'th record in /tmp/logchannel.csb.",
+                    tp2dbl(std::chrono::system_clock::now()), i));
     }
     sew::system("cat /tmp/logchannel.csb; rm /tmp/logchannel.csb");
     return 0;

@@ -4,6 +4,7 @@
 #include <core123/envto.hpp>
 #include <thread>
 #include <chrono>
+#include <memory>
 
 using core123::circular_shared_buffer;
 using core123::envto;
@@ -38,64 +39,54 @@ void single_process_tests(){
     // The fact that this is so complicated suggests a mis-design,
     // but here we are...
     const size_t pgsz = ::getpagesize();
-    const size_t def_rec_sz = circular_shared_buffer::default_record_sz;
-    const size_t cksum_sz = circular_shared_buffer::cksum_sz;
-    std::unique_ptr<circular_shared_buffer> csb1;
-    std::unique_ptr<circular_shared_buffer> csb2;
+    const size_t def_rec_sz = circular_shared_buffer::default_record_size;
+    std::shared_ptr<circular_shared_buffer> csb1;
+    std::shared_ptr<circular_shared_buffer> csb2;
     // default record size - super-easy.
-    csb1 = std::make_unique<circular_shared_buffer>(tmpfilename, O_RDWR|O_CREAT, pgsz/def_rec_sz);
-    EQUAL(csb1->record_sz, def_rec_sz);
-    EQUAL(csb1->N, pgsz/def_rec_sz);
-    csb2 = std::make_unique<circular_shared_buffer>(tmpfilename, O_RDWR);
-    EQUAL(csb2->N, csb1->N);
+    csb1 = std::make_shared<circular_shared_buffer>(tmpfilename, O_RDWR|O_CREAT, pgsz/def_rec_sz);
+    EQUAL(csb1->record_size(), def_rec_sz);
+    EQUAL(csb1->size(), pgsz/def_rec_sz);
+    csb2 = std::make_shared<circular_shared_buffer>(tmpfilename, O_RDWR);
+    EQUAL(csb2->size(), csb1->size());
     csb1.reset(); csb2.reset(); sew::unlink(&tmpfilename[0]);
     
     // non-default record size
     size_t my_recsz = 95;
-    csb1 = std::make_unique<circular_shared_buffer>(tmpfilename, O_RDWR|O_CREAT, pgsz, my_recsz);
-    EQUAL(csb1->record_sz, my_recsz);
-    EQUAL(csb1->N, pgsz);
+    csb1 = std::make_shared<circular_shared_buffer>(tmpfilename, O_RDWR|O_CREAT, pgsz, my_recsz);
+    EQUAL(csb1->record_size(), my_recsz);
+    EQUAL(csb1->size(), pgsz);
     if(xattrs_working){
-        csb2 = std::make_unique<circular_shared_buffer>(tmpfilename, O_RDWR);
+        csb2 = std::make_shared<circular_shared_buffer>(tmpfilename, O_RDWR);
     }else{
         // if there are no xattrs, we have to "know" the recordsz to read:
-        csb2 = std::make_unique<circular_shared_buffer>(tmpfilename, O_RDONLY, 0, my_recsz);
+        csb2 = std::make_shared<circular_shared_buffer>(tmpfilename, O_RDONLY, 0, my_recsz);
     }
-    EQUAL(csb2->N, csb1->N);
+    EQUAL(csb2->size(), csb1->size());
 
-    auto p = csb1->ac_record();
-    p.close();  // !!! Must close before we reassign to csb1 !!!
-    auto blob = csb2->getblob(0);
-    CHECK(blob);
+    csb1->append({}, 'x');
+    auto blob = csb2->copyrecord(0);
+    CHECK(!blob.empty());
 
     // re-open without CREAT, but for writing
     if(xattrs_working){
-        csb1 = std::make_unique<circular_shared_buffer>(tmpfilename, O_RDWR);
+        csb1 = std::make_shared<circular_shared_buffer>(tmpfilename, O_RDWR);
     }else{
         // if there are no xattrs, we have to "know" the recordsz to read:
-        csb1 = std::make_unique<circular_shared_buffer>(tmpfilename, O_RDWR, 0, my_recsz);
+        csb1 = std::make_shared<circular_shared_buffer>(tmpfilename, O_RDWR, 0, my_recsz);
     }
-    EQUAL(csb1->N, csb2->N); // same number of records
+    EQUAL(csb1->size(), csb2->size()); // same number of records
 
     // Let's wrap around at least once
-    for(size_t i=0; i<csb1->N + 100; ++i){
-        p = csb1->ac_record(); // exercise move-assignment of ac_records
-        EQUAL(p->size(), my_recsz - cksum_sz);
-        memset(p->data(), (i%26) + 'a' , p->size());
+    for(size_t i=0; i<csb1->size() + 100; ++i){
+        csb1->append({}, (i%26) + 'a');
         // Try to 'get' this blob while it's still being written
-        blob = csb2->getblob(i);
-        CHECK(!blob);  // i.e., it should be invalid
-        if(i>0){
-            // but the previous one should be closed and valid by now
-            blob = csb2->getblob(i-1);
-            CHECK(bool(blob));
-        }
+        blob = csb2->copyrecord(i);
+        CHECK(!blob.empty());  // i.e., it should be invalid
     }
-    p.close(); // close the last one!
     // And check that they all still look good
-    for(size_t i=100; i<csb1->N+100; ++i){
-        blob = csb2->getblob(i);
-        CHECK(blob);
+    for(size_t i=100; i<csb1->size()+100; ++i){
+        blob = csb2->copyrecord(i);
+        CHECK(!blob.empty());
         string yyy((i%26) + 'a', blob.size());
         CHECK(::memcmp(blob.data(), yyy.data(), blob.size()));
     }
@@ -110,14 +101,14 @@ void test_read_write(){
     // and that not-too-many invalids were returned.  The parent waits
     // and checks that the child's exit status is zero.
     static size_t HOWMANY=1000000;
-    circular_shared_buffer writer(tmpfilename, O_RDWR|O_CREAT|O_TRUNC, 32);
+    auto writer = std::make_shared<circular_shared_buffer>(tmpfilename, O_RDWR|O_CREAT|O_TRUNC, 32);
     auto childpid = sew::fork();
     if(childpid == 0){
         // child - reader
         circular_shared_buffer reader(tmpfilename, O_RDONLY);
         bool started = false;
         for(int w=0; w<100; ++w){
-            if(reader.getblob(0)){
+            if(!reader.copyrecord(0).empty()){
                 started = true;
                 break;
             }
@@ -131,9 +122,8 @@ void test_read_write(){
         
         size_t invalid = 0;
         for(size_t i=0; i<HOWMANY; ++i){
-            core123::uchar_blob b = reader.getblob(i);
-            // b has data() and size() members and a bool conversion:
-            if(b){
+            std::string b = reader.copyrecord(i);
+            if(!b.empty()){
                 bool ok = true;
                 auto dest = (char *)b.data();
                 int dsz = b.size();
@@ -161,8 +151,7 @@ void test_read_write(){
     }
     // parent - writer
     for(size_t i=0; i<HOWMANY; ++i){
-        auto p = writer.ac_record();
-        ::memset(p->data(), 'a'+i%26, p->size());
+        writer->append({}, 'a'+i%26);
     }
     int status;
     sew::waitpid(childpid, &status, 0);

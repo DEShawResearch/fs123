@@ -136,10 +136,7 @@ struct log_channel{
             // no autonewline for syslog
             ::syslog(dest_fac | lev, "%.*s", int(sv.size()), sv.data());
         }else if(dest_csb){
-            auto r = dest_csb->ac_record();
-            ::memcpy(r->data(), sv.data(), std::min(sv.size(), r->size()));
-            if(r->size() > sv.size())
-                ::memset(r->data()+sv.size(), ' ', r->size() - sv.size());
+            dest_csb->append(sv);
         }else if(dest_fd >= 0){
             // autonewline with writev
             struct iovec iov[2] = {{const_cast<char*>(sv.data()), sv.size()},

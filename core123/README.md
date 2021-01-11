@@ -47,6 +47,7 @@ make -f ../GNUmakefile check
 * svto.hpp
 * envto.hpp
 * netstring.hpp
+* crf.hpp
 * pathutils.hpp
 * strutils.hpp
 * streamutils.hpp
@@ -56,6 +57,7 @@ make -f ../GNUmakefile check
 * configparser.hpp
 * opt.hpp
 * processlines.hpp
+* uuid.hpp
 
 ## Threads and synchronization
 
@@ -93,6 +95,7 @@ make -f ../GNUmakefile check
 * diag.hpp
 * complaints.hpp
 * log_channel.hpp
+* circular\_shared\_buffer.hpp
 * http\_error\_category.hpp
 
 ## Counters and Timers
