@@ -866,9 +866,11 @@ diskcache::deserialize_no_unlink(int rootfd, const std::string& path,
     }
     fd.close();
     if(_transactions){
-        auto elapsed_nanos = _t.finish();
-        DIAGsend(fmt("\n%.6f DR 0 %zd %lld %s",
-                    tp2dbl(std::chrono::system_clock::now()),
+        long long elapsed_nanos = _t.finish();
+        timespec now;
+        ::clock_gettime(CLOCK_REALTIME, &now);
+        DIAGsend(fmt("\n%ld.%.06ld DR 0 %zd %lld %s",
+                     long(now.tv_sec), now.tv_nsec/1000,
                     nread,
                     elapsed_nanos/1000ll,
                     path.c_str()));
@@ -1013,9 +1015,11 @@ diskcache::serialize(const reply123& r, const std::string& path, const std::stri
         sew::renameat(rootfd_, pathnew.c_str(), rootfd_, path.c_str());
 	DIAGkey(_diskcache, "diskcache::serialize wrote " << path << "\n");
         if(_transactions){
-            auto elapsed_nanos = _t.finish();
-            DIAGsend(fmt("\n%.6f DW 0 %zd %lld %s",
-                        tp2dbl(std::chrono::system_clock::now()),
+            long long elapsed_nanos = _t.finish();
+            timespec now;
+            ::clock_gettime(CLOCK_REALTIME, &now);
+            DIAGsend(fmt("\n%ld.%.06ld DW 0 %zd %lld %s",
+                         long(now.tv_sec), now.tv_nsec/1000,
                         wrote,
                         elapsed_nanos/1000ll,
                         path.c_str()));

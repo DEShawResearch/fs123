@@ -915,13 +915,10 @@ protected:
             wrap_curl_easy_getinfo(curl, CURLINFO_PRIMARY_IP, &ip);
             long code = 599;
             wrap_curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
-            // DIAGsend saves time, but more importantly, it writes
-            // only what we give it.  We expect that if we're logging
-            // transactions, we're probably doing it to a
-            // circular_shared_buffer, in which case eliding "extra"
-            // characters is very helpful.
-            DIAGsend(fmt("\n%.6f GET %ld %.0f %ld %s %s",
-                        tp2dbl(std::chrono::system_clock::now()),
+            timespec now;
+            ::clock_gettime(CLOCK_REALTIME, &now);
+            DIAGsend(fmt("\n%ld.%06ld GET %ld %.0f %ld %s %s",
+                         long(now.tv_sec), now.tv_nsec/1000,
                         code,
                         bytes_read,
                         (long)(t*1.e6),

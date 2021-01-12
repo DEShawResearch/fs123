@@ -31,8 +31,10 @@ int main(int, char **) try {
 
     lc.open("%csb^/tmp/logchannel.csb^nrecs=64", 0666);
     for(int i=0; i<100; ++i){
-        lc.send(fmt("\n%.6f This is the %d'th record in /tmp/logchannel.csb.",
-                    tp2dbl(std::chrono::system_clock::now()), i));
+        timespec now;
+        ::clock_gettime(CLOCK_REALTIME, &now);
+        lc.send(fmt("\n%ld.%06ld This is the %d'th record in /tmp/logchannel.csb.",
+                    long(now.tv_sec), now.tv_nsec/1000, i));
     }
     sew::system("cat /tmp/logchannel.csb; rm /tmp/logchannel.csb");
     return 0;
