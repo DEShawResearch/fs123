@@ -38,5 +38,6 @@ struct fs123_ioctl_data{
 #define REMOVE_PEER_IOC _IOW(0, 126, fs123_ioctl_data)
 #define INVALIDATE_INODE_IOC _IOW(0, 127, fs123_ioctl_data)
 #define CURL_HANDLES_REDIRECTS_IOC _IOW(0,128, fs123_ioctl_data)
+#define MLOCKALL_IOC _IOW(0, 129, fs123_ioctl_data)
 
 #endif

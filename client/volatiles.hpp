@@ -44,6 +44,9 @@ struct volatiles_t{
     std::atomic<size_t> dc_maxmbytes{core123::envto<size_t>("Fs123CacheMaxMBytes", 100)};
     std::atomic<size_t> dc_maxfiles{core123::envto<size_t>("Fs123CacheMaxFiles", dc_maxmbytes*1000000/16384)};
 
+    // doesn't need to be volatile, but it makes the ioctl code cleaner
+    std::atomic<bool> mlockall{core123::envto<bool>("Fs123Mlockall", false)};
+
     // Timeouts are increased when the load average-per-core exceeds this in backend_http.cpp
     std::atomic<float> load_timeout_factor{core123::envto<float>("Fs123LoadTimeoutFactor", 1.5f)};
 

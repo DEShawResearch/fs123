@@ -1075,6 +1075,9 @@ void fs123_init(void *, struct fuse_conn_info *conn_info) try {
     
     idle_timeout_minutes = envto<unsigned>("Fs123IdleTimeoutMinutes", 0);
 
+    if(volatiles->mlockall)
+        sew::mlockall(MCL_FUTURE);
+
     // Start the maintenance_task last and destroy it first (in
     // fs123_destroy) so that the maintenance function can safely
     // assume that all subsystems (volatiles, backends, secret
@@ -1927,6 +1930,13 @@ void fs123_ioctl(fuse_req_t req, fuse_ino_t ino, int cmd, void *arg, struct fuse
     case NAMECACHE_IOC:
         VOLATILE_IOCTL(namecache);
         return;
+    case MLOCKALL_IOC:
+        VOLATILE_IOCTL(mlockall);
+        if(volatiles->mlockall)
+            sew::mlockall(MCL_FUTURE);
+        else
+            sew::munlockall();
+        return;
     case STALE_IF_ERROR_IOC:
         if( in_bufsz != sizeof(fs123_ioctl_data) )
             throw se(EINVAL, "Wrong size for ioctl");
@@ -2252,6 +2262,7 @@ std::ostream& report_config(std::ostream& os){
        << "Fs123TransferTimeout: " << volatiles->transfer_timeout << "\n"
        << "Fs123LoadTimeoutFactor: " << volatiles->load_timeout_factor << "\n"
        << "Fs123NameCache: " << volatiles->namecache << "\n"
+       << "Fs123Mlockall: " << volatiles->mlockall << "\n"
        << "Fs123Disconnected: " << volatiles->disconnected << "\n"
        << "Fs123NoKernelDataCaching: " << no_kernel_data_caching << "\n"
        << "Fs123NoKernelAttrCaching: " << no_kernel_attr_caching << "\n"
@@ -2408,6 +2419,7 @@ try {
                                     "Fs123ConnectTimeout=",
                                     "Fs123LoadTimeoutFactor=",
                                     "Fs123NameCache=",
+                                    "Fs123Mlockall=",
                                     "Fs123Disconnected=",
                                     "Fs123NoKernelDataCaching=",    // Debug/diagnostic only.  Will kill performance.
                                     "Fs123NoKernelAttrCaching=",// Debug/diagnostic only.  Will kill performance.

@@ -21,6 +21,7 @@ int complain(){
         " TransferTimeout\n"
         " LoadTimeoutFactor\n"
         " NameCache\n"
+        " Mlockall\n"
         " PastStaleWhileRevalidate\n"
         " StaleIfError\n"
         " Disconnected\n"
@@ -95,6 +96,8 @@ int app_ctl(int argc, char **argv) try {
         ioc = LOAD_TIMEOUT_FACTOR_IOC;
     }else if(cmd == "NameCache"){
         ioc = NAMECACHE_IOC;
+    }else if(cmd == "Mlockall"){
+        ioc = MLOCKALL_IOC;
     }else if(cmd == "PastStaleWhileRevalidate"){
         ioc = PAST_STALE_WHILE_REVALIDATE_IOC;
     }else if(cmd == "StaleIfError"){
