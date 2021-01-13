@@ -7,12 +7,14 @@
 #include "core123/sew.hpp"
 #include "core123/exnest.hpp"
 #include "core123/datetimeutils.hpp"
+#include "core123/ut.hpp"
 #include <time.h>
 #include <stdlib.h>
 
 using core123::log_channel;
 using core123::tp2dbl;
 using core123::fmt;
+using core123::circular_shared_buffer;
 namespace sew = core123::sew;
 
 int main(int, char **) try {
@@ -26,8 +28,23 @@ int main(int, char **) try {
     sew::time(&rawtime);
     lc.send(fmt("This should go to /tmp/logchannel.test.  The time is now: %s",
                 ::ctime(&rawtime)));
-
     sew::system("cat /tmp/logchannel.test; rm /tmp/logchannel.test");
+
+#if __cpp_lib_gcd_lcm >= 201606
+    // Exercise the round-up of size to the next multiple of both
+    // record_size() and getpagesize()
+    lc.open("%csb^/tmp/logchannel.csb^nrecs=64^reclen=80", 0666);
+    const size_t requested_nrecs=64;
+    circular_shared_buffer reader("/tmp/logchannel.csb", 0, 80);
+    CHECK(reader.record_size() == 80);
+    CHECK(reader.size() * reader.record_size() % getpagesize() == 0);
+    CHECK(reader.size() >= requested_nrecs);  // we asked for nrecs=64, we should get at least that many
+    size_t filesz = reader.size() * reader.record_size();
+    // and we couldn't have gotten  any less.
+    CHECK(filesz - std::lcm(reader.record_size(), getpagesize()) < requested_nrecs);
+    std::cout << fmt("getpagesize=%d, nrecs=64^reclen=80 produced a file with %zd records of size %zd\n",
+                     getpagesize(), reader.size(), reader.record_size());
+#endif
 
     lc.open("%csb^/tmp/logchannel.csb^nrecs=64", 0666);
     for(int i=0; i<100; ++i){
@@ -37,7 +54,7 @@ int main(int, char **) try {
                     long(now.tv_sec), now.tv_nsec/1000, i));
     }
     sew::system("cat /tmp/logchannel.csb; rm /tmp/logchannel.csb");
-    return 0;
+    return utstatus(1);
  }catch(std::exception& e){
     std::cerr << "Exception thrown:\n";
     for(const auto& v : core123::exnest(e))

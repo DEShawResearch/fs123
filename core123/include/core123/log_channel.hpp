@@ -48,6 +48,7 @@
 #include <string>
 #include <mutex>
 #include <stdexcept>
+#include <numeric>
 
 namespace core123{
 struct log_channel{
@@ -225,6 +226,18 @@ private:
         }catch(std::exception& e){
             std::throw_with_nested(runtime_error("Argument: " + std::string(keqv)));
         }
+#if __cpp_lib_gcd_lcm >= 201606 // e.g., gcc-7.1
+        // If getpagesize() doesn't divide nrecs*reclen then "round
+        // up" nrecs until it does.  This is reasonable and
+        // helpful when recsz is a power-of-two.  It is conceivably
+        // very surprising if recsz is a large prime.
+        // Too-clever-by-half??
+        if( nrecs*reclen % getpagesize() ){
+            size_t minnrecs = std::lcm(reclen,  getpagesize()) / reclen;
+            nrecs = ((nrecs-1)/minnrecs + 1) * minnrecs;
+            // can't complain.  We may be constructing the complaint channel right now!
+        }
+#endif
         return std::make_unique<circular_shared_buffer>(filename, O_RDWR|O_CREAT, nrecs, reclen, mode); // O_TRUNC?
     }catch(std::exception& e){
         std::throw_with_nested(std::runtime_error("log_channel::parse_csb - expected a %csb^FILENAME^nrecs=NNN^reclen=LLL"));
