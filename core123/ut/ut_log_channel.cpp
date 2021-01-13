@@ -7,6 +7,7 @@
 #include "core123/sew.hpp"
 #include "core123/exnest.hpp"
 #include "core123/datetimeutils.hpp"
+#include "core123/intutils.hpp"
 #include "core123/ut.hpp"
 #include <time.h>
 #include <stdlib.h>
@@ -14,6 +15,7 @@
 using core123::log_channel;
 using core123::tp2dbl;
 using core123::fmt;
+using core123::lcm;
 using core123::circular_shared_buffer;
 namespace sew = core123::sew;
 
@@ -30,7 +32,6 @@ int main(int, char **) try {
                 ::ctime(&rawtime)));
     sew::system("cat /tmp/logchannel.test; rm /tmp/logchannel.test");
 
-#if __cpp_lib_gcd_lcm >= 201606
     // Exercise the round-up of size to the next multiple of both
     // record_size() and getpagesize()
     lc.open("%csb^/tmp/logchannel.csb^nrecs=64^reclen=80", 0666);
@@ -41,10 +42,9 @@ int main(int, char **) try {
     CHECK(reader.size() >= requested_nrecs);  // we asked for nrecs=64, we should get at least that many
     size_t filesz = reader.size() * reader.record_size();
     // and we couldn't have gotten  any less.
-    CHECK(filesz - std::lcm(reader.record_size(), getpagesize()) < requested_nrecs);
+    CHECK(filesz - lcm(reader.record_size(), getpagesize()) < requested_nrecs);
     std::cout << fmt("getpagesize=%d, nrecs=64^reclen=80 produced a file with %zd records of size %zd\n",
                      getpagesize(), reader.size(), reader.record_size());
-#endif
 
     lc.open("%csb^/tmp/logchannel.csb^nrecs=64", 0666);
     for(int i=0; i<100; ++i){

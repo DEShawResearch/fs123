@@ -161,7 +161,7 @@ main(int, char **) {
     size_t off;
 
     off = svscan(sv, &f);
-    Assert( f = 3.14f );
+    Assert( f == 3.14f );
     Assert(off == 4);
     
     s = "Nano";

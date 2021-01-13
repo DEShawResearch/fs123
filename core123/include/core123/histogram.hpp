@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>                // for INFINITY
 #include <stdexcept>
+#include <functional>
 
 namespace core123{
 

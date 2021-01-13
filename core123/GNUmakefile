@@ -19,17 +19,22 @@ VPATH=$(top/)lib:$(top/)ut
 OPT?=-O3 # if not explicitly set
 
 CPPFLAGS+=-I$(top/)include
-CXXFLAGS+=$(OPT)
+# Externally supplied CXXFLAGS might contain -Wno-xxx, and for some
+# compilers (e.g., clang5) that has no effect if it comes before
+# -Wall.  So we marshall the default options int $(front_cxxflags) and
+# then prepend it to $(CXXFLAGS)
+front_cxxflags:=$(OPT)
 # N.B.  we use the '#pragma GCC diagnostic ignore  ...' to selectively turn
 # off a few warnings.  One of them is -Wint-in-bool-context, which is
 # so new that that older compilers complain when we try to ignore it.
 # So we addd -Wno-pragmas to keep the older compiler from complaining.
-CXXFLAGS+=-Wall -Wno-pragmas
-CXXFLAGS+=-Wshadow
-CXXFLAGS+=-Werror
-CXXFLAGS+=-Wextra
-CXXFLAGS+=-std=c++17
-CXXFLAGS+=-ggdb
+front_cxxflags+=-Wall -Wno-pragmas
+front_cxxflags+=-Wshadow
+front_cxxflags+=-Werror
+front_cxxflags+=-Wextra
+front_cxxflags+=-std=c++17
+front_cxxflags+=-ggdb
+CXXFLAGS:=$(front_cxxflags) $(CXXFLAGS)
 LDFLAGS+=-L.
 TARGET_ARCH+=-pthread
 
@@ -114,6 +119,15 @@ unit_tests:=\
 	ut_processlines \
 	ut_bits \
 	ut_bloom
+
+# In a few cases (e.g., clang8 with libstdc++), a test won't compile
+# for reasons that appear to be compiler/library bugs and not our
+# code.  The caller can set DO_NOT_TEST to avoid errors.
+ifdef DO_NOT_TEST
+$(warning Remove tests matching '$(DO_NOT_TEST)' from unit_tests:)
+$(warning $(filter $(DO_NOT_TEST),$(unit_tests)))
+unit_tests:=$(filter-out $(DO_NOT_TEST),$(unit_tests))
+endif
 
 shunit_tests:=ut_configparser
 

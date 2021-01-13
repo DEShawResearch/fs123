@@ -11,3 +11,10 @@ apt-get -y update
 apt-get -y install gcc-9 g++-9
 update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-9 90 --slave /usr/bin/g++ g++ /usr/bin/g++-9
 
+# N.B.  clang-6.0 in the xenial-updates distro DOES NOT WORK!
+#apt-get -y install clang-6.0
+#apt-get -y install libc++-dev
+#export CXX=clang++-6.0
+#export CC=clang-6.0
+#export CXXFLAGS=-stdlib=libc++
+#export LDFLAGS=-stdlib=libc++

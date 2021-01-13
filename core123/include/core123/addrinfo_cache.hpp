@@ -264,10 +264,10 @@ struct addrinfo_cache{
 private:
     detail::gai_map_t the_map;
     using iter = detail::gai_map_t::iterator;
-    std::atomic<size_t> _eai_again_count = 0; // count of EAI_AGAIN returns
-    std::atomic<size_t> _hit_count = 0;
-    std::atomic<size_t> _miss_count = 0;
-    std::atomic<size_t> _refresh_count = 0;
+    std::atomic<size_t> _eai_again_count{0}; // count of EAI_AGAIN returns
+    std::atomic<size_t> _hit_count{0};
+    std::atomic<size_t> _miss_count{0};
+    std::atomic<size_t> _refresh_count{0};
     // most_ru and least_ru are the head and tail of an auxiliary
     // linked list in recently-used order.  They are uninitialized,
     // and may not be used unless the_map contains at least one entry.

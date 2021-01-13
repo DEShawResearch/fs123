@@ -64,7 +64,7 @@
 //  size.  N is ignored.
 //   
 //  Each record contains record_size() bytes, of which 8 (aka
-//  cksum_size()) are reserved for an automatically generated
+//  cksum_size) are reserved for an automatically generated
 //  checksum.  The size of the data payload in each record is given by
 //  data_size() (equal to record_size() - 8).  The
 //  record_size() is determined as follows:
@@ -123,12 +123,13 @@
 //  writer re-opens a file with O_TRUNC and a new value of N while a
 //  reader has it open.
 //
-//  Informational methods:
+//  Informational methods and members:
 //
 //   size_t size() const; // returns N, the number of records
 //   size_t data_size() const; // returns the number of payload/data bytes in each record
 //   size_t record_size() const; // returns the size in bytes of each record
-//   size_t cksum_size() const; // returns 8, the number of checksum bytes in each record
+//   static const size_t cksum_size = 8 ;
+//   static const size_t default_record_size = 128 ;
 //
 //  Notes:
 //
@@ -146,6 +147,10 @@
 //  even be manageable with shell-based text-processing tools (though
 //  validity checking would be tricky).
 //
+//  If the compiler doesn't support __cpp_inline_variable (e.g.,
+//  gcc6) it will not be possible to take the address of cksum_size
+//  or default_record_size.
+
 //  Caveats:
 //
 //  Nothing is guaranteed if readers and writers access the "same"
@@ -163,8 +168,13 @@
 namespace core123{
 
 struct circular_shared_buffer{
-    static constexpr size_t default_record_size = 128;
-    static constexpr size_t cksum_sz = 8;
+#if __cpp_inline_variables >= 201606
+    inline static const size_t default_record_size = 128;
+    inline static const size_t cksum_size = 8;
+#else // i.e., gcc6!
+    static const size_t default_record_size = 128;
+    static const size_t cksum_size = 8;
+#endif
 private:
     size_t record_sz;
     size_t data_sz;
@@ -172,7 +182,7 @@ private:
     core123::ac::fd_t<> fd;
     size_t N;
     bool writable;
-    std::atomic<uint64_t> recordctr = 0;
+    std::atomic<uint64_t> recordctr;
 
 public:
     circular_shared_buffer(const circular_shared_buffer&) = delete;
@@ -180,7 +190,8 @@ public:
     circular_shared_buffer& operator=(const circular_shared_buffer&) = delete;
     circular_shared_buffer& operator=(circular_shared_buffer&&) = delete;
     
-    circular_shared_buffer(const std::string& filename, int flags, size_t _N=0, size_t _record_sz = 0, int mode=0600)
+    circular_shared_buffer(const std::string& filename, int flags, size_t _N=0, size_t _record_sz = 0, int mode=0600) :
+        recordctr(0)
     {
         fd = sew::open(filename.c_str(), flags, mode);
         if( flags & O_WRONLY ){
@@ -250,9 +261,11 @@ public:
         if(filesz==0 || filesz%getpagesize() || filesz%record_sz)
             throw std::runtime_error("circular_shared_buffer: file size must be non-zero and divisible by pagesize");
         N = filesz / record_sz;
-        if(record_sz < cksum_sz)
-            throw std::runtime_error("circular_shared_buffer: record_sz must be at least cksum_sz (" + str(cksum_sz) + ")");
-        data_sz = record_sz - cksum_sz;
+        if(record_sz < cksum_size){
+            size_t foo = cksum_size; // so we can pass it to str without needing an address with gcc6!
+            throw std::runtime_error("circular_shared_buffer: record_sz must be at least cksum_sz (" + str(foo) + ")");
+        }
+        data_sz = record_sz - cksum_size;
         baseaddr = (char *)sew::mmap(nullptr, filesz, mmflags, MAP_SHARED, fd, 0);
     }            
         
@@ -276,9 +289,9 @@ public:
         auto rec = baseaddr + record_sz*(i%N);
         std::atomic_thread_fence(std::memory_order_acquire);
         std::string ret(rec, record_sz);
-        char computedsum[cksum_sz];
+        char computedsum[cksum_size];
         printable_cksum(&ret[0], data_sz, computedsum);
-        if(::memcmp(&ret[data_sz], computedsum, cksum_sz) != 0)
+        if(::memcmp(&ret[data_sz], computedsum, cksum_size) != 0)
             ret.clear();        // discard everything
         else
             ret.erase(data_sz); // discard the checksum
@@ -287,7 +300,6 @@ public:
 
     size_t size() const { return N; }
     size_t record_size() const { return record_sz; }
-    size_t cksum_size() const { return cksum_sz; }
     size_t data_size() const { return data_sz; }
     bool is_writable() const { return writable; }
 
@@ -302,7 +314,7 @@ public:
     static void printable_cksum(void *p, size_t len, char* dest){
         // threeroe is overkill, but there's no crc32 in libc.
         uint64_t h = threeroe(p, len).hash64();
-        for(size_t i=0; i<cksum_sz; ++i){
+        for(size_t i=0; i<cksum_size; ++i){
             dest[i] = "0123456789abcdef"[h&0xf];
             h >>= 4;
         }

@@ -64,11 +64,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //                  the least-significant four bits of n.
 
 #include <cinttypes>
+#include <cstdlib>
 #include <limits>
 #include <cstdint>
 #include <type_traits>
 #include <utility>
 #include <stdexcept>
+#include <numeric>
 #if __has_include(<bit>)
 #include <bit>
 #endif
@@ -313,5 +315,47 @@ unsigned char hexlownibble(IntegerType i){
     return ((i>9) ? 'a'-10 : '0') + i;
 }
 
-    
+#if __cpp_lib_gcd_lcm >= 201606 // e.g., gcc-7.1
+
+template <typename Ta, typename Tb>
+constexpr auto gcd(Ta a, Tb b) { return std::gcd<Ta, Tb>(a,b); }
+template <typename Ta, typename Tb>
+constexpr auto lcm(Ta a, Tb b) { return std::lcm<Ta, Tb>(a,b); }
+
+#else
+
+namespace detail{
+template <typename UnsignedType>
+constexpr UnsignedType _ugcd(UnsignedType a, UnsignedType b){
+    if(b==0)
+        return a;
+    return _ugcd(b, a%b);
+}
+} // namespace detail
+            
+// Sigh... I thought I was done after I wrote the three-line function above.
+template <typename Ta, typename Tb>
+constexpr auto gcd(Ta a, Tb b){
+    using CT = typename std::common_type_t<Ta, Tb>;
+    using uCT = typename std::make_unsigned<CT>::type;
+    // Hopefully, the compiler won't complain about
+    // operator-(unsigned).  And we can't use constexpr-if when the
+    // compiler is old enough to get here in the first place...
+    uCT uca = (std::is_signed<Ta>::value && a < Ta(0)) ? -a : a;
+    uCT ucb = (std::is_signed<Tb>::value && b < Tb(0)) ? -b : b;
+    return CT(detail::_ugcd(uca, ucb));
+}
+
+template <typename Ta, typename Tb>
+constexpr auto lcm(Ta a, Tb b){
+    using CT = typename std::common_type_t<Ta, Tb>;
+    using uCT = typename std::make_unsigned<CT>::type;
+    if( !a || !b )
+        return CT{};
+    uCT uca = (std::is_signed<Ta>::value && a < Ta(0)) ? -a : a;
+    uCT ucb = (std::is_signed<Tb>::value && b < Tb(0)) ? -b : b;
+    return CT( (uca/detail::_ugcd(uca, ucb)) * ucb );
+}
+#endif
+
 } // namespace core123
