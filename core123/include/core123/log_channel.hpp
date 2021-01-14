@@ -233,7 +233,7 @@ private:
         // very surprising if recsz is a large prime.
         // Too-clever-by-half??
         if( nrecs*reclen % getpagesize() ){
-            size_t minnrecs = lcm(reclen,  getpagesize()) / reclen;
+            size_t minnrecs = std::lcm(reclen,  getpagesize()) / reclen;
             nrecs = ((nrecs-1)/minnrecs + 1) * minnrecs;
             // can't complain.  We may be constructing the complaint channel right now!
         }

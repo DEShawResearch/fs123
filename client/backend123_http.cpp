@@ -124,11 +124,7 @@ struct wrapped_curl_slist{
     wrapped_curl_slist& operator=(const wrapped_curl_slist&) = delete;
     wrapped_curl_slist& operator=(wrapped_curl_slist&&) = delete;
     
-    curl_slist* get(){
-        return chunk;
-    }
-
-    const curl_slist* get() const{
+    curl_slist* get() const{
         return chunk;
     }
 

@@ -7,15 +7,14 @@
 #include "core123/sew.hpp"
 #include "core123/exnest.hpp"
 #include "core123/datetimeutils.hpp"
-#include "core123/intutils.hpp"
 #include "core123/ut.hpp"
+#include <numeric>
 #include <time.h>
 #include <stdlib.h>
 
 using core123::log_channel;
 using core123::tp2dbl;
 using core123::fmt;
-using core123::lcm;
 using core123::circular_shared_buffer;
 namespace sew = core123::sew;
 
@@ -42,7 +41,7 @@ int main(int, char **) try {
     CHECK(reader.size() >= requested_nrecs);  // we asked for nrecs=64, we should get at least that many
     size_t filesz = reader.size() * reader.record_size();
     // and we couldn't have gotten  any less.
-    CHECK(filesz - lcm(reader.record_size(), getpagesize()) < requested_nrecs);
+    CHECK(filesz - std::lcm(reader.record_size(), getpagesize()) < requested_nrecs);
     std::cout << fmt("getpagesize=%d, nrecs=64^reclen=80 produced a file with %zd records of size %zd\n",
                      getpagesize(), reader.size(), reader.record_size());
 

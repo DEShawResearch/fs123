@@ -168,13 +168,8 @@
 namespace core123{
 
 struct circular_shared_buffer{
-#if __cpp_inline_variables >= 201606
     inline static const size_t default_record_size = 128;
     inline static const size_t cksum_size = 8;
-#else // i.e., gcc6!
-    static const size_t default_record_size = 128;
-    static const size_t cksum_size = 8;
-#endif
 private:
     size_t record_sz;
     size_t data_sz;
@@ -261,10 +256,8 @@ public:
         if(filesz==0 || filesz%getpagesize() || filesz%record_sz)
             throw std::runtime_error("circular_shared_buffer: file size must be non-zero and divisible by pagesize");
         N = filesz / record_sz;
-        if(record_sz < cksum_size){
-            size_t foo = cksum_size; // so we can pass it to str without needing an address with gcc6!
-            throw std::runtime_error("circular_shared_buffer: record_sz must be at least cksum_sz (" + str(foo) + ")");
-        }
+        if(record_sz < cksum_size)
+            throw std::runtime_error("circular_shared_buffer: record_sz must be at least cksum_sz (" + str(cksum_size) + ")");
         data_sz = record_sz - cksum_size;
         baseaddr = (char *)sew::mmap(nullptr, filesz, mmflags, MAP_SHARED, fd, 0);
     }            

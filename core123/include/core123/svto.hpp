@@ -208,13 +208,8 @@ size_t svscan(str_view sv, IITER b, IITER e, size_t start = 0){
 // 
 template <class Tuple, std::size_t ... Is>
 size_t svscan_tuple(str_view sv, const Tuple& t, size_t start, std::index_sequence<Is...>){
-#if __cpp_fold_expressions // c++17 
     // expand pack over the binary comma expression
     ((start = svscan(sv, &std::get<Is>(t), start)+1), ... );
-#else    
-    // expand into an unused array-inializer.
-    size_t _[] = {(start = svscan(sv, &std::get<Is>(t), start)+1) ... }; unused(_);
-#endif
     return start;
 }
 

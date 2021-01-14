@@ -9,8 +9,6 @@ using core123::endian;
 using core123::byteswap;
 using core123::popcnt;
 using core123::popcnt_nobuiltin;
-using core123::gcd;
-using core123::lcm;
 
 void test_byteswap(){
     CHECK(endian::little != endian::big);
@@ -39,39 +37,9 @@ void test_popcnt(){
 #undef CHKpopc
 }
 
-void test_gcd(){
-    EQUAL(gcd(3, 5), 1);
-    EQUAL(gcd(60, 24), 12);
-    EQUAL(gcd(97*37*37*2*2, 5u*7*37*2), 37*2);
-    EQUAL(gcd(0, 0), 0);
-    EQUAL(gcd(0, 10), 10);
-    EQUAL(gcd(10, 0), 10);
-    for(size_t i=1; i<200; ++i){
-        EQUAL(gcd(i, size_t(0)), i);
-        for(int j=i; j<2000; ++j){
-            auto gij = gcd(i, j);
-            auto gji = gcd(j, i);
-            EQUAL(gij, gji);
-            CHECK( i%gij == 0 );
-            CHECK( j%gij == 0 );
-            // it's a divisor, but is it the *greatest*?
-            for(size_t k = gij+1; k<i; ++k)
-                CHECK( i%k != 0 || j%k != 0 );
-        }
-    }
-}
-
-void test_lcm(){
-    EQUAL(lcm(3,5), 15);
-    EQUAL(lcm(97*37*37*2*2, 5u*7*37*2), 5*7*97*37*37*2*2);
-    // We could do more, but ...
-}
-
 int main(int, char **){
     test_byteswap();
     test_popcnt(); // Also tested in ut_bits and in ut_bloom.
-    test_gcd();
-    test_lcm();
     return utstatus();
 }
     

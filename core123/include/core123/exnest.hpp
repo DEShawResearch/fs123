@@ -241,8 +241,6 @@ innermost(const std::exception& e){
     return e;
 }
 
-#if __cpp_if_constexpr >= 201606
-// It's easier with C++17 and if constexpr...
 template <class OuterType, class ... InnerTypes>
 void throw_nest(OuterType &&outer, InnerTypes&& ... rest){
     if constexpr(sizeof ... (rest) == 0)
@@ -255,22 +253,5 @@ void throw_nest(OuterType &&outer, InnerTypes&& ... rest){
         }
     }
 }
-
-#else // __cpp_if_constexpr
-// But it's not *that* hard without...
-template <class OneType>
-void throw_nest(OneType&& inner){
-    throw std::forward<OneType>(inner);
-}
-
-template <class OuterType, class InnerType, class ... MoreInnerTypes>
-void throw_nest(OuterType&& outer, InnerType&& inner, MoreInnerTypes&& ... rest){
-    try{
-        throw_nest(std::forward<InnerType>(inner), std::forward<MoreInnerTypes>(rest)...);
-    }catch(std::exception&){
-        std::throw_with_nested(std::forward<OuterType>(outer));
-    }
-}
-#endif // __cpp_if_constexpr
 
 } // namespace core123

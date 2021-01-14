@@ -64,16 +64,10 @@ void test_real(T N){
     char& c = const_cast<char&>(s.back());                          
     char oc = c;
     T sgn = 1;
-#if __GNUC__ >= 7
     // N.B.  gcc7 warns about int-in-bool-context, even with
     // the pragma that says not to.
     if constexpr (!std::is_same_v<T, bool>)
         sgn = ( s[0] == '-' ) ? -1 : 1;
-#else
-    // OTOH, gcc6 has neither constexpr-if nor is_same_v
-    if (!std::is_same<T, bool>::value)
-        sgn = ( s[0] == '-' ) ? -1 : 1;
-#endif
     if (oc != '0') {
 	c = oc-1; 
 	try { 
