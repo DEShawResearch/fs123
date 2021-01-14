@@ -1,0 +1,133 @@
+In Jan 2021, we are finally dropping "support" for gcc-6.  I.e.,
+compiler and library features that are not present in gcc-6 will
+be used unconditionally in the code.  Compiling fs123p7 and
+core123 will require at least gcc-8, clang-7 or icpc-19.
+
+We will no longer develop #if-#else workarounds for the following
+C++-17 feature-test macros (or any others in the intersection of
+gcc-8, clang-7 or icpc-19).  Over time, the '#else' clause for
+existing workarounds may be removed.
+
+__cpp_if_constexpr
+__cpp_inline_variables
+__cpp_structured_bindings
+__cpp_fold_expressions
+__cpp_lib_gcd_lcm
+__cpp_lib_optional
+__cpp_lib_byte
+__cpp_lib_atomic_is_always_lock_free
+
+Of these, if_constexpr is most significant.  We should never again
+write an SFINAE template when if constexpr would solve the problem.
+Furthermore, the lack of inline variables makes it difficult
+(impossible?) for a header-only library to have completely usable
+static member values.  The others are more nice-to-have than critical,
+but they definitely waste our time and add technical debt.
+
+Consequences:
+
+This change mainly affects Debian Stretch and Ubuntu Xenial.  They
+both provide gcc only up to gcc-6 (6.0.1 for Xenial, 6.3.0 for
+Stretch).  CentOS6 and 7 have never provided gcc-6 "out of the box",
+but they have vendor-supplied devtoolset collections that provide gcc
+up to 9, so the effect is minimal.
+
+However:
+
+Stretch has clang-7 in the distro, (which we test with travis).
+Xenial has clang-8 in the distro (which we test with travis), and also
+has the ppa:ubuntu-toolchain-r/test repo with gcc through 10.
+
+Why gcc-8?
+
+According to the summary below:
+
+Stretch has clang-7
+Xenial has clang-8 and gcc up to gcc-10 in a ppa
+CentOS{6,7} has gcc up to 9 in the devtoolset scl
+Buster has gcc-8 in build-essential
+CentOS8 has gcc-8 in "Development Tools"
+
+So we can freely use "modern" features from the intersection of gcc-8,
+libstdc++-8, clang-7 and libc++-7 (most of C++17, some C++20) and not
+require any "third-party" packages on any current Debian, Ubuntu,
+Alpine or CentOS platforms.
+
+What about icc?
+
+From https://en.cppreference.com/w/cpp/compiler_support it looks like
+icpc 19.0 is the minimum version that supports constexpr if, inline
+variables, structured bindings and fold expressions.  Linking with
+a libstdc++-8 should provide a sufficiently modern library.
+
+===== Summary of compiler support, Jan 2021 ============
+
+We keep revisiting this.  To avoid doing doing the same internet research
+over and over, here's a summary of the compilers on various distros:
+
+
+Debian Stretch:
+  released: 2017-06-17
+  EOL:      2020-07-06  (!!)
+  EOL LTS:  ~2022
+  gcc:      gcc-6 :   6.3.0
+  clang:    clang-7 : 7.0.1
+
+Debian Buster:
+  released: 2019-07-06
+  EOL:      ~2022
+  EOL LTS:  <not stated>
+  gcc:      gcc-8 : 8.3.0
+  clang:    clang-8 (in buster-backports):  8.0.1
+            clang-7 : 7.0.1
+
+Ubuntu Xenial (16.04 LTS):
+ released:                     2019-04-21
+ End of standard support:      2021-04
+ EOL:                          2024-04
+ build-essential gcc:   gcc-5.3.1
+ gcc-N:                 gcc-6.0.1
+ ppa gcc:               gcc-7, 8, 9, 10 in the ppa:ubuntu-toolchain-r/test repo
+ clang:                 clang-6 (in xenial-updates, does not work!)
+
+Ubuntu Bionic (18.04 LTS):
+ released:                     2018-04-26
+ End of standard support:      2023-04
+ EOL:                          2028-04
+ build-essential gcc:   gcc-7.4.0
+ gcc-N                  gcc-8.4.0
+ 
+Ubuntu Focal (20.04 LTS):
+ released:                 2020-08-06
+ End of standard support:  2025-04
+ EOL:                      TBA
+ build-essential gcc: 9.3.0
+ gcc-N:              10.2.0
+
+
+CentOS6:  (no longer maintained!)
+ released:      2011-07-10
+ full updates:  2017-05-10  (!!)
+ maint updates: 2020-11-30  (!!)
+ distro gcc:  gcc-4.4.7
+ gcc:    gcc-7, 8 and 9 are available in the devtoolset packages
+ Notes: CentOS6 is no longer maintained.  While it's easy enough to
+        give it a modern compiler, it has very old versions of
+        libsodium, libfuse and libevent, all of which *can* be worked
+        around, but which we'd rather not continue to carry as
+        technical debt
+
+CentOS7:
+ released:      2014-07-07
+ full updates:  2020-08-06
+ maint updates: 2024-06-30
+ distro gcc:  gcc-4.8.5
+ gcc:    gcc-7, 8 and 9 are available in the 'devtoolset' packages
+
+CentOS8:
+ released:      2019-09-24
+ full updates:  2021-12-31  (but there's also 'Stream-8' updated through 2024-05-31)
+ maint-updates: 2021-12-31
+ distro gcc:  gcc-8.3.1
+
+
