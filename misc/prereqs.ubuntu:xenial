@@ -5,16 +5,20 @@ apt-get -y upgrade
 apt-get -y install build-essential fuse libfuse-dev libsodium-dev libcurl4-openssl-dev libevent-dev libssl-dev libdw-dev
 apt-get -y install git valgrind time attr curl python3
 apt-get -y install strace
-apt-get -y install software-properties-common
-add-apt-repository -y ppa:ubuntu-toolchain-r/test
-apt-get -y update
-apt-get -y install gcc-9 g++-9
-update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-9 90 --slave /usr/bin/g++ g++ /usr/bin/g++-9
-
-# N.B.  clang-6.0 in the xenial-updates distro DOES NOT WORK!
-#apt-get -y install clang-6.0
-#apt-get -y install libc++-dev
-#export CXX=clang++-6.0
-#export CC=clang-6.0
-#export CXXFLAGS=-stdlib=libc++
-#export LDFLAGS=-stdlib=libc++
+if true; then
+    # clang-8 (does not require a ppa)
+    apt-get -y install clang-8
+    apt-get -y install libc++-8-dev
+    apt-get -y install libc++abi-8-dev
+    export CXX=clang++-8
+    export CC=clang-8
+    export CXXFLAGS=-stdlib=libc++
+    export LDFLAGS=-stdlib=libc++
+else
+    # gcc-9 from ppa:ubuntu-toolchain-r/test
+    apt-get -y install software-properties-common
+    add-apt-repository -y ppa:ubuntu-toolchain-r/test
+    apt-get -y update
+    apt-get -y install gcc-9 g++-9
+    update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-9 90 --slave /usr/bin/g++ g++ /usr/bin/g++-9
+fi
