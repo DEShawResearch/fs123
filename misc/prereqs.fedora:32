@@ -9,5 +9,6 @@ yum -y install elfutils-devel
 yum -y install curl-devel openssl-devel
 yum -y install libevent-devel
 yum -y install time attr e2fsprogs diffutils
-# valgrind doesn't seem to work on fedora32.
-export NO_VALGRIND=yes
+# valgrind doesn't seem to work in the fedora32 docker
+export NO_VALGRIND=yes # for core123/ut_expiring.cpp
+export FS123_TEST_WITH_VALGRIND=no # for test/runtests
