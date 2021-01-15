@@ -21,14 +21,20 @@ services:
 
 # alpine 3.12 (or later) is built static, while 3.11 is dynamic
 env:
-    - DOCKER_IMAGE=alpine:3.11
-    - DOCKER_IMAGE=alpine:3.12
-    - DOCKER_IMAGE=centos:7
-    - DOCKER_IMAGE=fedora:32
-    - DOCKER_IMAGE=ubuntu:bionic
-    - DOCKER_IMAGE=ubuntu:xenial
-    - DOCKER_IMAGE=debian:stretch
-    - DOCKER_IMAGE=debian:buster
+    global:
+        # DOCKER_USERNAME
+        - secure: "dew5Q7bml+Gjw/3RqpZqxZaN3eB8Pmn9y3L2Pl2rZSHF4Uqf5akQGSqnQsxu0gyAVnQYzq8J3nSiWAI/z1uDToSlMP10/891xjIsDod8+W8ySdV9enTUo/XT7bQN25FuHdM4uuH+xYKXWOvfQ0YMMoQ4qbMBUADxR6ox+Y0EgUvt8kxDcV6d4S37Gg23TW4EBf0CE0s8T+3wDvvW7F4hd87NcKz71m3TAGAKz4T48BEs2E+BEh+4Mmocn+xqVa8Guvi9mOdD/Sd7qiEKxUFCEAvPVtPAnLmOxC82ggn1rHpYzSixsQuIfDaKJwvsbVpgqula3pqA7KlL54TGi6+7l183w94QbeMSQQYiWLCP72n0huc2UbmICT3+LZth5nbT+dRVsJmPIgBmBPlm9yu3t2N0+KZfK7KQP1TwOQlZi1KEWRrE1SNOCViocLVJwPEeIOUXKplssGREA2K00vtBaZR4ZKzlj4vI4tqnRqhs0G3MjzU6vbgIw44ke6IG5J16r8GATchI1pD2pjRqoYpvtB57KNStgMSJSGxHarPk6NjMAPr5+sxyLvDWGC5Klod8SUENieeHU3LtKUiEu0XFpMfLGt0k+WSasKu13GxSXWQCIgrpzTS5I+8WqPwPqfDhEFRln1ZGt+hUV/xk1oWjOd3mWlfyCmp/j9yeAhje00g="
+         # DOCKER_PASSWORD
+         - secure: "n8WqmQTwCOUW0u2AS5fTfelyLtDc5ZnjjLzg6aBOc1ntrZ48SVllJJ3946HFAJ8Z6d3tLfi1k/uzkiY6LVy0TWTIzyek87pX0tQgOjqtGKhvpx0dHXtN4eVJUxAI+JT4HGBvtt4v3HgAWfZ/dc9q0OsUCb55Zaql/E7yy5iz7k4KDWXZ18/ln6SB9LdVAYDp5D25iN8teQX6kfqtVpy3OUpyQFUKymwn2NhtlSwZsJ2/eplKHxKYaGnBtYvq1cI7s1a16hy7hGPpAKDXd1f4FtK2cYQI5k8cGlQQt715gF1UV011fZvSAbWZm2ndIknTWT03rgBDUAs1mh13mAx/zWM1ObzkGzslzygxcyn7QNYA8dgKqYnFcW8W+EKH+xguk20lCaPxqDBXV6W7Cmf4SbJCCfu6RZyC7I/WthLwkwYTy3E+aBIsWW3ia2lVOAPn5M9nv78WE0o05TGS5dAyxoSeLTiBUhQGZcZWMrmAAR920jkCjAO0ViixYBcq5tNau3toZHfnaTHjkNoMhESStoUKESeeP6redftAk6YCu/UT79o0JniwvMddfDQTJLXiF2vbSD5ppg0EzmsbRZb2W5fhOFtlVHyl942E+3dOkTYUKpnqf9RJMYjTMJFrTb+T0X1uqAEHzZzrL8S2YaJ7wF2xVq2/sjkj1x/9b9l74Hs="
+    jobs:
+         - DOCKER_IMAGE=alpine:3.11
+         - DOCKER_IMAGE=alpine:3.12
+         - DOCKER_IMAGE=centos:7
+         - DOCKER_IMAGE=fedora:32
+         - DOCKER_IMAGE=ubuntu:bionic
+         - DOCKER_IMAGE=ubuntu:xenial
+         - DOCKER_IMAGE=debian:stretch
+         - DOCKER_IMAGE=debian:buster
 
 # add fuse to the build host VM
 # https://github.com/travis-ci/travis-ci/issues/1100
@@ -39,6 +45,7 @@ before_install:
     - sudo chown root:$USER /etc/fuse.conf
 
 install:
+    - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin 
     - docker pull $DOCKER_IMAGE
 
 script:
