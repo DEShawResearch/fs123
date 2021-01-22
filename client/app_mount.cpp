@@ -906,12 +906,13 @@ auto once_per_minute_maintenance() {
  }
 
 void fs123_init(void *, struct fuse_conn_info *conn_info) try {
-    complain(LOG_NOTICE, "fs123_init.  Starting up at epoch: %s: conn_info={.major=%u, .minor=%u, .async_read=%u, .max_write=%u, .max_readahead=%u, .capable=%#x, .want=%#x"
+    complain(LOG_NOTICE, "fs123_init.  Starting up at epoch: %s: git_description: %s, conn_info={.major=%u, .minor=%u, .async_read=%u, .max_write=%u, .max_readahead=%u, .capable=%#x, .want=%#x"
 #if FUSE_VERSION > 28
              ", .max_background=%u, .congestion_threshold=%u"
 #endif
              "}\n",
              str(std::chrono::system_clock::now()).c_str(),
+             GIT_DESCRIPTION,
              conn_info->proto_major, conn_info->proto_minor,
              conn_info->async_read, conn_info->max_write, conn_info->max_readahead,
              conn_info->capable, conn_info->want
