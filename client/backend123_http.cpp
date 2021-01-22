@@ -1184,6 +1184,9 @@ backend123_http::refresh(const req123& req, reply123* replyp) try{
         }
         ch.headers.push_back(oss.str());
     }
+    
+    ch.headers.push_back("User-Agent: fs123p7/" GIT_DESCRIPTION);
+    
     bool ret = ch.perform_with_fallback(curl, req.urlstem, replyp);
     if(replyp->content.size() > content_reserve_size){
         // reserve 10% more than the largest reply so far, up to 8M

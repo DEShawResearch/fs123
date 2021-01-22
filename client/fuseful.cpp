@@ -210,7 +210,7 @@ void fuseful_handler(int signum){
     if(signal_filename)
         fd = ::open(signal_filename, O_CREAT|O_WRONLY|O_APPEND, 0666);
     if(fd >= 0){
-        char msg[] = "fuseful_handler:  Caught signal NN\n";
+        char msg[] = "fuseful_handler: git_description: " GIT_DESCRIPTION ": Caught signal NN\n";
         msg[sizeof(msg)-4] = '0' + (signum/10)%10;  // Tens-digit
         msg[sizeof(msg)-3] = '0' + signum%10;       // Ones-digit
         unused(::write(fd, msg, sizeof(msg)-1));

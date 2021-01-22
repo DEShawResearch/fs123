@@ -2654,7 +2654,7 @@ try {
     // use it only if it catches any signals.
     const char *sig_report = (signal_filename.empty()) ? nullptr : signal_filename.c_str();
     int ret = fuseful_main_ll(&args, fs123_oper, sig_report, fs123_crash);
-    complain(LOG_NOTICE, str("app_mount:  fuse_main_ll returned", ret, " return from app_mount() at", std::chrono::system_clock::now()));
+    complain(LOG_NOTICE, str("app_mount: fuse_main_ll returned", ret, " return from app_mount() at", std::chrono::system_clock::now(), "git description: " GIT_DESCRIPTION));
     wait_for_subprocess();
     return ret;
  }catch(std::exception& e){
