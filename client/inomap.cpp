@@ -165,7 +165,7 @@ void ino_remember(fuse_ino_t pino, const char *name, fuse_ino_t ino, uint64_t va
                                          pino, name, ino, iterbool.first->second.name()));
     }
     iterbool.first->second.refcount++;
-    DIAGfkey(_inomap, "inomap_remember(%lu, %s, %ju, %lu) refcount: %d\n", pino, name, ino, (uintmax_t)validator, iterbool.first->second.refcount);
+    DIAGfkey(_inomap, "ino_remember(%lu, %s, %ju, %lu) refcount: %d\n", pino, name, ino, (uintmax_t)validator, iterbool.first->second.refcount);
 }
 
 void ino_forget(fuse_ino_t ino, uint64_t nlookup){
@@ -176,11 +176,11 @@ void ino_forget(fuse_ino_t ino, uint64_t nlookup){
         return;
     }
     if(p->second.refcount == 0)
-        complain("forget(%lu) refcount was zero", ino);
+        complain("ino_forget(%lu) refcount was zero", ino);
     p->second.refcount -= nlookup;
-    DIAGfkey(_inomap, "inomap_forget(%lu) refcount: %d\n", ino, p->second.refcount);
+    DIAGfkey(_inomap, "ino_forget(%lu) refcount: %d name=%s\n", ino, p->second.refcount, p->second.name());
     if(p->second.refcount < 0){
-        complain("forget(%lu) refcount < 0", ino);
+        complain("ino_forget(%lu) refcount < 0", ino);
         p->second.refcount = 0;
     }
     if( p->second.refcount == 0 ){

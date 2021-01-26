@@ -1,4 +1,5 @@
 #include "fuseful.hpp"
+#include "fs123/stat_serializev3.hpp"
 #include "fs123/acfd.hpp"
 #include <core123/complaints.hpp>
 #include <core123/datetimeutils.hpp>
@@ -29,6 +30,7 @@ std::string fuse_device_option;
 
 namespace {
 auto _shutdown = diag_name("shutdown");
+auto _llops = diag_name("llops");
 
 #define STATS_INCLUDE_FILENAME "fuseful_statistic_names"
 #define STATS_STRUCT_TYPENAME fuseful_stats_t
@@ -429,6 +431,107 @@ void fuseful_teardown() try {
  }
 
 } // namespace <anon>
+
+// The fuse_reply_xxx functions return -errno
+// of the writev call made by fuse_kern_chan_send to
+// carry out the final transmission of our reply to the kernel.
+// There is a comment in fuse_kern_chan.c that says:
+//   /* ENOENT means the operation was interrupted */
+// It's not clear what (if anything) the daemon can or should do with
+// that.  The NTFS-3G filesystem is the most "professional" example of
+// a fuse filesystem I can find, and they just ignore the value
+// returned by fuse_reply_xxx.  Maybe we'll never see it?  Let's at
+// least log them, so we'll have some data that justifies our decision
+// to ignore.
+void reply_err(fuse_req_t req, int eno){
+    if(eno)
+        DIAGfkey(_llops, "reply_err(req=%p, eno=%d)\n", req, eno);
+    int ret = fuse_reply_err(req, eno);
+    if( ret )
+        core123::complain("fuse_%s(%d) failed with ret=%d", __func__, eno, ret);
+}
+
+void reply_entry(fuse_req_t req, const fuse_entry_param* e){
+    DIAGkey(_llops, "reply_entry(" << req << ") -> e.ino  " << e->ino << " stat: " << e->attr << " entry_timeout: " << e->entry_timeout << " attr_timeout: " << e->attr_timeout);
+    int ret = fuse_reply_entry(req, e);
+    if( ret )
+        core123::complain("fuse_%s failed with ret=%d", __func__, ret);
+}
+
+void reply_attr(fuse_req_t req, const struct stat *s, float timeout){
+    int ret = fuse_reply_attr(req, s, timeout);
+    DIAGfkey(_llops, "reply_attr(%p, mode=%o, timeout=%f)\n", req, s->st_mode, timeout);
+    if( ret )
+        core123::complain("fuse_%s failed with ret=%d", __func__, ret);
+}
+
+void reply_xattr(fuse_req_t req, size_t len){
+    int ret = fuse_reply_xattr(req, len);
+    DIAGfkey(_llops, "reply_xattr(%p, len=%zu)\n", req, len);
+    if( ret )
+        core123::complain("fuse_%s failed with ret=%d", __func__, ret);
+}
+
+void reply_buf(fuse_req_t req, const char *buf, size_t len){
+    int ret = fuse_reply_buf(req, buf, len);
+    DIAGfkey(_llops, "reply_buf(%p, len=%zd)", req, len);
+    if( ret )
+        core123::complain("fuse_%s failed with ret=%d", __func__, ret);
+}
+
+void reply_buf(fuse_req_t req, core123::str_view sv){
+    return reply_buf(req, sv.data(), sv.size());
+}
+
+void  reply_iov(fuse_req_t req, const struct iovec* iov, int count){
+    int ret = fuse_reply_iov(req, iov, count);
+    if(_llops){
+        size_t total = 0;
+        for(int i=0; i<count; ++i){
+            DIAGfkey(_llops,  "reply_iov(%p) iov[%d] = %lu@%p", req, i, iov[i].iov_len, iov[i].iov_base);
+            total += iov[i].iov_len;
+        }
+        DIAGfkey(_llops, "reply_iov(%p, count=%d) len=%zu", req, count, total);
+    }
+    if( ret )
+        core123::complain("fuse_%s failed with ret=%d", __func__, ret);
+}
+
+void reply_readlink(fuse_req_t req, const char *buf){
+    int ret = fuse_reply_readlink(req, buf);
+    DIAGfkey(_llops, "reply_readlink(%p, %s)", req, buf);
+    if( ret )
+        core123::complain("fuse_%s failed with ret=%d", __func__, ret);
+}
+
+void reply_open(fuse_req_t req, const fuse_file_info *fi){
+    fuseful_net_open_handles++;
+    int ret = fuse_reply_open(req, fi);
+    DIAGfkey(_llops, "reply_open(%p, fi=%p, fi->fh: %p, fi->keep_cache: %d, fi->direct_io: %d)", req, fi,
+             (void*)fi->fh, fi->keep_cache, fi->direct_io);
+    if( ret )
+        core123::complain("fuse_%s failed with ret=%d", __func__, ret);
+}
+
+void reply_release(fuse_req_t req){
+    int ret = fuse_reply_err(req, 0);
+    DIAGfkey(_llops, "reply_release(%p)", req);
+    fuseful_net_open_handles--;
+    if( ret )
+        core123::complain("fuse_%s failed with ret=%d", __func__, ret);
+}
+
+void reply_statfs(fuse_req_t req, const struct statvfs* sv){
+    int ret = fuse_reply_statfs(req, sv);
+    DIAGkey(_llops, "reply_stattfs(" << req << ", " << sv << ")");
+    if( ret )
+        core123::complain("fuse_%s failed with ret=%d", __func__, ret);
+}
+
+void reply_none(fuse_req_t req){
+    DIAGfkey(_llops, "reply_none(%p)", req);
+    fuse_reply_none(req); // returns void - unlike the others.
+}
 
 void lowlevel_notify_inval_entry(fuse_ino_t pino, const std::string& name) noexcept{
     int ret = fuse_lowlevel_notify_inval_entry(g_channel, pino, name.c_str(), name.size());

@@ -99,6 +99,7 @@ fs123_stats_t stats;
 atomic_scoped_nanotimer elapsed_asnt; // measures time since program initialization.
 
 auto _init = diag_name("init");
+auto _llops = diag_name("llops");
 auto _lookup = diag_name("lookup");
 auto _getattr = diag_name("getattr");
 //auto _readlink = diag_name("readlink");
@@ -203,16 +204,6 @@ std::string cache_dir;
 std::string diag_destination;
 std::string log_destination;
 
-// A little utility to threeroe an iovec.  Is this useful enough to be
-// in core123?
-std::string
-trsum_iov(struct iovec* iov, size_t n){
-    threeroe tr;
-    for(size_t i=0; i<n; ++i)
-        tr.update(iov[i].iov_base, iov[i].iov_len);
-    return tr.hexdigest();
-}
-
 unsigned idle_timeout_minutes = 0;
 atomic_timer<std::chrono::system_clock> idle_timer;
 void update_idle_timer(){
@@ -289,11 +280,12 @@ bool cookie_mismatch(fuse_ino_t ino, uint64_t estale_cookie){
     }
     auto pino_name = ino_to_pino_name(ino);
     auto gino = genino(estale_cookie, pino_name.first, pino_name.second);
-    if(ino != gino)
-        DIAGfkey(_estale, "cookie_mismatch: ec=%ju, name=%s, ino=%ju genino=%ju\n",
-                 (uintmax_t)estale_cookie,
-                 pino_name.second.c_str(),
-                 (uintmax_t)ino, (uintmax_t)gino);
+    DIAGfkey(_estale, "cookie_mismatch: %s ec=%ju, name=%s, ino=%ju genino=%ju\n",
+             (ino==gino ? "MATCH" : "MISMATCH"),
+             (uintmax_t)estale_cookie,
+             pino_name.second.c_str(),
+             (uintmax_t)ino, (uintmax_t)gino
+             );
     return ino != gino;
 }
 
@@ -1174,7 +1166,7 @@ void fs123_lookup(fuse_req_t req, fuse_ino_t ino, const char *name) try
     stats.lookups++;
     update_idle_timer();
     atomic_scoped_nanotimer _t(&stats.lookup_sec);
-    DIAGfkey(_lookup, "lookup(%p, %ju, %s)\n", req, (uintmax_t)pino, name);
+    DIAGfkey(_llops, "lookup(%p, pino=%ju, name=%s)\n", req, (uintmax_t)pino, name);
     if(lookup_special_ino(req, pino, name))
         return;
     auto reply = begetattr(pino, name, 0, req123::MAX_STALE_UNSPECIFIED);
@@ -1205,7 +1197,6 @@ void fs123_lookup(fuse_req_t req, fuse_ino_t ino, const char *name) try
     }
     massage_attributes(&e.attr, e.ino);
     ino_remember(pino, name, e.ino, validator);
-    DIAGkey(_lookup, "lookup(" << req << ") -> stat: " << e.attr << " entry_timeout: " << e.entry_timeout << " attr_timeout: " << e.attr_timeout  <<"\n");
     reply_entry(req, &e);
  } CATCH_ERRS
 
@@ -1232,7 +1223,7 @@ void fs123_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info* fi) tr
     atomic_scoped_nanotimer _t(&stats.getattr_sec);
     if(fi)
         stats.getattrs_with_fi++;
-    DIAGfkey(_getattr, "getattr(%p, %ju, fi=%p, fi->fh=%p)\n", req, (uintmax_t)ino, fi, fi?(void*)fi->fh:nullptr);
+    DIAGfkey(_llops, "getattr(%p, ino=%ju, fi=%p, fi->fh=%p)\n", req, (uintmax_t)ino, fi, fi?(void*)fi->fh:nullptr);
     if( ino>1 && ino <= max_special_ino )
         return getattr_special_ino(req, ino, fi);
 
@@ -1248,7 +1239,7 @@ void fs123_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info* fi) tr
     struct stat sb = stat_from_a_reply(reply.content);
     massage_attributes(&sb, ino);
     double tosd = no_kernel_attr_caching? 0.0 : dur2dbl(ttl_or_stale(reply));
-    DIAGkey(_getattr,  "getattr(" << req <<  ", " << ino << ") -> ttl: " << tosd << " attrs: " << sb << "\n");
+    DIAGkey(_getattr,  "reply_attr(" << req <<  ", " << ino << ") -> ttl: " << tosd << " attrs: " << sb << "\n");
     reply_attr(req, &sb, tosd);
  } CATCH_ERRS
 
@@ -1257,7 +1248,7 @@ void fs123_opendir(fuse_req_t req, fuse_ino_t  ino, struct fuse_file_info *fi) t
     update_idle_timer();
     atomic_scoped_nanotimer _t(&stats.opendir_sec);
     fi->fh = reinterpret_cast<decltype(fi->fh)>(new fh_state_sp(std::make_shared<fh_state>()));
-    DIAGfkey(_opendir, "opendir(%ju, fi=%p, fi->fh = %p)\n", (uintmax_t)ino, fi, (void*)fi->fh);
+    DIAGfkey(_llops, "opendir(%p, ino=%ju, fi=%p, fi->fh = %p)\n", req, (uintmax_t)ino, fi, (void*)fi->fh);
     // Documentation is silent on whether keep_cache is honored for
     // directories.  We want the kernel *not* to use cached entries --
     // if it did, then clients would never see new entries because
@@ -1282,8 +1273,8 @@ void fs123_readdir(fuse_req_t req, fuse_ino_t ino,
 {
     stats.readdirs++;
     update_idle_timer();
-    DIAGfkey(_opendir, "readdir(ino=%ju, size=%zu, off=%jd, fi=%p, fi->fh=%p)\n",
-             (uintmax_t)ino, size, (intmax_t)off, fi, fi?(void*)fi->fh:nullptr);
+    DIAGfkey(_llops, "readdir(%p, ino=%ju, size=%zu, off=%jd, fi=%p, fi->fh=%p)\n",
+             req, (uintmax_t)ino, size, (intmax_t)off, fi, fi?(void*)fi->fh:nullptr);
     atomic_scoped_nanotimer _t(&stats.readdir_sec);
     if(fi==nullptr || fi->fh == 0)
         throw se(EIO, "fs123_readdir called with fi=nullptr or fi->fh==0.  This is totally unexpected!");
@@ -1436,13 +1427,12 @@ void fs123_readdir(fuse_req_t req, fuse_ino_t ino,
     // carefully about how contents are stored - and it's not clear
     // anyone would ever benefit (who does multiple concurrent
     // readdirs on the same fd??)
-    DIAGfkey(_readdir, "fuse_reply_buf(req, %p, %ld)\n", buf.data(), used);
     reply_buf(req, buf.data(), used);
 } CATCH_ERRS
 
 void fs123_releasedir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) try
 {
-    DIAGfkey(_opendir, "releasedir(%ju, fi=%p, fi->fh=%p)\n", (uintmax_t)ino, fi, fi?(void*)fi->fh:nullptr);
+    DIAGfkey(_llops, "releasedir(%p, ino=%ju, fi=%p, fi->fh=%p)\n", req, (uintmax_t)ino, fi, fi?(void*)fi->fh:nullptr);
     stats.releasedirs++;
     update_idle_timer();
     if(fi == nullptr || fi->fh == 0)
@@ -1459,7 +1449,6 @@ void do_xattr(fuse_req_t req, fuse_ino_t ino, const char *name, size_t size) {
     auto reply = begetxattr(ino, name, nosize);
     if (reply.eno)
 	return reply_err(req, reply.eno);
-    DIAGfkey(_xattr, "getxattr content: %s\n", reply.content.c_str());
     if (nosize) {
 	return reply_xattr(req, svto<size_t>(reply.content));
     } else if (size < reply.content.size()) {
@@ -1479,6 +1468,7 @@ void fs123_getxattr(fuse_req_t req, fuse_ino_t ino,
     stats.getxattrs++;
     update_idle_timer();
     atomic_scoped_nanotimer _t(&stats.getxattr_sec);
+    DIAGfkey(_llops, "getattr(%p, ino=%ju, name=%s, size=%zu)", req, (uintmax_t)ino, name, size);
     return do_xattr(req, ino, name, size);
 } CATCH_ERRS
 
@@ -1487,6 +1477,7 @@ void fs123_listxattr(fuse_req_t req, fuse_ino_t ino, size_t size) try
     stats.listxattrs++;
     update_idle_timer();
     atomic_scoped_nanotimer _t(&stats.listxattr_sec);
+    DIAGfkey(_llops, "listxattr(%p, ino=%ju, size=%zu)", req, (uintmax_t)ino, size);
     return do_xattr(req, ino, nullptr, size);
 } CATCH_ERRS
 
@@ -1495,6 +1486,7 @@ void fs123_readlink(fuse_req_t req, fuse_ino_t ino) try
     stats.readlinks++;
     update_idle_timer();
     atomic_scoped_nanotimer _t(&stats.readlink_sec);
+    DIAGfkey(_llops, "readlink(%p, ino=%ju)", req, (uintmax_t)ino);
     auto lip = linkmap->lookup(ino);
     if(!lip.expired()){
         stats.shortcircuit_readlinks++;
@@ -1512,7 +1504,7 @@ void fs123_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) try {
     stats.opens++;
     update_idle_timer();
     atomic_scoped_nanotimer _t(&stats.open_sec);
-    DIAGfkey(_open, "open(%p, %ju, flags=%#o)\n", req, (uintmax_t)ino, fi->flags);
+    DIAGfkey(_llops, "open(%p, ino=%ju, flags=%#o)\n", req, (uintmax_t)ino, fi->flags);
     // According to the fuse docs: "Open flags (with the exception of O_CREAT,
     // O_EXCL, O_NOCTTY and O_TRUNC are available in fi->flags".  So
     // we don't have to worry about them.  What about the others.  These
@@ -1621,8 +1613,6 @@ void fs123_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) try {
     if(fi->direct_io)
         stats.direct_io_opens++;
     
-    DIAGfkey(_open, "open(req=%p, ino=%ju) -> fi->fh: %p, fi->keep_cache: %d fi->direct_io: %d\n",
-             req, (uintmax_t)ino, (void*)fi->fh, fi->keep_cache, fi->direct_io);
     reply_open(req, fi);
  } CATCH_ERRS
 
@@ -1637,6 +1627,7 @@ void fs123_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct f
     stats.reads++;
     update_idle_timer();
     atomic_scoped_nanotimer _t(&stats.read_sec);
+    DIAGfkey(_llops, "read(%p, ino=%ju, size=%zu, off=%jd)\n", req, (uintmax_t)ino, size, (intmax_t)off);
     if(ino > 1 && ino <= max_special_ino)
         return read_special_ino(req, ino, size, off, fi);
     // FIXME - if fi->fh==0 && enhanced_consistency, it means we were
@@ -1659,7 +1650,6 @@ void fs123_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct f
         throw se(EINVAL, "fs123_read is limited to size<=" + std::to_string(chunkbytes) );
     }
         
-    DIAGfkey(_read, "read(req=%p, ino=%ju, size=%zu, off=%jd)\n", req, (uintmax_t)ino, size, (intmax_t)off);
     std::string name;
     uint64_t ino_validator;
     std::tie(name, ino_validator) = ino_to_fullname_validator(ino);
@@ -1723,12 +1713,10 @@ void fs123_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct f
     }
     iovecs[0].iov_base = const_cast<char *>(content.data()) + off0;
     iovecs[0].iov_len = std::min(len0, content.size()-off0);
-    DIAGfkey(_read, "iov[0]: %lu@%p trsum=%s\n", iovecs[0].iov_len,  iovecs[0].iov_base, trsum_iov(&iovecs[0], 1).c_str());
     if( shortread || iovecs[0].iov_len == size ){
         // We're done.  Either we got a short read, indicating EOF,
         // or we've satisfied the request for 'size' bytes.
         stats.bytes_read += iovecs[0].iov_len;
-        DIAGfkey(_read, "read(%p, %ju, %zu, %jd) -> iovecs[1]{len=%zd, trsum=%s}\n", req, (uintmax_t)ino, size, (intmax_t)off, iovecs[0].iov_len, trsum_iov(iovecs, 1).c_str());
         return reply_iov(req, iovecs, 1);
     }
     auto nleft = size - len0;
@@ -1761,14 +1749,12 @@ void fs123_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct f
     auto len1 = std::min(nleft, content.size());
     iovecs[1].iov_base = const_cast<char*>(content.data());
     iovecs[1].iov_len = len1;
-    DIAGfkey(_read, "iov[1]: %lu@%p trsum=%s\n", iovecs[1].iov_len,  iovecs[1].iov_base, trsum_iov(&iovecs[1], 1).c_str());
     stats.bytes_read += len0+len1;
-    DIAGfkey(_read, "read(%p, %ju, %zu, %jd) -> iovecs[2]{len0=%zd, len1=%zd, trsum=%s} \n", req, (uintmax_t)ino, size, (intmax_t)off, len0, len1, trsum_iov(iovecs, 2).c_str());
     return reply_iov(req, iovecs, 2);
  } CATCH_ERRS
 
 void fs123_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) try {
-    DIAGfkey(_open, "release(%ju, %p)\n", (uintmax_t)ino, fi);
+    DIAGfkey(_llops, "release(%p, ino=%ju, fi=%p)\n", req, (uintmax_t)ino, fi);
     stats.releases++;
     update_idle_timer();
     if(ino > 1 && ino <= max_special_ino)
@@ -1780,26 +1766,38 @@ void fs123_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) tr
 
 void fs123_statfs(fuse_req_t req, fuse_ino_t ino) try {
     update_idle_timer();
+    DIAGfkey(_llops, "statfs(%p, ino=%ju)", req, (uintmax_t)ino);
     auto reply = begetstatfs(ino);
     if( reply.eno ){
          // somebody/something is confused.  Report
          // an error and hope somebody notices the complaints.
          return reply_err(req, reply.eno);
     }
-    DIAGfkey(_special, "statvfs content: %s\n", reply.content.c_str());
     auto svb = svto<struct statvfs>(reply.content);
     return reply_statfs(req, &svb);
 }CATCH_ERRS
 
 void do_forget(fuse_ino_t ino, uint64_t nlookup){
-    DIAGfkey(_lookup, "forget(%ju, %ju)\n", (uintmax_t)ino, (uintmax_t)nlookup);
+    DIAGfkey(_llops, "do_forget(ino=%ju, nlookup=%ju)\n", (uintmax_t)ino, (uintmax_t)nlookup);
     if(ino > 1 && ino <= max_special_ino)
 	return forget_special_ino(ino, nlookup);
     ino_forget(ino, nlookup);
+    // Should we 'flush' some caches here?  Flushing out any stale /a
+    // replies seems like a "good idea"(tm).  But without evidence
+    // that it might help (e.g., prevent some ESTALEs?), it doesn't
+    // seem worth the risk.  Also, we get blasts of forgets at
+    // shutdown and when we're under memory pressure, so whatever we
+    // do shouldn't waste a lot of bandwidth during shutdown, or make
+    // memory problems worse.
+
+    // See similar comment in diskcache.cpp:detached_upstream_refresh.
 }     
 
 #if !HAS_FORGET_MULTI
 // it wasn't defined in fuse_lowlevel.h.  Define it now.
+// Also note that the inconsistent typing (unit64_t here, but
+// unsigned long in the argument to the forget callback) is
+// exactly as it appears in fuse_lowlevel.h in fuse-2.9.2)
 struct fuse_forget_data{
     uint64_t ino;
     uint64_t nlookup;
@@ -1809,6 +1807,7 @@ struct fuse_forget_data{
 void fs123_forget_multi(fuse_req_t req, size_t count, struct fuse_forget_data *forgets){
     stats.forget_inos += count;
     stats.forget_calls++;
+    DIAGfkey(_llops, "forget_multi(%p, count=%zu)", req, count);
     update_idle_timer();
     while(count--){
         do_forget(forgets->ino, forgets->nlookup);
@@ -1818,8 +1817,9 @@ void fs123_forget_multi(fuse_req_t req, size_t count, struct fuse_forget_data *f
 }
 
 void fs123_forget(fuse_req_t req, fuse_ino_t ino, unsigned long nlookup){
-    fuse_forget_data ffd;
+    DIAGfkey(_llops, "forget(%p, ino=%ju, nlookup=%lu)", req, (uintmax_t)ino, nlookup);
     update_idle_timer();
+    fuse_forget_data ffd;
     ffd.ino = ino;
     ffd.nlookup = nlookup;
     fs123_forget_multi(req, 1, &ffd); // will call reply_none

@@ -557,6 +557,23 @@ void diskcache::detached_upstream_refresh(req123& req, const std::string& path, 
     req.max_stale = 0;
     upstream_refresh(req, path, replyp, true/*already_detached*/, false/*usable_if_error*/);
     stats.dc_maybe_rf_retired++;
+    // Can/should we check this reply for estale mismatch between the
+    // reply we just got and the ino (if any) that prompted this.
+    // E.g., a public function in app_mount.cpp something like:
+    //
+    //    check_estale_mismatch(req, reply)
+    //
+    // Theoretically, an estale_mismatch of a backgrounded /f reply
+    // might give us an early warning that a file's estale-cookie has
+    // changed, and we could try to update various caches (kernel,
+    // attrcache, http proxies) before the next /f causes an ESTALE.
+    // But this is purely theoretical.  And there may also be
+    // unintended consequences to calling the app_mount API from a
+    // backend.  E.g., what if this diskcache is in one of the tricky
+    // distributed cache configurations?
+    //
+    // Conclusion:  not until we have evidence that there's really
+    // a problem we can fix.
 }catch(std::exception& e){
     // upstream_refresh can throw in ways that are highly problematic, e.g.,
     // if the threadpool logic throws, we might find ourselves deadlocked
@@ -768,7 +785,8 @@ diskcache::deserialize_no_unlink(int rootfd, const std::string& path,
     acfd fd = rootfd == -1 ? ::open(path.c_str(), O_RDONLY) :
                         ::openat(rootfd, path.c_str(), O_RDONLY);
     if(!fd){
-        DIAGkey(_diskcache, "diskcache::deserialize(" << path << ") miss\n");
+        auto eno = errno;
+        DIAGkey(_diskcache, "diskcache::deserialize(" << path << ") miss errno=" << eno);
         *ret = reply123{}; // invalid!
         return;
     }
