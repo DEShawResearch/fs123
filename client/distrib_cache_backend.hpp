@@ -128,6 +128,12 @@
     STATISTIC(distc_inserted_peers)    \
     STATISTIC(distc_removed_peers)     \
     STATISTIC(distc_replaced_peers)    \
+    STATISTIC(distc_suggestions_sent)   \
+    STATISTIC(distc_suggestions_recvd)  \
+    STATISTIC(distc_suggestions_checked)  \
+    STATISTIC(distc_discourages_sent)  \
+    STATISTIC(distc_discourages_recvd) \
+    STATISTIC(distc_self_discourages_recvd) \
     STATISTIC(distc_server_refreshes)   \
     STATISTIC(distc_server_refresh_not_modified) \
     STATISTIC_NANOTIMER(distc_server_refresh_sec) \

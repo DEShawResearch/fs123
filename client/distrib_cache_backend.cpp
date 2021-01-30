@@ -315,22 +315,21 @@ distrib_cache_backend::refresh(const req123& req, reply123* reply) /*override*/ 
 
 void
 distrib_cache_backend::suggested_peer(const string& peerurl){
-    //
-    // accept_encodings is empty.  We make '/p' requests and get uninterpreted binary data
-    // back.  The data *may* have an encoding, but we're oblivious to that, and we
-    // don't want another layer of encryption or encoding added.
-    //
-    // vols was a constructor argument.
-
+    distrib_cache_stats.distc_suggestions_recvd++;
     // If it's already in the peer_map there's nothing to do.
     if(peer_map.check_url(peerurl)){
         DIAG(_distrib_cache, "suggested_peer(" +  peerurl +"): already known");
         return;
     }
 
+    distrib_cache_stats.distc_suggestions_checked++;
     reply123 rep;
     unique_ptr<backend123_http> be;
     try{
+        // accept_encodings is empty.  We make '/p' requests and get
+        // uninterpreted binary data back.  The data *may* have an
+        // encoding, but we're oblivious to that, and we don't want
+        // another layer of encryption or encoding added.
         be = make_unique<backend123_http>(add_sigil_version(peerurl), "", vols);
         // Get the uuid, which also checks connectivity.
         req123 req("/p/p/uuid", req123::MAX_STALE_UNSPECIFIED);
@@ -354,10 +353,13 @@ distrib_cache_backend::discouraged_peer(const string& peerurl){
     // aggressively falls back to using the 'upstream' which is
     // good if we can trust the 'discourage' notifications, but bad
     // if they're untrustworthy.
-    complain(LOG_NOTICE, "discouraged_peer(" + peerurl + ")");
+    DIAG(_distrib_cache, "discouraged_peer(" + peerurl + ")");
+    distrib_cache_stats.distc_discourages_recvd++;
     if(peerurl == server_url){
-        if(!multicast_loop)
-            complain(LOG_WARNING, "Somebody is discouraging me from talking to my own upstream.  Nope...  Not gonna' do that.");
+        if(!multicast_loop){
+            DIAG(_distrib_cache, "Somebody is discouraging me from talking to my own upstream.  Nope...  Not gonna' do that.");
+            distrib_cache_stats.distc_self_discourages_recvd++;
+        }
         return;
     }
     peer_map.remove_url(peerurl);
@@ -368,13 +370,15 @@ distrib_cache_backend::suggest_peer(const string& peer_url) const{
     DIAG(_distrib_cache, "suggest_peer(" + peer_url + "), scope=" + scope);
     str_view parts[3] = {str_view("P"), str_view(peer_url), str_view(scope)};
     distrib_cache_message::send(udp_fd, reflector_addr, &parts[0], &parts[3]);
+    distrib_cache_stats.distc_suggestions_sent++;
 }
 
 void
 distrib_cache_backend::discourage_peer(const string& peer_url) const{
-    complain(LOG_NOTICE, "discourage_peer(" + peer_url + "), scope=" + scope);
+    DIAG(_distrib_cache, "discourage_peer(" + peer_url + "), scope=" + scope);
     str_view parts[3] = {str_view("A"), str_view(peer_url), str_view(scope)};
     distrib_cache_message::send(udp_fd, reflector_addr, &parts[0], &parts[3]);
+    distrib_cache_stats.distc_discourages_sent++;
 }
 
 void
