@@ -15,7 +15,14 @@ using namespace core123;
 using namespace fs123p7;
 using namespace std;
 
+// DiagName=distrib_cache produces chatter about udp control messages,
+// the comings and goings of peers, etc.  In "steady state", it should
+// be O(#peers) messages per minute.
 auto _distrib_cache = diag_name("distrib_cache");
+// DiagName=distrib_cache_requests produces chatter about every
+// request that passes through the cache.  It's *a lot* on a busy
+// server.
+auto _distrib_cache_requests = diag_name("distrib_cache_requests");
 auto _shutdown = diag_name("shutdown");
 
 distrib_cache_statistics_t distrib_cache_stats;
@@ -69,7 +76,6 @@ distrib_cache_message::send(int sockfd, const struct sockaddr_in& dest,
         i+=2;
         b++;
     }
-    DIAG(_distrib_cache, "sendmsg with msghhdr.iovlen = " << msghdr.msg_iovlen);
     core123::sew::sendmsg(sockfd, &msghdr, 0);
 }
 
@@ -80,13 +86,17 @@ void distrib_cache_message::recv(int fd){
     // MSG_DONTWAIT may be superfluous because we've just poll'ed,
     // but it shouldn't do any harm, and protects us against
     // "spurious" wakeups (can that happen?)
-    auto recvd = ::recv(fd, data.data(), data.size(), MSG_DONTWAIT);
+    auto recvd = ::recv(fd, data.data(), data.size(), MSG_DONTWAIT|MSG_TRUNC);
     if(recvd < 0){
         if(errno == EAGAIN){
             complain(LOG_WARNING, "udp_listener:  unexpected EAGAIN from recv(MSG_DONTWAIT)");
             return; // empty message
         }
         throw se("recv(udp_fd) in udp_listener");
+    }
+    if(size_t(recvd) > data.size()){ // see MSG_TRUNC
+        complain(LOG_WARNING, "distrib_cache_message::recv:  message is too long.  Treating as empty");
+        return;
     }
     if(recvd > 0 && data[recvd-1] != '\0'){
         complain(LOG_WARNING, "distrib_cache_message::recv:  message is not NUL-terminated.  Treating as empty.");
@@ -185,8 +195,9 @@ distrib_cache_backend::distrib_cache_backend(backend123* upstream, backend123* s
     udp_future = async(launch::async, &distrib_cache_backend::udp_listener, this);
     server_future = async(launch::async,
                           [&]() { try {
-                                  DIAGf(_distrib_cache, "calling myserver->run in thread");
+                                  complain(LOG_NOTICE, "calling myserver->run in async thread");
                                   myserver->run();
+                                  complain(LOG_NOTICE, "returned from myserver->run in async thread");
                               }catch(exception& e){
                                   complain(e, "server thread exiting on exception.");
                               }
@@ -196,6 +207,12 @@ distrib_cache_backend::distrib_cache_backend(backend123* upstream, backend123* s
 void
 distrib_cache_backend::regular_maintenance() try {
     // suggest ourselves as a peer to our group.
+    //
+    // FIXME - Make this conditional on some kind of self assessment.
+    // I.e., don't advertise ourselves as a peer if our load average
+    // is so high that we can't respond in a timely manner.  Or
+    // consider whether there have recently been 'discouraging' 
+    // messages about us.
     suggest_peer(server_url);
  }catch(exception& e){
     complain(e, "Exception thrown by distib_cache_backend::regular_maintenance:");
@@ -300,7 +317,7 @@ distrib_cache_backend::refresh(const req123& req, reply123* reply) /*override*/ 
     if(p->be == upstream_backend)
         return upstream_backend->refresh(req, reply);
     // We replace the /urlstem in 'req' with /p/urlstem
-    DIAG(_distrib_cache, "forwarding to " << ((p->be == upstream_backend) ? "local: " : "remote: ") << p->uuid);
+    DIAG(_distrib_cache_requests, "forwarding to " << ((p->be == upstream_backend) ? "local: " : "remote: ") << p->uuid);
     auto myreq = req;
     try{
         myreq.urlstem = "/p" + req.urlstem;
@@ -333,6 +350,8 @@ distrib_cache_backend::suggested_peer(const string& peerurl){
         be = make_unique<backend123_http>(add_sigil_version(peerurl), "", vols);
         // Get the uuid, which also checks connectivity.
         req123 req("/p/p/uuid", req123::MAX_STALE_UNSPECIFIED);
+        // FIXME?  - time the be->refresh().  If it's slow (whatever
+        // that means) return before calling insert_peer.
         be->refresh(req, &rep);
         DIAG(_distrib_cache, "suggested_peer: new url: " + peerurl + " uuid: " + rep.content);
     }catch(exception& e){
@@ -358,6 +377,9 @@ distrib_cache_backend::discouraged_peer(const string& peerurl){
     if(peerurl == server_url){
         if(!multicast_loop){
             DIAG(_distrib_cache, "Somebody is discouraging me from talking to my own upstream.  Nope...  Not gonna' do that.");
+            // FIXME? track these more carefully and use that in
+            // regular_maintenance to decide whether to suggest_peer
+            // ourselves to the world.
             distrib_cache_stats.distc_self_discourages_recvd++;
         }
         return;
@@ -426,6 +448,7 @@ distrib_cache_backend::udp_listener() try {
             break;
         }
     }
+    complain(LOG_NOTICE, "udp_listener shutting down cleanly with udp_done true");
  }catch(std::exception& e){
     complain(e, "udp_listener:  returning on exception.  No longer listening for peer discovery messages.");
     throw; // will be caught by udp_future.get() in ~distrib_cache_backend.
@@ -457,7 +480,7 @@ peer_handler_t::p(req::up req, uint64_t etag64, istream&) try {
         return exception_reply(move(req), http_exception(404, "Unknown /p request: " + myreq.urlstem));
     }
         
-    DIAG(_distrib_cache, "/p request for " << myreq.urlstem);
+    DIAG(_distrib_cache_requests, "/p request for " << myreq.urlstem);
     // N.B.  These requests will also be tallied in the statistics of
     // the server_backend, but the server_backend may also be getting
     // requests from others (see the ascii art in

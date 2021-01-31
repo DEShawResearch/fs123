@@ -232,6 +232,8 @@ public:
     void insert_peer(peer::up up){
         static auto _distrib_cache = core123::diag_name("distrib_cache");
         distrib_cache_stats.distc_inserted_peers++;
+        if(!up)
+            throw std::logic_error("insert_peer called with NULL peer::up");
         peer::sp sp = std::move(up);
         std::lock_guard<std::mutex> lg(mtx);
         DIAGf(_distrib_cache, "peer_map::insert_peer %s %s", sp->url.c_str(), sp->uuid.c_str());
