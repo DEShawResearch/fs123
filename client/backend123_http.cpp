@@ -716,7 +716,7 @@ struct backend123_http::curl_handler{
     std::string verbose_complaint(CURL *curl) const{
         std::ostringstream oss;
         oss<< "Headers:\n";
-        for(const auto p : hdrmap)
+        for(const auto& p : hdrmap)
             oss << p.first << ": " << p.second; // p.second ends with crlf
         oss << "Received " << content.size() << " bytes of data\n";
         // What else can we report that might help to diagnose curl

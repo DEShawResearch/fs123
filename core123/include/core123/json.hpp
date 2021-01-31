@@ -1,4 +1,5 @@
 /* Modified:  hand-applied commit 04372a8 */
+/* Modified:  copied line 6649 from 3.9.1 to silence clang-10 warnings */
 /*
     __ _____ _____ _____
  __|  |   __|     |   | |  JSON for Modern C++
@@ -6645,7 +6646,7 @@ class serializer
             return;
         }
 
-        const bool is_negative = (x <= 0) and (x != 0);  // see issue #755
+        const bool is_negative = std::is_same<NumberType, number_integer_t>::value && !(x >= 0); // see issue #755 // jks
         std::size_t i = 0;
 
         while (x != 0)
