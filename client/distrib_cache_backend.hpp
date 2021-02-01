@@ -235,7 +235,7 @@ public:
         if(!up)
             throw std::logic_error("insert_peer called with NULL peer::up");
         peer::sp sp = std::move(up);
-        std::lock_guard<std::mutex> lg(mtx);
+        std::unique_lock<std::mutex> ulk(mtx);
         DIAGf(_distrib_cache, "peer_map::insert_peer %s %s", sp->url.c_str(), sp->uuid.c_str());
         for(int i=1; i<=Nrep; ++i){
             auto h = hash(sp->uuid, i);
@@ -250,15 +250,17 @@ public:
             rhpeersp = sp;
         }
         url_to_uuid[sp->url] = sp->uuid;
-        {
-            std::lock_guard<std::mutex> uu2plg(uu2pmtx);
-            uuid_to_peer[sp->uuid] = sp;
-        }
         if(_distrib_cache>=2){
             for(const auto& e : url_to_uuid){
                 DIAG(_distrib_cache>=2, "url_to_uuid[" << e.first << "] = " << e.second);
-            }                
-            std::lock_guard<std::mutex> uu2plg(uu2pmtx);
+            }
+        }
+        ulk.unlock(); // DO NOT TOUCH url_to_uuid or ring or any reference into them!
+
+        // See comment above about uuid_to_peer and uu2pmtx.
+        std::lock_guard<std::mutex> uu2plg(uu2pmtx);
+        uuid_to_peer[sp->uuid] = sp;
+        if(_distrib_cache>=2){
             for(const auto& e : uuid_to_peer){
                 DIAG(_distrib_cache>=2, "uuid_to_peer[" << e.first << "] = " << (*e.second));
             }
@@ -268,7 +270,7 @@ public:
     void remove_url(const std::string& url){
         static auto _distrib_cache = core123::diag_name("distrib_cache");
         distrib_cache_stats.distc_removed_peers++;
-        std::lock_guard<std::mutex> lg(mtx);
+        std::unique_lock<std::mutex> ulk(mtx);
         auto found = url_to_uuid.find(url);
         if(found == url_to_uuid.end()){
             // This is "normal" but if it probably indicates a lot of churn
@@ -277,23 +279,25 @@ public:
             DIAG(_distrib_cache, "peer_map::remove_url("+ url + "): no such url in url_to_uuid");
             return;
         }
-        std::string& uuid  = found->second;
+        std::string uuid  = found->second;
         DIAGf(_distrib_cache, "peer_map::remove_url %s %s.", url.c_str(), uuid.c_str());
-        {
-            std::lock_guard<std::mutex> uu2plg(uu2pmtx);
-            uuid_to_peer.erase(uuid);
-        }
         for(int i=1; i<=Nrep; ++i){
             auto h = hash(uuid, i);
             ring.erase(h);
         }
         url_to_uuid.erase(found);
         if(_distrib_cache>=2){
-            for(auto& e : url_to_uuid){
+            for(const auto& e : url_to_uuid){
                 DIAG(_distrib_cache>=2, "url_to_uuid[" << e.first << "] = " << e.second);
             }                
-            std::lock_guard<std::mutex> uu2plg(uu2pmtx);
-            for(auto& e : uuid_to_peer){
+        }
+        ulk.unlock(); // DO NOT TOUCH url_to_uuid or ring or any references into them!
+
+        // See comment above about uuid_to_peer and uu2pmtx.
+        std::lock_guard<std::mutex> uu2plg(uu2pmtx);
+        uuid_to_peer.erase(uuid);
+        if(_distrib_cache >= 2){
+            for(const auto& e : uuid_to_peer){
                 DIAG(_distrib_cache>=2, "uuid_to_peer[" << e.first << "] = " << (*e.second));
             }
         }
