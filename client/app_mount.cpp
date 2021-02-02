@@ -98,24 +98,39 @@ namespace {
 fs123_stats_t stats;
 atomic_scoped_nanotimer elapsed_asnt; // measures time since program initialization.
 
-auto _init = diag_name("init");
+// llops reports one line about every lowlevel operation
 auto _llops = diag_name("llops");
-auto _lookup = diag_name("lookup");
+// a few lowlevel operations have extra diagnostics of their own
 auto _getattr = diag_name("getattr");
-//auto _readlink = diag_name("readlink");
 auto _readdir = diag_name("readdir");
 auto _read = diag_name("read");
-auto _open = diag_name("open"); // also release
-auto _opendir = diag_name("opendir"); // also releasedir
-auto _ioctl = diag_name("ioctl");
-auto _special = diag_name("special");
+// some diagnostics track specific control paths
 auto _estale = diag_name("estale");
-auto _err = diag_name("err");
-auto _xattr = diag_name("xattr");
-auto _secretbox = diag_name("secretbox");
 auto _retry = diag_name("retry");
 auto _periodic = diag_name("periodic");
 auto _shutdown = diag_name("shutdown");
+// A (possibly out-of-date) list of other diag_names elsewhere in the code:
+//
+// Subsystems:
+//   diskcache (high volume)
+//   distrib_cache
+//   distrib_cache_requests (high volume)
+//   evict
+//   http (high volume)
+//   inomap
+//   namecache (high volume)
+//   ofmap (high volume)
+//   secretbox (high volume)
+//   special
+
+// Special-purpose diag_names:
+//   complaints - sends complain() messages to the DiagDestination as well.
+//   transactions - sends raw access-log style logs about http and diskcache
+//                  reads and writes to the diag channel.  Formatted
+//                  differently from other DIAGs.  High volume.
+
+// Note that high-volume diags can be used in production with a %csb
+// destination.
 
 // Setting stat::st_ino to a value that doesn't fit in 32 bits can
 // cause trouble for client programs.  Specifically, in a 32-bit
@@ -1837,7 +1852,7 @@ void fs123_ioctl(fuse_req_t req, fuse_ino_t ino, int cmd, void *arg, struct fuse
     
     stats.ioctls++;
     update_idle_timer();
-    DIAGfkey(_ioctl, "ioctl(ino=%ju, cmd=%d, arg=%p)\n", (uintmax_t)ino, cmd, arg);
+    DIAGfkey(_llops, "ioctl(ino=%ju, cmd=%d, arg=%p)\n", (uintmax_t)ino, cmd, arg);
 
     // N.B.  It's tempting to try to implement an FS_IOC_GETVERSION
     // which could simply return the ino.  It's not particularly

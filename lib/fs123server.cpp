@@ -44,10 +44,8 @@ using namespace core123;
 #define HAVE_EVHTTP_SET_BEVCB
 #endif
 
-auto _proc = diag_name("proc");
 auto _fs123server = diag_name("fs123server");
 auto _secretbox = diag_name("secretbox");
-auto _errs = diag_name("errs");
 
 server_stats_t server_stats;
 
@@ -970,7 +968,7 @@ req::~req(){
 }
 
 void req::errno_reply(int eno, const std::string& cc) {
-    DIAGf(_errs, "errno_reply(eno=%d, cc=%s)\n", eno, cc.c_str());
+    DIAGf(_fs123server, "errno_reply(eno=%d, cc=%s)\n", eno, cc.c_str());
     common_reply200(cc, 0, std::to_string(eno).c_str());
 }
 
@@ -1229,7 +1227,7 @@ server::run() try {
 	t.join();
     }
 
-    DIAGfkey(_proc, "finished main thread proc\n");
+    DIAGfkey(_fs123server, "finished main thread proc\n");
  }catch(std::exception& e){
     done.store(true);
     std::throw_with_nested(std::runtime_error("fs123p7::server::run:  exception caught in primary thread.  This may not end well... done.store(true) called.  Maybe the secondary threads will exit on their own?"));
