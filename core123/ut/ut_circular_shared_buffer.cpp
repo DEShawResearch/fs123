@@ -156,7 +156,10 @@ void test_read_write(){
     int status;
     sew::waitpid(childpid, &status, 0);
     CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0);
-    sew::unlink(&tmpfilename[0]);
+    if(envto<bool>("UT_CSB_KEEP", false))
+        printf("%s not removed\n", &tmpfilename[0]);
+    else
+        sew::unlink(&tmpfilename[0]);
 }
 
 int main(int, char **){

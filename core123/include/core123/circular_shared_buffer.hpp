@@ -2,6 +2,7 @@
 #include <core123/sew.hpp>
 #include <core123/threeroe.hpp>
 #include <core123/svto.hpp>
+#include <core123/intutils.hpp>
 #include <atomic>
 #include <cstring>
 #include <thread>
@@ -99,8 +100,7 @@
 //  The append() method is thread-safe.  Any number of threads can
 //  append concurrently.
 //
-//  A reading process accessing written records with the member
-//  function:
+//  A reading process accesses records with the member function:
 //
 //    std::string copyrecord(size_t pos)
 //
@@ -117,7 +117,7 @@
 //  
 //  Readers should not try to "synchronize" with writers.  Instead,
 //  they should just call copyrecord() and check that the result is
-//  non-empty.  They should expect that the records in the file is
+//  non-empty.  They should expect that the records in the file are
 //  ephemeral, and will sooner or later be overwritten by the writer.
 //  Note, though that behavior is undefined (probably a segfault) if a
 //  writer re-opens a file with O_TRUNC and a new value of N while a
@@ -142,7 +142,7 @@
 //
 //  Also note that it's up to writers whether the data are "text" or
 //  "binary".  The code uses printable characters (hex digits and
-//  formfeeds) to validate and invalidate records, so if writers
+//  newlines) to validate and invalidate records, so if writers
 //  choose to write only text, the entire file will be text, and may
 //  even be manageable with shell-based text-processing tools (though
 //  validity checking would be tricky).
@@ -156,12 +156,12 @@
 //  Nothing is guaranteed if readers and writers access the "same"
 //  file over a networked filesystem.  NFS == "Not a Filesystem".
 //
-//  Checksums are 32 bits (hex-encoded into 8 bytes), so collisions
+//  Checksums are 28 bits (hex-encoded into 7 bytes), so collisions
 //  are unlikely but not impossible.  Expect a false positive, i.e., a
 //  record that is reported valid but in fact has been corrupted by a
-//  concurrent writer approximately once for every 4 billion correctly
+//  concurrent writer approximately once for every 256 million correctly
 //  reported invalid records (which is probably *much* less than once
-//  every 4 billion records).
+//  every 256 million records).
 
 #include <core123/span.hpp>
 
@@ -169,7 +169,7 @@ namespace core123{
 
 struct circular_shared_buffer{
     inline static const size_t default_record_size = 128;
-    inline static const size_t cksum_size = 8;
+    inline static const size_t cksum_size = 8; // must be greater than zero
 private:
     size_t record_sz;
     size_t data_sz;
@@ -271,10 +271,12 @@ public:
         if(!writable)
             throw std::runtime_error("circular_shared_buffer: not writable");
         auto dest = baseaddr + (recordctr.fetch_add(1)%N)*record_sz;
+        // record is invalid from when the first byte is written by ::memcpy
         ::memcpy(dest, sv.data(), std::min(sv.size(), data_sz));
         if(data_sz > sv.size())
             ::memset(&dest[sv.size()], fill, data_sz-sv.size());
         printable_cksum(dest, data_sz, &dest[data_sz]);
+        // until the last byte is written by printable_cksum
         std::atomic_thread_fence(std::memory_order_release);
     }
     
@@ -301,14 +303,18 @@ public:
     // debugging.
     char *volatile_record_addr(size_t i) const{ return baseaddr + record_sz*(i%N); }
 
-    // printable_cksum writes a cksum_sz checksum each byte
-    // of which is an ascii digit, to dest.  Think of it as a crc,
-    // written out as hex digits.
+    // printable_cksum writes a checksum of len bytes starting at p as
+    // cksum_sz-1 hex digits, followed by a newline, to dest.
     static void printable_cksum(void *p, size_t len, char* dest){
-        // threeroe is overkill, but there's no crc32 in libc.
+        // threeroe is overkill, but there's no crc32 in libc.  To
+        // make things "easy" for shell code, the hex digits are the
+        // same as the first cksum_size-1 (7) bytes of trsum.
         uint64_t h = threeroe(p, len).hash64();
-        for(size_t i=0; i<cksum_size; ++i){
-            dest[i] = "0123456789abcdef"[h&0xf];
+        size_t i = cksum_size-1;
+        dest[i] = '\n';
+        h >>= (64 - 4*i);
+        while(i--){
+            dest[i] = hexlownibble(h);
             h >>= 4;
         }
     }
