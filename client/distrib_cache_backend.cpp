@@ -389,7 +389,7 @@ distrib_cache_backend::discouraged_peer(const string& peerurl){
 
 void
 distrib_cache_backend::suggest_peer(const string& peer_url) const{
-    DIAG(_distrib_cache, "suggest_peer(" + peer_url + "), scope=" + scope);
+    DIAG(_distrib_cache, "suggest_peer(" + peer_url + ", scope=" + scope + ")");
     str_view parts[3] = {str_view("P"), str_view(peer_url), str_view(scope)};
     distrib_cache_message::send(udp_fd, reflector_addr, &parts[0], &parts[3]);
     distrib_cache_stats.distc_suggestions_sent++;
