@@ -80,10 +80,6 @@ struct prf_common{
 
     prf_common() { k = key_type(); }
 
-    prf_common(const prf_common& v) : k(v.k) {
-        //std::cerr << "prf_common(const prf_common&)\n";
-    }
-
     CORE123_DETAIL_OSTREAM_OPERATOR(os, prf_common, f){
         // FIXME - save the state of the os, and fiddle with things
         // like fill, flags, etc. to make sure we're doing the right
