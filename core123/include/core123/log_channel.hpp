@@ -138,6 +138,10 @@ struct log_channel{
             // no autonewline for syslog
             ::syslog(dest_fac | lev, "%.*s", int(sv.size()), sv.data());
         }else if(dest_csb){
+            // csb is record-oriented and the on-disk format ends each
+            // record with a newline.  If sv ends with one, drop it.
+            if(!sv.empty() && sv.back() == '\n')
+                sv.remove_suffix(1);
             dest_csb->append(sv);
         }else if(dest_fd >= 0){
             // autonewline with writev

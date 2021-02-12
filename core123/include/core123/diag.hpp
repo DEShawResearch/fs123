@@ -194,7 +194,8 @@
 
   The formatting is controlled by a few booleans in the singleton the_diag():
 
-   the_diag().opt_tstamp - include a microsecond timestamp in each output record
+   the_diag().opt_dstamp - include an YYYY-MM-DD hh:mm:ss.uuuuuu timestamp in each output record
+   the_diag().opt_tstamp - include an hh:mm:ss.uuuuuu timestamp in each output record
    the_diag().opt_tid - include the thread-id of the calling process in each output record
    the_diag().opt_srcdir - include the directory part of __FILE__ in each output record
    the_diag().opt_srcfile - include the last component of __FILE__ in each output record
@@ -385,6 +386,8 @@ struct diag_t{
                 tok = tok.substr(2);
             if(tok == "tstamp")
                 opt_tstamp = !negate;
+            if(tok == "dstamp")
+                opt_dstamp = !negate;
             else if(tok == "tid")
                 opt_tid = !negate;
             else if(tok == "srcdir")
@@ -410,6 +413,7 @@ struct diag_t{
         if(!opt_##opt) oss << "no";             \
         oss << #opt;                            \
         sep = ":"                  
+        _DIAG_OPT(dstamp);
         _DIAG_OPT(tstamp);
         _DIAG_OPT(tid);
         _DIAG_OPT(srcdir);
@@ -422,6 +426,7 @@ struct diag_t{
         return oss.str();
     }
 
+    bool opt_dstamp;
     bool opt_tstamp;
     bool opt_tid;
     bool opt_srcdir;
@@ -443,7 +448,7 @@ struct diag_t{
     // expansions, but users *MUST NOT* call or modify them.  The names
     // start with an _, which should remind you that they're special.
     osvstream& _diag_before(osvstream& os, const char* k, const char *file, int line, const char *func){
-        if(opt_tstamp){
+        if(opt_tstamp || opt_dstamp){
             // N.B. formatting the timestamp adds about 1.0 musec on a 2017 intel core!?
             // Without a timestamp, it takes about 0.2 musec.
             using namespace std::chrono;
@@ -479,6 +484,8 @@ struct diag_t{
             if(now_tmp){
                 // N.B.  this is actually faster than stringprintf (gcc6, 2017)
                 auto oldfill = os.fill('0');
+                if(opt_dstamp)
+                    os << std::setw(4) << (1900+now_tm.tm_year) << "-" << std::setw(2) << (1+now_tm.tm_mon) << "-" << std::setw(2) << now_tm.tm_mday << " ";
                 // E.g., "19:09:51.779321 mount.fs123p7.cpp:862 [readdir] "
                 os << std::setw(2)  << now_tm.tm_hour << ':' << std::setw(2) << now_tm.tm_min << ":" << std::setw(2) << now_tm.tm_sec << "." << std::setw(6) << musec << ' ';
                 os.fill(oldfill);
@@ -542,6 +549,7 @@ private:
     }
 
     void set_opt_defaults(){
+        opt_dstamp = false;
         opt_tstamp = false;
         opt_tid = false;
         opt_srcdir = false;

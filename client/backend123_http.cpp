@@ -913,7 +913,7 @@ protected:
             wrap_curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
             timespec now;
             ::clock_gettime(CLOCK_REALTIME, &now);
-            DIAGsend(fmt("\n%ld.%06ld GET %ld %.0f %ld %s %s",
+            DIAGsend(fmt("%ld.%06ld GET %ld %.0f %ld %s %s",
                          long(now.tv_sec), now.tv_nsec/1000,
                         code,
                         bytes_read,

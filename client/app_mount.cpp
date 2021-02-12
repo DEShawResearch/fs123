@@ -2586,6 +2586,8 @@ try {
     set_diag_destination(diag_destination);
     if(!startswith(diag_destination, "%syslog"))
         the_diag().opt_tstamp = true;
+    if(startswith(diag_destination, "%csb"))
+        the_diag().opt_dstamp = true;
     the_diag().opt_tid = true;
 
     // If Fs123LocalLocks is zero, then all attempts to lock a file

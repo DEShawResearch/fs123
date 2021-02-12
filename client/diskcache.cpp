@@ -887,7 +887,7 @@ diskcache::deserialize_no_unlink(int rootfd, const std::string& path,
         long long elapsed_nanos = _t.finish();
         timespec now;
         ::clock_gettime(CLOCK_REALTIME, &now);
-        DIAGsend(fmt("\n%ld.%.06ld DR 0 %zd %lld %s",
+        DIAGsend(fmt("%ld.%.06ld DR 0 %zd %lld %s",
                      long(now.tv_sec), now.tv_nsec/1000,
                     nread,
                     elapsed_nanos/1000ll,
@@ -1036,7 +1036,7 @@ diskcache::serialize(const reply123& r, const std::string& path, const std::stri
             long long elapsed_nanos = _t.finish();
             timespec now;
             ::clock_gettime(CLOCK_REALTIME, &now);
-            DIAGsend(fmt("\n%ld.%.06ld DW 0 %zd %lld %s",
+            DIAGsend(fmt("%ld.%.06ld DW 0 %zd %lld %s",
                          long(now.tv_sec), now.tv_nsec/1000,
                         wrote,
                         elapsed_nanos/1000ll,
