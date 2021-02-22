@@ -151,8 +151,8 @@ diskcache::do_scan(unsigned dirnum) const /*protected*/{
         // 4k because that's what df seems to indicate
         // when we create small files on ext4.  Do NOT add
         // sb.st_blksize, because that has nothing to do with
-        // the underlying block size.  st_blksize is 32k on
-        // some NFS mounts and 4M(!) on some docker bind mounts.
+        // the underlying block size, it's a hint about the
+        // optimal size of an I/O for this file.
         ret.nbytes += sb.st_blocks* 512 + 4096;
         ret.names.push_back(fname);
 
