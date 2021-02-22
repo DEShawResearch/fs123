@@ -5,7 +5,7 @@ core123 will require at least gcc-8, clang-7 or icpc-19.
 
 We will no longer develop #if-#else workarounds for the following
 C++-17 feature-test macros (or any others in the intersection of
-gcc-8, clang-7 or icpc-19).  Over time, the '#else' clause for
+gcc-7, clang-7 or icpc-19).  Over time, the '#else' clause for
 existing workarounds may be removed.
 
 __cpp_if_constexpr
@@ -38,20 +38,26 @@ Stretch has clang-7 in the distro, (which we test with travis).
 Xenial has clang-8 in the distro (which we test with travis), and also
 has the ppa:ubuntu-toolchain-r/test repo with gcc through 10.
 
-Why gcc-8?
+Why gcc-7, clang-7?
 
 According to the summary below:
 
 Stretch has clang-7
 Xenial has clang-8 and gcc up to gcc-10 in a ppa
+Bionic has gcc-7 in build-essential
 CentOS{6,7} has gcc up to 9 in the devtoolset scl
 Buster has gcc-8 in build-essential
 CentOS8 has gcc-8 in "Development Tools"
 
-So we can freely use "modern" features from the intersection of gcc-8,
-libstdc++-8, clang-7 and libc++-7 (most of C++17, some C++20) and not
+So we can freely use "modern" features from the intersection of gcc-7,
+libstdc++-7, clang-7 and libc++-7 (most of C++17, some C++20) and not
 require any "third-party" packages on any current Debian, Ubuntu,
-Alpine or CentOS platforms.
+Alpine or CentOS platforms.  The choice between gcc-7 and gcc-8 comes
+down to whether we can build on Bionic with an "out of the box"
+build-essential or a distro-provided gcc-8.  Lowering our requirement
+to gcc-7 has reduces "friction" on Bionic.  But if we discover some
+useful feature introduced in gcc-8, we shouldn't hesitate to require
+it.
 
 What about icc?
 
@@ -88,7 +94,7 @@ Ubuntu Xenial (16.04 LTS):
  build-essential gcc:   gcc-5.3.1
  gcc-N:                 gcc-6.0.1
  ppa gcc:               gcc-7, 8, 9, 10 in the ppa:ubuntu-toolchain-r/test repo
- clang:                 clang-6 (in xenial-updates, does not work!)
+ clang:                 clang-3 through 8
 
 Ubuntu Bionic (18.04 LTS):
  released:                     2018-04-26
