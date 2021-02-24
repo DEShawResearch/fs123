@@ -26,15 +26,8 @@ struct scan_result{
 
 struct diskcache : public backend123{
     // constructor takes a root and some sizing parameters.
-
-    // The fancy_sharing option enables inter-process communication
-    // between multiple clients sharing a single disk cache.  When
-    // fancy sharing is enabled, only one 'custodian' process is
-    // responsible for evictions, and the others poll for updates to
-    // the 'injection_probability' at regular intervals.  Fancy and
-    // non-fancy clients can safely share the same cache.
     diskcache(backend123*, const std::string& root,
-              uint64_t hash_seed_first, bool fancy_sharing, volatiles_t& vols);
+              uint64_t hash_seed_first, volatiles_t& vols);
     void set_upstream(backend123* upstream) { upstream_ = upstream; }
     bool refresh(const req123& req, reply123*) override; 
     std::ostream& report_stats(std::ostream& os) override;
@@ -74,14 +67,6 @@ protected:
     std::string reldirname(unsigned i) const;
     std::chrono::system_clock::duration evict_once();
     scan_result do_scan(unsigned dir_to_evict) const;
-
-    // Members and methods for 'fancy_sharing':
-    static constexpr char const * status_filename_ = "statusv0";
-    void write_status(float) const;
-    float read_status(); // returns the recommended value of injection_probability_
-    bool custodian_check();
-    acfd statusfd_;
-    bool custodian_ = false;
 
     backend123* upstream_;
     acfd rootfd_;

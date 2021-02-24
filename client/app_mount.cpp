@@ -1022,7 +1022,7 @@ void fs123_init(void *, struct fuse_conn_info *conn_info) try {
         // Requests made to different baseurls will (with high probability)
         // not collide.
         diskcache_be = std::make_unique<diskcache>(be, cache_dir, threeroe(baseurl).hash64(),
-                                                   envto<bool>("Fs123CacheFancySharing", false), *volatiles);
+                                                   *volatiles);
         be = diskcache_be.get();
     }
 
@@ -2348,7 +2348,6 @@ std::ostream& report_config(std::ostream& os){
         //Prt(Fs123PastStaleWhileRevalidate)
         //Prt(Fs123CacheMaxMBytes)
         //Prt(Fs123CacheMaxFiles)
-        Prt(Fs123CacheFancySharing, "false")
         //Prt(Fs123EvictLwm, "0.7")        // default in diskcache.cpp
         //Prt(Fs123EvictTargetFraction, "0.8")  // default in diskcache.cpp
         //Prt(Fs123EvictThrottleLWM, "0.9") // default in diskcache.cpp
@@ -2449,7 +2448,6 @@ try {
                                     "Fs123PastStaleWhileRevalidate=",
                                     "Fs123CacheMaxMBytes=",
                                     "Fs123CacheMaxFiles=",
-                                    "Fs123CacheFancySharing=",
                                     "Fs123EvictLwm=",
                                     "Fs123EvictTargetFraction=",
                                     "Fs123EvictThrottleLWM=",

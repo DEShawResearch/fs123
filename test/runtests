@@ -138,7 +138,7 @@ clientopts+=" -oFs123FallbackUrls=http://localhost:\$(cat ${RCroot}/portfile)/02
 clientopts+=" -oFs123RetryTimeout=10"
 clientopts+=" -oFs123BuggyAutomountWorkaround=1"
 clientopts+=" -oFs123EnhancedConsistency=1"
-clientopts+=" -oFs123CacheDir=$MTroot/cachedir,Fs123CacheMaxMBytes=16,Fs123CacheMaxFiles=32,Fs123CacheFancySharing=false,Fs123EvictPeriodMinutes=1"
+clientopts+=" -oFs123CacheDir=$MTroot/cachedir,Fs123CacheMaxMBytes=16,Fs123CacheMaxFiles=32,Fs123EvictPeriodMinutes=1"
 clientopts+=" -oFs123SupportXattr=true"
 clientopts+=" -oFs123ProtoMinor=$ProtoMinor"
 # It's important to test with encryption turned on, but it's much harder
