@@ -1,6 +1,6 @@
 #include "core123/expiring.hpp"
 #include "core123/threeroe.hpp"
-#include <cassert>
+#include "core123/ut.hpp"
 #include <unistd.h>
 #include <iostream>
 
@@ -47,39 +47,39 @@ int main(int argc, char **argv){
 
     for(int i=0; i<50; ++i)
         ec.insert(scramble(i), -i, std::chrono::milliseconds(100));
-    assert(ec.evictions() == 0);
+    EQUAL(ec.evictions(), 0);
     for(int i=0; i<50; ++i)
-        assert(ec.lookup(scramble(i)) == -i);
+        EQUAL(ec.lookup(scramble(i)), -i);
     for(int i=0; i<50; ++i)
-        assert(!ec.lookup(scramble(i)).expired() && ec.lookup(scramble(i)) == -i);
+        CHECK(!ec.lookup(scramble(i)).expired() && ec.lookup(scramble(i)) == -i);
     cout << "OK - lookups pass\n";
 
     ::sleep(1);
     for(int i=0; i<50; ++i)
-        assert(ec.lookup(scramble(i)).expired()); // all should have expired in  1 sec.
-    assert(ec.size() == 0);
+        CHECK(ec.lookup(scramble(i)).expired()); // all should have expired in  1 sec.
+    EQUAL(ec.size(), 0);
     cout << "OK - lookups fail after timeout expires\n";
 
     for(int i=50; i<2500; ++i)
         ec.insert(scramble(i), -i, std::chrono::milliseconds(100));
-    assert(ec.size() <= 100 && ec.size() > 96);
+    CHECK(ec.size() <= 100 && ec.size() > 96);
     cout << "OK - size was limited to 100 entries\n";
     
     size_t nfound = 0;
     for(int i=50; i<2500; ++i){
         auto x = ec.lookup(scramble(i));
         if( !x.expired() ){
-            assert(x == -i);
+            EQUAL(x, -i);
             ++nfound;
         }
     }
-    assert(nfound==ec.size());
+    EQUAL(nfound, ec.size());
     cout << "OK - found " << nfound << " insertions\n";
 
     ::sleep(1);
     ec.erase_expired();
-    assert(ec.size()==0);
+    EQUAL(ec.size(), 0);
     cout << "OK - nothing left after sleep(1) followed by erase_expired()\n";
 
-    return 0;
+    return utstatus();
 }
