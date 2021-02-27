@@ -24,12 +24,18 @@
 set -xe
 trap "echo FAIL on set -e" EXIT
 
+if [ "${shipto:+set}" ]; then
+    # Check that we can write to shipto before wasting a lot of time...
+    touch $shipto/check
+    rm $shipto/check
+fi
+
 # FIXME - make this an option!
 # It is generally "yes" in a docker, empty or "no" if called interactively
 : ${install_prereqs:=yes}
 
 if [ $install_prereqs = yes ]; then
-    yum -y install epel-release
+    yum -y install epel-release # libsodium is in epel
     yum -y install centos-release-scl
     yum -y install yum-utils
     yum -y install rpm-build
@@ -44,10 +50,11 @@ name=fs123p7
 # this script is relative to the top of the git repo, what version
 # we're going to call it, etc.
 #### CWD is inherited from caller (could be anywhere)
-tmproot=$(mktemp -d -p "${TMPDIR:-/tmp}" build-rpm.$name.XXXX) # e.g., /tmp/build-rpm.fs123.gDvw
+tmproot=$(mktemp -d --tmpdir build-rpm.$name.XXXX) # e.g., /tmp/build-rpm.fs123.gDvw
+
 # make the rpm root
 for i in BUILD BUILDROOT RPMS/noarch RPMS/`uname -m` SOURCES SPECS SRPMS; do
-   mkdir -p $tmproot/$i
+   mkdir -p $tmproot/$i  # fails if tmproot isn't a directory
 done
 
 cd "$(dirname $0)"
@@ -91,6 +98,13 @@ cd ..
 #### CWD is $tmproot
 echo Build artifacts in $PWD/RPMS and $PWD/SRPMS
 ls -R $PWD/RPMS $PWD/SRPMS
+
+# If shipto is in the environment, then copy the .rpm files there.
+if [ ${shipto:+set} ]; then
+    cp $PWD/RPMS/*/*.rpm $shipto/
+    echo Rpm files shipped to $shipto
+    ls $shipto
+fi
 
 # exit cleanly
 trap - EXIT

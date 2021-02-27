@@ -54,10 +54,9 @@ Description:  fs123 protocol library
  standalone collection of related classes and functions.
  Documentation is in comments at the top of the file.
  .
- They make extensive, unconditional use of C++14.  There is limited
- use of C++17.
+ Some headers make unconditional use of C++14 and C++17 features.
  .
  Most of the core123 code is original, but a few libraries are
- available elsewhere and are included here under the original authors'
+ available elsewhere and are included in core123/ under the original authors'
  terms (e.g., an MIT license).
 
