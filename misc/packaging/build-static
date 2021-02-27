@@ -1,0 +1,32 @@
+#!/bin/sh -x
+#
+# Usage: (from a host):
+#    sudo ../dockrun alpine:12 /fs123/misc/packaging/build-static
+#
+# This script (.../build-static) will run inside an alpine:12
+# container.  It will be compile and staticly link an fs123p7 binary
+# and copy it to /tmp-host/fs123p7-debug, with a stripped copy at
+# /tmp-host/fs123p7.  ../dockrun will have set up the filesystem
+# mounts so that /tmp-host inside the container is identical to /tmp
+# outside the container.  Thus, the binary files fs123p7 and
+# fs123p7-debug will magically appear in the caller's /tmp.
+
+# N.B.  Avoid fancy shell hacks!  /bin/sh is alpine busybox!
+trap "echo FAIL on set -e" EXIT
+
+destdir=${1:-/host-tmp}
+
+here=$(dirname "$0")
+srctop=$(readlink -f "$here/../..") # assume we're in srctop/misc/packaging/scriptfile
+. "$srctop/misc/prereqs.alpine:3.12"
+export LDFLAGS="-static"
+cd /tmp
+# Don't build or run tests, examples, etc.  Those should all be
+# done elsewhere (e.g., in the .travis.yml or jenkins precheckin)
+make -j6 -f "$srctop/GNUmakefile" fs123p7
+
+cp fs123p7 "$destdir/fs123p7-debug" # About 90MB
+cp fs123p7 "$destdir/fs123p7"
+strip "$destdir/fs123p7"  # about 6MB
+
+trap - EXIT
