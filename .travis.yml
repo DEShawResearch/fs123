@@ -62,7 +62,6 @@ deploy:
         - /tmp/fs123p7
         - /tmp/fs123p7-debug
     cleanup: false
-    draft: true
     on:
         all_branches: true  # temporary for development
         tags: true
