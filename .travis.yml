@@ -7,24 +7,12 @@ dist: xenial
 services:
     - docker
 
-# Not quite working... uncomment and fix when we have something to do
-#deploy:
-#    provider: releases
-#    token:
-#        secure: "UYxJTTcSmL6LcEpmW4YjR91MUsQeprHcLbe10C4ps/nSmlKEHvjE+IObJbl1SVPs2/zFYlOhlSIegpAxedgU+dh49zmgiVj4ArgHRX4bKh7U7MVPsEnGuIlsEipfjpBsddmui1xSY8FM2anQ5fEWYSFOOL1DSmZ/5LJd+cJnBjnyAnU1MkS2xbLIJju4fVSmwiZ5Y9XrFZ0OqFNDxL3NWWMTQLOjnxwuK1kda6rAhami3B/94+mbQPx+7tzQTSifLswZgm4lTCEbpezr5YWj+WZ2AQ/Gs5CTEmLbH4J7uEBYj1BDcqVQxp8R8IfU/iZuyOvbv1HbO50S0foq6T7EbJOHUUaMN2i/uB9QEM2IJfmiBoTySiDY4ubvG0BzY5Hi5Nz122d+TPele9wv3/Fio6SykLboNl0/r9Ik7TniVLLMnilUMvxMLvEuhAVm68lnOg5aO9u8I5YLiBURo1bOJ2GJTDPdfsZ2ffrEQzV+1OYjK2dgbJPVPJIMe2y4+QTatQ/eUFOYYh/TA7doKPNFHEZA/3P9uW1HXnXReXQE0vktiMJ6J0KLKXMouCXoK47hd6mhKYVuGsQELh8XblkX5jsJGV+u2jFEtvAIBUk0Ts2t6cGgZh7Ku9Lz0wMUER1xLiUFyQ6HisFYfxs1Odb07p7ZbwWcGDmpwxrfLyTAJfk="
-#    file: "placeholder"
-#    cleanup: false
-#    draft: true
-#    on:
-#        tags: true
-#    edge: true
-
-# alpine 3.12 (or later) is built static, while 3.11 is dynamic
 env:
     global:
         - secure: Z+i0G5D5sx+oOxgYhQuZYzYmBRtAolXE7WN6XChkLGsYuDN10Y8m+AA1jLncTGgk6c0dql7R5AT3rUJyJuzXkXWMlqJ1fHPjoHqBbjpl9qQ3RApyo3vPvl1SgsZP+4VTeYq0Qr31k1Q2FTmm0nb3Sbz/IaNRHo10lv1lojZcHiQ43Y516ImQZhSvhED3vCaDEXftC+wAO5uKcWFHbcBVZZ2WdJaR0z8MmkfOAe1dibxUxQWA3UtV5uSRltsA5gsujQ8VFfCjirI1U583klJVL7MqaDbFCYuRiTOJ0I1eZgaHhkPZIE3IiFZ5k7aeOtnnaBG3rNszUyWgMkLPZuR0zyXV/Nl2AI5v4asc+RB4EFOIVuzMamC46sJU8nmNLmApU2wDQWmMqJ6L3lTDnAeA/kjDaReT0zh3nWGcKoIBfPVAkR4mfQoXmiA0asvH2sYVJ0EpvRQA0bH6cZglqm4XXqoA9AhMm4vGVGGu2W4ubAnEvCxbh2rEdsgbmTOhgR/eCPDAl03MXbPyNq4+zEpanMtWXDel+imXsSN036XfFxSGeXz0b1/9sZTlfDGOLUu5Q7rRx+KGr3hU6CRRwVZDz22ioomIvN+XkHRm7Kwo4m23tYbzhkGzav35B+IT507UyL4xjlIWiw75v7amo30T2mtmNZkAjBHDMGLVYhO9twg=
         - secure: g7WAYVuipawsOXaHvdzr9xOC6gdd7M/SbmgTLoBBb1AmBaWGE4+onKRTZ74EB3LH6OepHf4Ysu/ASa0+x+IDpV2Vfq14azDiKku7sQlmLlCZlzt4Yz8QNOpt/b/DL9Ia0zI0gL/tn43BgH8HNqpqMr+iqUXY6zTHdNo5hO+xEycmRKwpBa5XD3PdXp75qLXsMOj057/RnxVVgkwYvKfIv4ez0WLoeJT1dr3iNpPyDwJX5KX67mKICJG7pscZqVwNS1euX+aD11KMSBxO2glQ1qu3KqeaNrRAH95e8Q1W6NWV/um1TYjxUwU4Ypuf4/ipi8mj1/vjaqLmmuP0X3ya0pe2ZRXCQvIwbs28nA4YSjSrg+4+bjR5iFlDTiirw40Vf6OmXDLCVOLZGc9esf0V+xjW16KnOdin8ehkb/Ewg9w8gCHbzrUHvx4ZXddD/rL6xpI0Hpm3Of8Ss9zIUwLdbqpKqXYZVM8FXm3/tLdqWgVgogUZi44BQY/waXm6K3/Ior3g8OryN3bJjNh5SzduYh+Ipt1XtF+GPstHB9rTH7atalWJAsgb7GM1Ozw49p+l6nurV5Z+4wQfVZGMZWks0J/+DMKpk+g1ye3B55a+i0jM/ygi1hWaXey2VslQiJzmH1JA5617J444OmEl06qOPkEnwBYHxSNZPfG2rdMoFQ0=
     jobs:
+        # alpine 3.12 (or later) is built static, while 3.11 is dynamic
         - DOCKER_IMAGE=alpine:3.11
         - DOCKER_IMAGE=alpine:3.12
         - DOCKER_IMAGE=centos:7
@@ -60,5 +48,24 @@ after_failure:
     - cat c/fs123.diag
     - cat c/fs123.err
     - cat c/fs123.exstatus
+
+before_deploy:
+    - >
+        [[ $DOCKER_IMAGE = "alpine:3.12" ]] &&
+        ./misc/dockrun ${DOCKER_IMAGE} /fs123/misc/packaging/build-static
+
+deploy:
+    provider: releases
+    token:
+        secure: "FtNdWmDOdl5ur9VhXu/psjUj5ZuMUty5ylqhEYrz2tAh5X2tPtKdg0PZQetEnCjwuoU+yfrAO0jjOqeAThYAZVAlATAhOg7inBkKjk1upDWUmsmh9v/s3NwsebjXw6Ppi6bCnZ696SDKEWAYNfTT3zk+uZ0mTb5OFoy3Sqh7pqQxT+P2iMiRt3CFlcGXsx+ztVVk3Z7X29V6QnL/ZgVFYOuTkGxhSxYQvFQf4oweE0Cp+SpvD6h3w/thg3HiuUUjnlcoZDPozLHpjXg361rvUt/avhxvQkqBLrqV9Vr6GMFXRBdQEemq8rQkBL7m3v29WBXyyUg+Q5howOcOr6P8qmDej0xAFWah22I+s/B4L10fZP9aLaFICFOHm3PsAXVsuLOnJAolRtXKl4vESvV23R1inc8r7WJTFrPc01EFYmJsoLhPwlLQuq52RJ73uDvBSRrc21vwPOZjIFnLeDjebLrIGS4CRIST6Wlr0sWZUxNerL1d8mvUqu9so1wrzqD27V0R3P2bYNS9BEQ12hf8axqhY4acq+JwD0CSRZAPv9G5VSjvp6za24BxX3HRQa2E23T2BknNXyerc9/RqYaZUMzovMjivKhZodbDrbaLOzbEgPL5k2Mf5zYucEAeLXOG3kyl8SGQ0MIorPW3VKJj2I3BQzcRfMAZBkdBOn7GMbc="
+    file:
+        - /tmp/fs123p7
+        - /tmp/fs123p7-debug
+    cleanup: false
+    on:
+        tags: true
+        condition: $DOCKER_IMAGE = "alpine:3.12"
+    edge: true
+
 
 # vim: ts=4:sw=4:et:ai
