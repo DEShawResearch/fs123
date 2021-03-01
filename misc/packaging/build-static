@@ -1,7 +1,7 @@
 #!/bin/sh -x
 #
 # Usage: (from a host):
-#    sudo ../dockrun alpine:12 /fs123/misc/packaging/build-static
+#    sudo ../dockrun alpine:3.12 /fs123/misc/packaging/build-static
 #
 # This script (.../build-static) will run inside an alpine:12
 # container.  It will be compile and staticly link an fs123p7 binary
