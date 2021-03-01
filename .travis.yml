@@ -63,7 +63,6 @@ deploy:
         - /tmp/fs123p7-debug
     cleanup: false
     on:
-        all_branches: true  # temporary for development
         tags: true
         condition: $DOCKER_IMAGE = "alpine:3.12"
     edge: true
